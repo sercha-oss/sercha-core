@@ -1,5 +1,7 @@
 # Quickstart: Single container with all dependencies
-# Usage: docker compose up -d
+# Usage:
+#   API only:      docker compose up -d
+#   With UI:       docker compose --profile ui up -d  (recommended)
 
 services:
   postgres:
@@ -39,14 +41,52 @@ services:
       VESPA_CONTAINER_URL: http://vespa:8080
       JWT_SECRET: change-me-in-production
       PORT: 8080
+      # UI configuration (for CORS and OAuth redirects)
+      UI_BASE_URL: http://localhost:3000
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
       vespa:
         condition: service_healthy
 
+  # UI Build (optional, use --profile ui)
+  # Note: API URL is empty so requests go through nginx proxy (same-origin)
+  ui-build:
+    profiles: ["ui"]
+    build:
+      context: ../../ui
+      dockerfile: Dockerfile
+      target: builder
+      args:
+        NEXT_PUBLIC_API_URL: ""
+    volumes:
+      - ui_static:/output
+
+  # UI Server (optional, use --profile ui)
+  nginx:
+    profiles: ["ui"]
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./nginx-ui.conf:/etc/nginx/nginx.conf:ro
+      - ui_static:/usr/share/nginx/html:ro
+    depends_on:
+      ui-build:
+        condition: service_completed_successfully
+      sercha:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   vespa_data:
+  ui_static:

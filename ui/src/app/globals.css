@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Chillax Font Family */
+@font-face {
+  font-family: "Chillax";
+  src: url("/fonts/Chillax-Extralight.otf") format("opentype");
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Chillax";
+  src: url("/fonts/Chillax-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Chillax";
+  src: url("/fonts/Chillax-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Chillax";
+  src: url("/fonts/Chillax-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Chillax";
+  src: url("/fonts/Chillax-Semibold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Chillax";
+  src: url("/fonts/Chillax-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --sercha-snow: #fafafa;
+  --sercha-mist: #ececec;
+  --sercha-silverline: #c7c8cc;
+  --sercha-ink-slate: #333f50;
+  --sercha-fog-grey: #7b8088;
+  --sercha-indigo: #6675ff;
+  --sercha-indigo-soft: #e2e5ff;
+  --success-green: #10b981;
+}
+
+body {
+  font-family: "Chillax", system-ui, -apple-system, BlinkMacSystemFont,
+    "SF Pro Text", sans-serif;
+  background-color: var(--sercha-snow);
+  color: var(--sercha-ink-slate);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--sercha-mist);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sercha-silverline);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sercha-indigo);
+}
