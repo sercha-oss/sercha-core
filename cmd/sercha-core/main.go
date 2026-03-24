@@ -35,6 +35,7 @@ import (
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/auth"
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/connectors"
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/connectors/github"
+	"github.com/custodia-labs/sercha-core/internal/adapters/driven/connectors/localfs"
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/postgres"
 	postgresqueue "github.com/custodia-labs/sercha-core/internal/adapters/driven/queue/postgres"
 	redisqueue "github.com/custodia-labs/sercha-core/internal/adapters/driven/queue/redis"
@@ -240,6 +241,13 @@ func main() {
 	factory.Register(github.NewBuilder())
 	factory.RegisterOAuthHandler(domain.ProviderTypeGitHub, github.NewOAuthHandler())
 
+	// Register LocalFS connector (for testing/development)
+	localfsAllowedRoots := []string{"/data", "/tmp"}
+	if envRoots := getEnv("LOCALFS_ALLOWED_ROOTS", ""); envRoots != "" {
+		localfsAllowedRoots = append(localfsAllowedRoots, envRoots)
+	}
+	factory.Register(localfs.NewBuilder(localfsAllowedRoots))
+
 	connectorFactory = factory
 	log.Printf("Connector infrastructure initialized (providers: %v)", factory.SupportedTypes())
 	log.Printf("  OAuth callback URL: %s/api/v1/oauth/callback", baseURL)
@@ -249,6 +257,10 @@ func main() {
 	// Register GitHub container lister factory
 	containerListerFactory.Register(domain.ProviderTypeGitHub,
 		github.NewContainerListerFactory(installationStore, tokenProviderFactory, ""))
+
+	// Register LocalFS container lister factory
+	containerListerFactory.Register(domain.ProviderTypeLocalFS,
+		localfs.NewContainerListerFactory(installationStore))
 
 	// Runtime configuration
 	sessionBackend := "postgres"

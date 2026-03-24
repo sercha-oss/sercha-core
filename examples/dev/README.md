@@ -1,56 +1,78 @@
 # Development Environment
 
-Local development environment with High Availability (HA) setup for testing multi-instance configurations.
+Local development setup that builds sercha-core from source.
 
-## Overview
-
-This docker-compose configuration builds Sercha Core from source and runs a full HA setup locally:
-- 2 API instances (load balanced)
-- 2 Worker instances (competing for scheduler lock)
-- PostgreSQL database
-- Redis (distributed locking and caching)
-- Vespa search engine
-- nginx load balancer
-
-## Usage
+## Quick Start
 
 ```bash
-# Build and start all services
+# Start all services (builds from source)
 docker compose up -d --build
 
-# View logs
-docker compose logs -f
+# Run FTUE setup (creates admin, connects Vespa)
+./setup.sh
 
-# Stop services
-docker compose down
-
-# Stop and remove volumes (full reset)
-docker compose down -v
+# Run integration tests
+./tests/run.sh
 ```
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| nginx | 8080 | API load balancer |
-| sercha-api-1 | - | API instance 1 |
-| sercha-api-2 | - | API instance 2 |
-| sercha-worker-1 | - | Worker instance 1 |
-| sercha-worker-2 | - | Worker instance 2 |
+| sercha | 8080 | API server (built from source) |
 | postgres | 5432 | PostgreSQL database |
-| redis | 6379 | Redis cache/queue |
-| vespa | 19071 | Vespa search engine |
+| vespa | 19071 | Vespa config server |
 
-## When to Use
+## With UI
 
-Use this environment when:
-- Testing multi-instance behavior
-- Debugging distributed locking
-- Verifying scheduler failover
-- Testing load balancer configuration
+```bash
+# Start with web UI
+docker compose --profile ui up -d --build
 
-For simple development, consider using the [quickstart](../quickstart/) example instead.
+# Access UI at http://localhost:3000
+```
 
-## Configuration
+## Default Credentials
 
-Environment variables are set for development use only. For production configuration, see the [multinode-ha](../multinode-ha/) example.
+After running `setup.sh`:
+- **Email**: `admin@test.com`
+- **Password**: `password123`
+
+## Useful Commands
+
+```bash
+# View logs
+docker compose logs -f sercha
+
+# Rebuild after code changes
+docker compose up -d --build sercha
+
+# Stop all services
+docker compose down
+
+# Reset everything (including data)
+docker compose down -v
+```
+
+## Integration Tests
+
+```bash
+# Run all tests
+./tests/run.sh
+
+# Run specific test
+./tests/run.sh health
+./tests/run.sh search
+```
+
+## Environment Variables
+
+The sercha service uses these environment variables (set in docker-compose.yml):
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| DATABASE_URL | postgres://sercha:sercha_dev@postgres:5432/sercha | PostgreSQL connection |
+| VESPA_CONFIG_URL | http://vespa:19071 | Vespa config server |
+| VESPA_CONTAINER_URL | http://vespa:8080 | Vespa query endpoint |
+| JWT_SECRET | change-me-in-production | JWT signing secret |
+| PORT | 8080 | API server port |

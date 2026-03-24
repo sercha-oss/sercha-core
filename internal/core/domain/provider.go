@@ -31,6 +31,9 @@ const (
 	ProviderTypeOneDrive    ProviderType = "onedrive"
 	ProviderTypeS3          ProviderType = "s3"
 
+	// Local/Development
+	ProviderTypeLocalFS ProviderType = "localfs"
+
 	// Other
 	ProviderTypeZendesk  ProviderType = "zendesk"
 	ProviderTypeIntercom ProviderType = "intercom"

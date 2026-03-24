@@ -1,0 +1,25 @@
+server:
+  port: 8080
+  host: localhost
+  timeout: 30s
+
+database:
+  driver: postgres
+  host: localhost
+  port: 5432
+  name: project_alpha
+  user: admin
+  max_connections: 10
+
+logging:
+  level: info
+  format: json
+  output: stdout
+
+features:
+  search:
+    enabled: true
+    index_path: /var/data/search
+  cache:
+    enabled: true
+    ttl: 3600

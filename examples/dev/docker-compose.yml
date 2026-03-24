@@ -1,7 +1,7 @@
-# Development: Build from source with HA setup
-# Usage: docker compose up -d --build
-#
-# Mirrors multinode-ha but builds from local source code
+# Local Development: Builds from source, identical to quickstart otherwise
+# Usage:
+#   API only:      docker compose up -d
+#   With UI:       docker compose --profile ui up -d
 
 services:
   postgres:
@@ -20,18 +20,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   vespa:
     image: vespaengine/vespa:8
     ports:
@@ -45,120 +33,61 @@ services:
       retries: 12
       start_period: 60s
 
-  # API instances (stateless, horizontally scalable)
-  sercha-api-1:
+  sercha:
     build:
       context: ../..
       dockerfile: Dockerfile
     environment:
-      RUN_MODE: api
-      PORT: 8080
       DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
-      REDIS_URL: redis://redis:6379
       VESPA_CONFIG_URL: http://vespa:19071
       VESPA_CONTAINER_URL: http://vespa:8080
-      JWT_SECRET: dev-secret-change-me
-      BASE_URL: http://localhost:8080
-      DB_MAX_OPEN_CONNS: 10
-      DB_MAX_IDLE_CONNS: 3
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  sercha-api-2:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-    environment:
-      RUN_MODE: api
+      JWT_SECRET: change-me-in-production
       PORT: 8080
-      DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
-      REDIS_URL: redis://redis:6379
-      VESPA_CONFIG_URL: http://vespa:19071
-      VESPA_CONTAINER_URL: http://vespa:8080
-      JWT_SECRET: dev-secret-change-me
-      BASE_URL: http://localhost:8080
-      DB_MAX_OPEN_CONNS: 10
-      DB_MAX_IDLE_CONNS: 3
+      UI_BASE_URL: http://localhost:3000
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001
+      LOCALFS_ALLOWED_ROOTS: /data
+    volumes:
+      - ./test-docs:/data/test-docs:ro
+    ports:
+      - "8080:8080"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 3
+      retries: 5
       start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      vespa:
         condition: service_healthy
 
-  # Worker instances (both compete for scheduler lock)
-  sercha-worker-1:
+  ui-build:
+    profiles: ["ui"]
     build:
-      context: ../..
+      context: ../../ui
       dockerfile: Dockerfile
-    environment:
-      RUN_MODE: worker
-      DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
-      REDIS_URL: redis://redis:6379
-      VESPA_CONFIG_URL: http://vespa:19071
-      VESPA_CONTAINER_URL: http://vespa:8080
-      JWT_SECRET: dev-secret-change-me
-      WORKER_CONCURRENCY: 2
-      SCHEDULER_ENABLED: "true"
-      SCHEDULER_LOCK_REQUIRED: "true"
-      DB_MAX_OPEN_CONNS: 10
-      DB_MAX_IDLE_CONNS: 3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      target: builder
+      args:
+        NEXT_PUBLIC_API_URL: ""
+    volumes:
+      - ui_static:/output
 
-  sercha-worker-2:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
-    environment:
-      RUN_MODE: worker
-      DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
-      REDIS_URL: redis://redis:6379
-      VESPA_CONFIG_URL: http://vespa:19071
-      VESPA_CONTAINER_URL: http://vespa:8080
-      JWT_SECRET: dev-secret-change-me
-      WORKER_CONCURRENCY: 2
-      SCHEDULER_ENABLED: "true"
-      SCHEDULER_LOCK_REQUIRED: "true"
-      DB_MAX_OPEN_CONNS: 10
-      DB_MAX_IDLE_CONNS: 3
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  # Load balancer
   nginx:
+    profiles: ["ui"]
     image: nginx:alpine
     ports:
-      - "8080:80"
+      - "3000:80"
     volumes:
-      - ../multinode-ha/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-ui.conf:/etc/nginx/nginx.conf:ro
+      - ui_static:/usr/share/nginx/html:ro
     depends_on:
-      sercha-api-1:
-        condition: service_healthy
-      sercha-api-2:
+      ui-build:
+        condition: service_completed_successfully
+      sercha:
         condition: service_healthy
 
 volumes:
   postgres_data:
-  redis_data:
   vespa_data:
+  ui_static:
