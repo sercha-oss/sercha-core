@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -1221,6 +1222,45 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // Installation endpoints
+
+// handleCreateInstallation godoc
+// @Summary      Create installation
+// @Description  Create a new installation for non-OAuth connectors (API key, path-based). Used for connectors like localfs.
+// @Tags         Installations
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        request  body      driving.CreateInstallationRequest  true  "Installation configuration"
+// @Success      201  {object}  domain.InstallationSummary
+// @Failure      400  {object}  ErrorResponse  "Invalid request"
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /installations [post]
+func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request) {
+	if s.installationService == nil {
+		writeError(w, http.StatusServiceUnavailable, "installation service not configured")
+		return
+	}
+
+	var req driving.CreateInstallationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	installation, err := s.installationService.Create(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidInput) {
+			writeError(w, http.StatusBadRequest, "missing required fields")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create installation")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, installation)
+}
 
 // handleListInstallations godoc
 // @Summary      List installations

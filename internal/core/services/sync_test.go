@@ -44,7 +44,7 @@ func createTestSyncOrchestrator(t *testing.T) (
 		SearchEngine:     searchEngine,
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		Pipeline:         pipeline,
+		LegacyPipeline:   pipeline,
 		Services:         services,
 	})
 
@@ -767,7 +767,7 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 	_ = sourceStore.Save(ctx, source)
 
 	// Mock pipeline to return multiple chunks
-	pipeline := orchestrator.pipeline.(*mocks.MockPostProcessorPipeline)
+	pipeline := orchestrator.legacyPipeline.(*mocks.MockPostProcessorPipeline)
 	pipeline.ProcessFn = func(content string) []driven.Chunk {
 		return []driven.Chunk{
 			{Content: "Chunk 1", Position: 0, StartOffset: 0, EndOffset: 7},
@@ -829,7 +829,7 @@ func TestSyncSource_NormaliserApplied(t *testing.T) {
 	orchestrator.normaliserReg = normaliserRegistry
 
 	var processedContent string
-	pipeline := orchestrator.pipeline.(*mocks.MockPostProcessorPipeline)
+	pipeline := orchestrator.legacyPipeline.(*mocks.MockPostProcessorPipeline)
 	pipeline.ProcessFn = func(content string) []driven.Chunk {
 		processedContent = content
 		return []driven.Chunk{{Content: content, Position: 0}}
@@ -878,7 +878,7 @@ func TestSyncSource_NilSearchEngine(t *testing.T) {
 		SearchEngine:     nil, // No search engine
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		Pipeline:         pipeline,
+		LegacyPipeline:   pipeline,
 	})
 
 	ctx := context.Background()
@@ -917,7 +917,7 @@ func TestSyncSource_NilChunkStore(t *testing.T) {
 		SyncStore:        syncStore,
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		Pipeline:         pipeline,
+		LegacyPipeline:   pipeline,
 	})
 
 	ctx := context.Background()

@@ -322,7 +322,7 @@ func main() {
 		SearchEngine:     searchEngine,
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		Pipeline:         postProcessorPipeline,
+		LegacyPipeline:   postProcessorPipeline,
 		Services:         runtimeServices,
 		Logger:           slog.Default(),
 	})

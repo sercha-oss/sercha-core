@@ -248,6 +248,9 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("GET /api/v1/oauth/callback", s.handleOAuthCallback)
 
 	// Installation endpoints (admin-only)
+	s.router.Handle("POST /api/v1/installations",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleCreateInstallation))))
 	s.router.Handle("GET /api/v1/installations",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListInstallations))))

@@ -31,7 +31,7 @@ type SyncOrchestrator struct {
 	searchEngine     driven.SearchEngine
 	connectorFactory driven.ConnectorFactory
 	normaliserReg    driven.NormaliserRegistry
-	pipeline         driven.PostProcessorPipeline
+	legacyPipeline   driven.PostProcessorPipeline
 	services         *runtime.Services
 	logger           *slog.Logger
 }
@@ -45,7 +45,7 @@ type SyncOrchestratorConfig struct {
 	SearchEngine     driven.SearchEngine
 	ConnectorFactory driven.ConnectorFactory
 	NormaliserReg    driven.NormaliserRegistry
-	Pipeline         driven.PostProcessorPipeline
+	LegacyPipeline   driven.PostProcessorPipeline
 	Services         *runtime.Services
 	Logger           *slog.Logger
 }
@@ -65,7 +65,7 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		searchEngine:     cfg.SearchEngine,
 		connectorFactory: cfg.ConnectorFactory,
 		normaliserReg:    cfg.NormaliserReg,
-		pipeline:         cfg.Pipeline,
+		legacyPipeline:   cfg.LegacyPipeline,
 		services:         cfg.Services,
 		logger:           logger,
 	}
@@ -394,7 +394,7 @@ func (o *SyncOrchestrator) processAddOrUpdate(
 	}
 
 	// Step 6c: PostProcess (chunk)
-	chunks := o.pipeline.Process(content)
+	chunks := o.legacyPipeline.Process(content)
 
 	// Step 6d: Generate embeddings (if EmbeddingService available)
 	var domainChunks []*domain.Chunk

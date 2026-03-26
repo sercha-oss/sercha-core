@@ -140,7 +140,7 @@ main() {
     echo "  Email:    $ADMIN_EMAIL"
     echo "  Password: $ADMIN_PASSWORD"
     echo ""
-    echo "  Run tests: ./tests/run.sh"
+    echo "  Try LocalFS: See README.md for usage"
     echo "========================================"
 }
 

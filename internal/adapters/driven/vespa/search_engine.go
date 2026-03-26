@@ -115,8 +115,59 @@ func (s *SearchEngine) indexChunk(ctx context.Context, chunk *domain.Chunk) erro
 	return nil
 }
 
-// Search performs a search query
+// Search performs a search query with retry logic for transient failures
 func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error) {
+	var lastErr error
+	maxRetries := 3
+	retryDelay := 500 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		results, count, err := s.doSearch(ctx, query, queryEmbedding, opts)
+		if err == nil {
+			return results, count, nil
+		}
+
+		lastErr = err
+
+		// Don't retry on context cancellation or deadline exceeded
+		if ctx.Err() != nil {
+			return nil, 0, ctx.Err()
+		}
+
+		// Retry on transient errors (connection refused, timeouts, 503s)
+		if !isRetryableError(err) {
+			return nil, 0, err
+		}
+
+		// Wait before retrying (with exponential backoff)
+		select {
+		case <-ctx.Done():
+			return nil, 0, ctx.Err()
+		case <-time.After(retryDelay):
+			retryDelay *= 2 // exponential backoff
+		}
+	}
+
+	return nil, 0, fmt.Errorf("search failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// isRetryableError checks if an error is transient and worth retrying
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// Retry on connection errors and server errors
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "no such host") ||
+		strings.Contains(errStr, "503") ||
+		strings.Contains(errStr, "502") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "EOF")
+}
+
+// doSearch performs the actual search request
+func (s *SearchEngine) doSearch(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error) {
 	// Build YQL query based on search mode
 	yql := s.buildYQL(query, opts)
 

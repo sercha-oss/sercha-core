@@ -924,7 +924,7 @@ func TestStatus_HybridMode(t *testing.T) {
 // TestHealthCheck_Success tests successful health check
 func TestHealthCheck_Success(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, searchEngine, _ := setupVespaAdminTest(t)
 
 	existingConfig := &domain.VespaConfig{
 		TeamID:    "test-team-123",
@@ -935,6 +935,7 @@ func TestHealthCheck_Success(t *testing.T) {
 
 	// Health check succeeds
 	deployer.On("HealthCheck", ctx, "http://localhost:8080").Return(nil)
+	searchEngine.On("HealthCheck", ctx).Return(nil)
 
 	err := svc.HealthCheck(ctx)
 
@@ -943,6 +944,7 @@ func TestHealthCheck_Success(t *testing.T) {
 	deployer.AssertExpectations(t)
 	configStore.AssertExpectations(t)
 	settingsStore.AssertExpectations(t)
+	searchEngine.AssertExpectations(t)
 }
 
 // TestHealthCheck_NotConfigured tests health check when not configured

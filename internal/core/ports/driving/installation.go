@@ -7,9 +7,26 @@ import (
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
 )
 
+// CreateInstallationRequest represents a request to create an installation for non-OAuth connectors.
+// @Description Request to create an installation for API key or path-based connectors
+type CreateInstallationRequest struct {
+	// Name is a human-readable name for the installation.
+	Name string `json:"name" example:"Local Test Docs"`
+
+	// ProviderType is the data source provider.
+	ProviderType domain.ProviderType `json:"provider_type" example:"localfs"`
+
+	// APIKey is the authentication credential (or path for localfs).
+	APIKey string `json:"api_key" example:"/data/test-docs"`
+}
+
 // InstallationService manages connector installations (OAuth connections, API keys, etc.).
 // Installations represent authenticated connections to external data sources.
 type InstallationService interface {
+	// Create creates a new installation for non-OAuth connectors (API key, path-based).
+	// Returns ErrInvalidInput if required fields are missing.
+	Create(ctx context.Context, req CreateInstallationRequest) (*domain.InstallationSummary, error)
+
 	// List returns all installations (summaries without secrets).
 	List(ctx context.Context) ([]*domain.InstallationSummary, error)
 

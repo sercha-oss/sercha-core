@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
@@ -43,6 +44,39 @@ func NewInstallationService(cfg InstallationServiceConfig) driving.InstallationS
 		containerListerFactory: cfg.ContainerListerFactory,
 		tokenProviderFactory:   cfg.TokenProviderFactory,
 	}
+}
+
+// Create creates a new installation for non-OAuth connectors.
+func (s *installationService) Create(ctx context.Context, req driving.CreateInstallationRequest) (*domain.InstallationSummary, error) {
+	// Validate input
+	if req.Name == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	if req.ProviderType == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	if req.APIKey == "" {
+		return nil, domain.ErrInvalidInput
+	}
+
+	now := time.Now()
+	inst := &domain.Installation{
+		ID:           generateID(),
+		Name:         req.Name,
+		ProviderType: req.ProviderType,
+		AuthMethod:   domain.AuthMethodAPIKey,
+		Secrets: &domain.InstallationSecrets{
+			APIKey: req.APIKey,
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := s.installationStore.Save(ctx, inst); err != nil {
+		return nil, err
+	}
+
+	return inst.ToSummary(), nil
 }
 
 // List returns all installations (summaries without secrets).

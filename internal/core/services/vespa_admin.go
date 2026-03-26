@@ -210,6 +210,7 @@ func (s *vespaAdminService) Status(ctx context.Context) (*driving.VespaStatus, e
 }
 
 // HealthCheck performs a health check on the Vespa cluster
+// It checks both the config server (deployer) and the container (search engine)
 func (s *vespaAdminService) HealthCheck(ctx context.Context) error {
 	config, err := s.configStore.GetVespaConfig(ctx, s.teamID)
 	if err != nil {
@@ -220,5 +221,17 @@ func (s *vespaAdminService) HealthCheck(ctx context.Context) error {
 		return fmt.Errorf("vespa not connected")
 	}
 
-	return s.deployer.HealthCheck(ctx, config.Endpoint)
+	// Check config server health
+	if err := s.deployer.HealthCheck(ctx, config.Endpoint); err != nil {
+		return fmt.Errorf("config server unhealthy: %w", err)
+	}
+
+	// Check search engine (container) health
+	if s.searchEngine != nil {
+		if err := s.searchEngine.HealthCheck(ctx); err != nil {
+			return fmt.Errorf("container unhealthy: %w", err)
+		}
+	}
+
+	return nil
 }
