@@ -36,6 +36,10 @@ import (
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/connectors"
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/connectors/github"
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/connectors/localfs"
+	pipelineexec "github.com/custodia-labs/sercha-core/internal/adapters/driven/pipeline/executor"
+	pipelinereg "github.com/custodia-labs/sercha-core/internal/adapters/driven/pipeline/registry"
+	indexingstages "github.com/custodia-labs/sercha-core/internal/adapters/driven/pipeline/stages/indexing"
+	searchstages "github.com/custodia-labs/sercha-core/internal/adapters/driven/pipeline/stages/search"
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/postgres"
 	postgresqueue "github.com/custodia-labs/sercha-core/internal/adapters/driven/queue/postgres"
 	redisqueue "github.com/custodia-labs/sercha-core/internal/adapters/driven/queue/redis"
@@ -43,6 +47,7 @@ import (
 	"github.com/custodia-labs/sercha-core/internal/adapters/driven/vespa"
 	"github.com/custodia-labs/sercha-core/internal/adapters/driving/http"
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
+	"github.com/custodia-labs/sercha-core/internal/core/domain/pipeline"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driving"
 	"github.com/custodia-labs/sercha-core/internal/core/services"
@@ -62,6 +67,30 @@ type redisPinger struct {
 
 func (r *redisPinger) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
+}
+
+// capabilityProvider wraps a service as a capability provider
+type capabilityProvider struct {
+	capType         pipeline.CapabilityType
+	id              string
+	instance        any
+	avail           func() bool
+	instanceResolver func() any // Optional: resolve instance dynamically
+}
+
+func (p *capabilityProvider) Type() pipeline.CapabilityType { return p.capType }
+func (p *capabilityProvider) ID() string                    { return p.id }
+func (p *capabilityProvider) Instance() any {
+	if p.instanceResolver != nil {
+		return p.instanceResolver()
+	}
+	return p.instance
+}
+func (p *capabilityProvider) Available() bool {
+	if p.avail == nil {
+		return p.Instance() != nil
+	}
+	return p.avail()
 }
 
 func main() {
@@ -274,12 +303,121 @@ func main() {
 	normaliserRegistry := normalisers.DefaultRegistry()
 	postProcessorPipeline := postprocessors.DefaultPipeline()
 
+	// ===== Pipeline Infrastructure =====
+	log.Println("Initializing pipeline infrastructure...")
+
+	// Create registries
+	stageRegistry := pipelinereg.NewStageRegistry()
+	pipelineRegistry := pipelinereg.NewPipelineRegistry()
+	capabilityRegistry := pipelinereg.NewCapabilityRegistry()
+
+	// Register indexing stage factories
+	if err := stageRegistry.Register(indexingstages.NewChunkerFactory()); err != nil {
+		log.Fatalf("Failed to register chunker stage: %v", err)
+	}
+	if err := stageRegistry.Register(indexingstages.NewEmbedderFactory()); err != nil {
+		log.Fatalf("Failed to register embedder stage: %v", err)
+	}
+	if err := stageRegistry.Register(indexingstages.NewLoaderFactory()); err != nil {
+		log.Fatalf("Failed to register loader stage: %v", err)
+	}
+
+	// Register search stage factories
+	if err := stageRegistry.Register(searchstages.NewQueryParserFactory()); err != nil {
+		log.Fatalf("Failed to register query-parser stage: %v", err)
+	}
+	if err := stageRegistry.Register(searchstages.NewBM25RetrieverFactory()); err != nil {
+		log.Fatalf("Failed to register bm25-retriever stage: %v", err)
+	}
+	if err := stageRegistry.Register(searchstages.NewVectorRetrieverFactory()); err != nil {
+		log.Fatalf("Failed to register vector-retriever stage: %v", err)
+	}
+	if err := stageRegistry.Register(searchstages.NewHybridRetrieverFactory()); err != nil {
+		log.Fatalf("Failed to register hybrid-retriever stage: %v", err)
+	}
+	if err := stageRegistry.Register(searchstages.NewRankerFactory()); err != nil {
+		log.Fatalf("Failed to register ranker stage: %v", err)
+	}
+	if err := stageRegistry.Register(searchstages.NewPresenterFactory()); err != nil {
+		log.Fatalf("Failed to register presenter stage: %v", err)
+	}
+
+	// Register capability providers
+	// Vector store (Vespa) - always available
+	if err := capabilityRegistry.Register(&capabilityProvider{
+		capType:  pipeline.CapabilityVectorStore,
+		id:       "vespa",
+		instance: searchEngine,
+		avail:    func() bool { return true },
+	}); err != nil {
+		log.Fatalf("Failed to register vector store capability: %v", err)
+	}
+
+	// Embedder - dynamically available via runtimeServices
+	// The instance is resolved at runtime when needed
+	if err := capabilityRegistry.Register(&capabilityProvider{
+		capType: pipeline.CapabilityEmbedder,
+		id:      "default",
+		instanceResolver: func() any {
+			return runtimeServices.EmbeddingService()
+		},
+		avail: func() bool {
+			return runtimeServices.EmbeddingService() != nil
+		},
+	}); err != nil {
+		log.Fatalf("Failed to register embedder capability: %v", err)
+	}
+
+	// Register default indexing pipeline
+	indexingPipeline := pipeline.PipelineDefinition{
+		ID:   "default-indexing",
+		Name: "Default Indexing Pipeline",
+		Type: pipeline.PipelineTypeIndexing,
+		Stages: []pipeline.StageConfig{
+			{StageID: "chunker", Enabled: true, Parameters: map[string]any{"chunk_size": 512}},
+			{StageID: "embedder", Enabled: true},
+			{StageID: "loader", Enabled: true},
+		},
+	}
+	if err := pipelineRegistry.Register(indexingPipeline); err != nil {
+		log.Fatalf("Failed to register indexing pipeline: %v", err)
+	}
+	if err := pipelineRegistry.SetDefault(pipeline.PipelineTypeIndexing, "default-indexing"); err != nil {
+		log.Fatalf("Failed to set default indexing pipeline: %v", err)
+	}
+
+	// Register default search pipeline (BM25-only, no embedding required)
+	searchPipelineBM25 := pipeline.PipelineDefinition{
+		ID:   "default-search-bm25",
+		Name: "Default Search Pipeline (BM25)",
+		Type: pipeline.PipelineTypeSearch,
+		Stages: []pipeline.StageConfig{
+			{StageID: "query-parser", Enabled: true},
+			{StageID: "bm25-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
+			{StageID: "ranker", Enabled: true, Parameters: map[string]any{"limit": 20}},
+			{StageID: "presenter", Enabled: true, Parameters: map[string]any{"snippet_length": 200}},
+		},
+	}
+	if err := pipelineRegistry.Register(searchPipelineBM25); err != nil {
+		log.Fatalf("Failed to register search pipeline: %v", err)
+	}
+	if err := pipelineRegistry.SetDefault(pipeline.PipelineTypeSearch, "default-search-bm25"); err != nil {
+		log.Fatalf("Failed to set default search pipeline: %v", err)
+	}
+
+	// Create pipeline builder and executors
+	pipelineBuilder := pipelineexec.NewPipelineBuilder(stageRegistry)
+	indexingExecutor := pipelineexec.NewIndexingExecutor(pipelineBuilder, pipelineRegistry, capabilityRegistry, nil)
+	searchExecutor := pipelineexec.NewSearchExecutor(pipelineBuilder, pipelineRegistry, capabilityRegistry)
+
+	log.Println("Pipeline infrastructure initialized")
+
 	// Services (core business logic)
 	authService := services.NewAuthService(userStore, sessionStore, authAdapter)
 	userService := services.NewUserService(userStore, sessionStore, authAdapter, teamID)
 	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine)
 	documentService := services.NewDocumentService(documentStore, chunkStore)
-	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices)
+	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, nil)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, runtimeServices, teamID)
 	vespaAdminService := services.NewVespaAdminService(vespaDeployer, vespaConfigStore, settingsStore, searchEngine, runtimeServices, teamID, vespaConfigURL)
 
@@ -325,6 +463,8 @@ func main() {
 		LegacyPipeline:   postProcessorPipeline,
 		Services:         runtimeServices,
 		Logger:           slog.Default(),
+		IndexingExecutor: indexingExecutor,
+		CapabilitySet:    nil, // Built per-execution by executor
 	})
 
 	// Create scheduler for worker mode (if enabled)

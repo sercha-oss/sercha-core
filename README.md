@@ -34,7 +34,7 @@
 
 <!-- DEMO GIF -->
 <p align="center">
-  <img src="docs/assets/hero-search-demo.gif" alt="Sercha Demo" width="100%">
+  <img src=".github/assets/hero-search-demo.gif" alt="Sercha Demo" width="100%">
 </p>
 
 <!-- TABLE OF CONTENTS -->
@@ -244,7 +244,7 @@ For complete configuration options, see [Configuration Reference](https://docs.s
 Sercha Core provides a full REST API with OpenAPI specification:
 
 - **Swagger UI**: `http://localhost:8080/swagger/index.html` (when running)
-- **OpenAPI Spec**: [`docs/swagger.yaml`](docs/swagger.yaml)
+- **OpenAPI Spec**: [`swagger/swagger.yaml`](swagger/swagger.yaml)
 - **API Reference**: [docs.sercha.dev/core/api_reference](https://docs.sercha.dev/core/api_reference)
 
 ### Example: Search API

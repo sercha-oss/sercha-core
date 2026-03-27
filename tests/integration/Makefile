@@ -14,10 +14,10 @@ test-json: setup wait-ready run-tests-json teardown
 
 # Just run tests (assumes environment is ready)
 run-tests:
-	@cd ../.. && go test ./tests/integration/... -v
+	@cd ../.. && go test -tags=integration ./tests/integration/... -v
 
 run-tests-json:
-	@cd ../.. && GODOG_FORMAT=cucumber go test ./tests/integration/... -v
+	@cd ../.. && GODOG_FORMAT=cucumber go test -tags=integration ./tests/integration/... -v
 
 # Setup: rebuild and start containers fresh
 setup:

@@ -24,7 +24,7 @@ func TestSearchService_Search(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Index some chunks
 	doc := &domain.Document{
@@ -101,7 +101,7 @@ func TestSearchService_Search_DefaultOptions(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Index a chunk
 	chunk := &domain.Chunk{
@@ -129,7 +129,7 @@ func TestSearchService_Search_LimitEnforcement(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Index many chunks
 	chunks := make([]*domain.Chunk, 150)
@@ -173,7 +173,7 @@ func TestSearchService_SearchBySource(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Index chunks for different sources
 	chunks := []*domain.Chunk{
@@ -228,7 +228,7 @@ func TestSearchService_Search_HybridMode(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Index a chunk
 	chunk := &domain.Chunk{
@@ -259,7 +259,7 @@ func TestSearchService_Search_EmbeddingFallback(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Configure embedding service to fail
 	embeddingService.SetFailNext(true)
@@ -291,7 +291,7 @@ func TestSearchService_Search_SemanticOnlyWithoutEmbedding(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	// No embedding service - pass nil to createTestServices
 	runtimeServices := createTestServices(nil)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Index a chunk to ensure search can run
 	chunk := &domain.Chunk{
@@ -322,7 +322,7 @@ func TestSearchService_Suggest(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Suggest should return empty for now (not implemented)
 	suggestions, err := svc.Suggest(context.Background(), "test", 10)
@@ -339,7 +339,7 @@ func TestSearchService_Search_Timing(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
 
 	// Index a chunk
 	chunk := &domain.Chunk{

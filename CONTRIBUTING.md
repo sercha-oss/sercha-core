@@ -85,7 +85,7 @@ sercha-core/
 │   ├── multinode/               # Separate API/worker
 │   ├── multinode-ha/            # High availability setup
 │   └── dev/                     # Development environment
-├── docs/                        # Documentation and assets
+├── swagger/                     # Swagger/OpenAPI documentation
 ├── .github/
 │   └── workflows/               # GitHub Actions
 ├── go.mod                       # Go module definition

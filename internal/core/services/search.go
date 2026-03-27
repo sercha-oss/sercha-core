@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
+	"github.com/custodia-labs/sercha-core/internal/core/domain/pipeline"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
+	pipelineport "github.com/custodia-labs/sercha-core/internal/core/ports/driven/pipeline"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driving"
 	"github.com/custodia-labs/sercha-core/internal/runtime"
 )
@@ -15,9 +17,11 @@ var _ driving.SearchService = (*searchService)(nil)
 
 // searchService implements the SearchService interface
 type searchService struct {
-	searchEngine  driven.SearchEngine
-	documentStore driven.DocumentStore
-	services      *runtime.Services // Dynamic AI services
+	searchEngine   driven.SearchEngine
+	documentStore  driven.DocumentStore
+	services       *runtime.Services // Dynamic AI services
+	searchExecutor pipelineport.SearchExecutor // Optional pipeline executor
+	capabilitySet  *pipeline.CapabilitySet     // Capabilities for pipeline
 }
 
 // NewSearchService creates a new SearchService
@@ -26,11 +30,15 @@ func NewSearchService(
 	searchEngine driven.SearchEngine,
 	documentStore driven.DocumentStore,
 	services *runtime.Services,
+	searchExecutor pipelineport.SearchExecutor, // Optional pipeline executor
+	capabilitySet *pipeline.CapabilitySet, // Optional capabilities
 ) driving.SearchService {
 	return &searchService{
-		searchEngine:  searchEngine,
-		documentStore: documentStore,
-		services:      services,
+		searchEngine:   searchEngine,
+		documentStore:  documentStore,
+		services:       services,
+		searchExecutor: searchExecutor,
+		capabilitySet:  capabilitySet,
 	}
 }
 
@@ -46,6 +54,96 @@ func (s *searchService) Search(ctx context.Context, query string, opts domain.Se
 		opts.Limit = 100
 	}
 
+	// Try pipeline executor first
+	if s.searchExecutor != nil {
+		result, err := s.searchWithPipeline(ctx, query, opts, start)
+		if err == nil {
+			return result, nil
+		}
+		// Log error but fall back to legacy silently
+		// TODO: Add logging
+	}
+
+	// Fallback: Use legacy search engine directly
+	return s.searchWithLegacy(ctx, query, opts, start)
+}
+
+// searchWithPipeline performs search using the pipeline executor.
+func (s *searchService) searchWithPipeline(
+	ctx context.Context,
+	query string,
+	opts domain.SearchOptions,
+	start time.Time,
+) (*domain.SearchResult, error) {
+	// Build pipeline input
+	pipelineInput := &pipeline.SearchInput{
+		Query: query,
+		Filters: pipeline.SearchFilters{
+			Custom: make(map[string]any),
+		},
+	}
+
+	// Map domain search options to pipeline filters
+	if len(opts.SourceIDs) > 0 {
+		pipelineInput.Filters.Sources = opts.SourceIDs
+	}
+
+	// Build pipeline context
+	pipelineContext := &pipeline.SearchContext{
+		PipelineID:   "default-search",
+		Capabilities: s.capabilitySet,
+		Filters:      pipelineInput.Filters,
+		Pagination: pipeline.PaginationConfig{
+			Offset: opts.Offset,
+			Limit:  opts.Limit,
+		},
+	}
+
+	// Execute pipeline
+	pipelineOutput, err := s.searchExecutor.Execute(ctx, pipelineContext, pipelineInput)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert pipeline results to domain results
+	rankedChunks := make([]*domain.RankedChunk, 0, len(pipelineOutput.Results))
+	for _, result := range pipelineOutput.Results {
+		// Map pipeline.PresentedResult to domain.RankedChunk
+		rankedChunk := &domain.RankedChunk{
+			Chunk: &domain.Chunk{
+				ID:         result.ChunkID,
+				DocumentID: result.DocumentID,
+				SourceID:   result.SourceID,
+				Content:    result.Snippet,
+			},
+			Score: result.Score,
+		}
+
+		// Enrich with document if needed
+		if rankedChunk.Document == nil {
+			doc, _ := s.documentStore.Get(ctx, result.DocumentID)
+			rankedChunk.Document = doc
+		}
+
+		rankedChunks = append(rankedChunks, rankedChunk)
+	}
+
+	return &domain.SearchResult{
+		Query:      query,
+		Mode:       opts.Mode,
+		Results:    rankedChunks,
+		TotalCount: int(pipelineOutput.TotalCount),
+		Took:       time.Since(start),
+	}, nil
+}
+
+// searchWithLegacy performs search using the legacy search engine.
+func (s *searchService) searchWithLegacy(
+	ctx context.Context,
+	query string,
+	opts domain.SearchOptions,
+	start time.Time,
+) (*domain.SearchResult, error) {
 	// Determine effective search mode based on what's available NOW
 	opts.Mode = s.effectiveMode(opts.Mode)
 

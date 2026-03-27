@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
+	"github.com/custodia-labs/sercha-core/internal/core/domain/pipeline"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
+	pipelineport "github.com/custodia-labs/sercha-core/internal/core/ports/driven/pipeline"
 	"github.com/custodia-labs/sercha-core/internal/runtime"
 )
 
@@ -34,6 +36,8 @@ type SyncOrchestrator struct {
 	legacyPipeline   driven.PostProcessorPipeline
 	services         *runtime.Services
 	logger           *slog.Logger
+	indexingExecutor pipelineport.IndexingExecutor // Optional pipeline executor
+	capabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 }
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
@@ -48,6 +52,8 @@ type SyncOrchestratorConfig struct {
 	LegacyPipeline   driven.PostProcessorPipeline
 	Services         *runtime.Services
 	Logger           *slog.Logger
+	IndexingExecutor pipelineport.IndexingExecutor // Optional pipeline executor
+	CapabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
@@ -68,6 +74,8 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		legacyPipeline:   cfg.LegacyPipeline,
 		services:         cfg.Services,
 		logger:           logger,
+		indexingExecutor: cfg.IndexingExecutor,
+		capabilitySet:    cfg.CapabilitySet,
 	}
 }
 
@@ -388,11 +396,92 @@ func (o *SyncOrchestrator) processAddOrUpdate(
 	// Step 6a: Check exclusion rules (TODO: implement exclusion rules)
 
 	// Step 6b: Normalise content
+	normalizedContent := content
 	normaliser := o.normaliserReg.Get(doc.MimeType)
 	if normaliser != nil {
-		content = normaliser.Normalise(content, doc.MimeType)
+		normalizedContent = normaliser.Normalise(normalizedContent, doc.MimeType)
 	}
 
+	// Try pipeline executor first
+	if o.indexingExecutor != nil {
+		if err := o.processWithPipeline(ctx, source, doc, normalizedContent, isUpdate, stats); err != nil {
+			o.logger.Warn("pipeline execution failed, falling back to legacy", "error", err)
+			// Fall back to legacy pipeline
+			return o.processWithLegacy(ctx, doc, normalizedContent, isUpdate, stats, now)
+		}
+		return nil
+	}
+
+	// Fallback: Use legacy pipeline
+	return o.processWithLegacy(ctx, doc, normalizedContent, isUpdate, stats, now)
+}
+
+// processWithPipeline processes a document using the pipeline executor.
+func (o *SyncOrchestrator) processWithPipeline(
+	ctx context.Context,
+	source *domain.Source,
+	doc *domain.Document,
+	content string,
+	isUpdate bool,
+	stats *domain.SyncStats,
+) error {
+	// Convert metadata from map[string]string to map[string]any
+	metadata := make(map[string]any)
+	for k, v := range doc.Metadata {
+		metadata[k] = v
+	}
+
+	// Build pipeline input
+	pipelineInput := &pipeline.IndexingInput{
+		DocumentID: doc.ID,
+		SourceID:   source.ID,
+		Title:      doc.Title,
+		Content:    content,
+		MimeType:   doc.MimeType,
+		Path:       doc.Path,
+		Metadata:   metadata,
+	}
+
+	// Build pipeline context
+	pipelineContext := &pipeline.IndexingContext{
+		PipelineID:   "default-indexing",
+		ConnectorID:  source.ID,
+		SourceID:     source.ID,
+		Capabilities: o.capabilitySet,
+		Metadata:     make(map[string]any),
+	}
+
+	// Execute pipeline
+	output, err := o.indexingExecutor.Execute(ctx, pipelineContext, pipelineInput)
+	if err != nil {
+		return fmt.Errorf("pipeline execution failed: %w", err)
+	}
+
+	// Save document metadata (pipeline already stored chunks)
+	if err := o.documentStore.Save(ctx, doc); err != nil {
+		return fmt.Errorf("failed to save document: %w", err)
+	}
+
+	// Update stats
+	if isUpdate {
+		stats.DocumentsUpdated++
+	} else {
+		stats.DocumentsAdded++
+	}
+	stats.ChunksIndexed += len(output.ChunkIDs)
+
+	return nil
+}
+
+// processWithLegacy processes a document using the legacy pipeline.
+func (o *SyncOrchestrator) processWithLegacy(
+	ctx context.Context,
+	doc *domain.Document,
+	content string,
+	isUpdate bool,
+	stats *domain.SyncStats,
+	now time.Time,
+) error {
 	// Step 6c: PostProcess (chunk)
 	chunks := o.legacyPipeline.Process(content)
 
@@ -402,7 +491,7 @@ func (o *SyncOrchestrator) processAddOrUpdate(
 		domainChunk := &domain.Chunk{
 			ID:         fmt.Sprintf("%s-chunk-%d", doc.ID, i),
 			DocumentID: doc.ID,
-			SourceID:   source.ID,
+			SourceID:   doc.SourceID,
 			Content:    chunk.Content,
 			Position:   chunk.Position,
 			StartChar:  chunk.StartOffset,
