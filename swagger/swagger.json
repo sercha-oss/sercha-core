@@ -39,25 +39,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.AdminStatsResponse"
+                            "$ref": "#/definitions/http.AdminStatsResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -88,7 +88,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ConnectVespaRequest"
+                            "$ref": "#/definitions/driving.ConnectVespaRequest"
                         }
                     }
                 ],
@@ -96,31 +96,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.VespaStatus"
+                            "$ref": "#/definitions/driving.VespaStatus"
                         }
                     },
                     "400": {
                         "description": "Invalid request",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Connection failed",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -145,25 +145,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "503": {
                         "description": "Vespa unhealthy",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -188,25 +188,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.VespaStatus"
+                            "$ref": "#/definitions/driving.VespaStatus"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -232,7 +232,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.LoginRequest"
+                            "$ref": "#/definitions/domain.LoginRequest"
                         }
                     }
                 ],
@@ -240,25 +240,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.LoginResponse"
+                            "$ref": "#/definitions/domain.LoginResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request body",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Invalid credentials or account disabled",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -283,7 +283,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     }
                 }
@@ -309,7 +309,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.RefreshRequest"
+                            "$ref": "#/definitions/domain.RefreshRequest"
                         }
                     }
                 ],
@@ -317,19 +317,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.LoginResponse"
+                            "$ref": "#/definitions/domain.LoginResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request body",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Invalid refresh token",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -363,31 +363,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.DocumentWithChunks"
+                            "$ref": "#/definitions/domain.DocumentWithChunks"
                         }
                     },
                     "400": {
                         "description": "Missing document ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Document not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -421,31 +421,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.DocumentWithChunks"
+                            "$ref": "#/definitions/domain.DocumentWithChunks"
                         }
                     },
                     "400": {
                         "description": "Missing document ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Document not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -453,7 +453,7 @@
         },
         "/health": {
             "get": {
-                "description": "Returns the health status of the API and its components",
+                "description": "Returns 200 if the service is up, with status of each dependency in the body",
                 "produces": [
                     "application/json"
                 ],
@@ -463,15 +463,9 @@
                 "summary": "Health check",
                 "responses": {
                     "200": {
-                        "description": "All components healthy",
+                        "description": "Service is up with dependency status",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.HealthResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "One or more components unhealthy",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.HealthResponse"
+                            "$ref": "#/definitions/http.HealthResponse"
                         }
                     }
                 }
@@ -498,26 +492,87 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary"
+                                "$ref": "#/definitions/domain.InstallationSummary"
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new installation for non-OAuth connectors (API key, path-based). Used for connectors like localfs.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Installations"
+                ],
+                "summary": "Create installation",
+                "parameters": [
+                    {
+                        "description": "Installation configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/driving.CreateInstallationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/domain.InstallationSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -551,37 +606,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary"
+                            "$ref": "#/definitions/domain.InstallationSummary"
                         }
                     },
                     "400": {
                         "description": "Missing installation ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Installation not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -613,43 +668,43 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Missing installation ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Installation not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "Installation in use by sources",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -689,37 +744,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ListContainersResponse"
+                            "$ref": "#/definitions/driving.ListContainersResponse"
                         }
                     },
                     "400": {
                         "description": "Missing installation ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Installation not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -753,37 +808,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Missing installation ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Installation not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "503": {
                         "description": "Credentials invalid or service unavailable",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -808,19 +863,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary"
+                            "$ref": "#/definitions/domain.UserSummary"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "User not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -867,19 +922,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CallbackResponse"
+                            "$ref": "#/definitions/driving.CallbackResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid state or missing code",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Token exchange failed",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -917,7 +972,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AuthorizeRequest"
+                            "$ref": "#/definitions/driving.AuthorizeRequest"
                         }
                     }
                 ],
@@ -925,37 +980,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AuthorizeResponse"
+                            "$ref": "#/definitions/driving.AuthorizeResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request or provider type",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Provider not configured",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -982,26 +1037,26 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ProviderListItem"
+                                "$ref": "#/definitions/driving.ProviderListItem"
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1035,37 +1090,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ProviderConfigResponse"
+                            "$ref": "#/definitions/driving.ProviderConfigResponse"
                         }
                     },
                     "400": {
                         "description": "Missing provider type",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Provider not configured",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1101,7 +1156,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.SaveProviderConfigRequest"
+                            "$ref": "#/definitions/driving.SaveProviderConfigRequest"
                         }
                     }
                 ],
@@ -1109,31 +1164,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ProviderConfigResponse"
+                            "$ref": "#/definitions/driving.ProviderConfigResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid input",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1165,37 +1220,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Missing provider type",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Provider not configured",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1215,7 +1270,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     }
                 }
@@ -1246,7 +1301,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.searchRequest"
+                            "$ref": "#/definitions/http.searchRequest"
                         }
                     }
                 ],
@@ -1254,25 +1309,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchResult"
+                            "$ref": "#/definitions/domain.SearchResult"
                         }
                     },
                     "400": {
                         "description": "Invalid request or missing query",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Search failed",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1297,25 +1352,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Settings"
+                            "$ref": "#/definitions/domain.Settings"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1344,7 +1399,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateSettingsRequest"
+                            "$ref": "#/definitions/driving.UpdateSettingsRequest"
                         }
                     }
                 ],
@@ -1352,31 +1407,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Settings"
+                            "$ref": "#/definitions/domain.Settings"
                         }
                     },
                     "400": {
                         "description": "Invalid request",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1401,25 +1456,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.aiSettingsResponse"
+                            "$ref": "#/definitions/http.aiSettingsResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1448,7 +1503,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateAISettingsRequest"
+                            "$ref": "#/definitions/driving.UpdateAISettingsRequest"
                         }
                     }
                 ],
@@ -1456,31 +1511,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AISettingsStatus"
+                            "$ref": "#/definitions/driving.AISettingsStatus"
                         }
                     },
                     "400": {
                         "description": "Invalid configuration or unsupported provider",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1505,19 +1560,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AISettingsStatus"
+                            "$ref": "#/definitions/driving.AISettingsStatus"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1542,25 +1597,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "503": {
                         "description": "AI service unavailable",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1586,7 +1641,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupRequest"
+                            "$ref": "#/definitions/driving.SetupRequest"
                         }
                     }
                 ],
@@ -1594,25 +1649,25 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupResponse"
+                            "$ref": "#/definitions/driving.SetupResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid input",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Setup already complete",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Setup failed",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1639,20 +1694,20 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceSummary"
+                                "$ref": "#/definitions/domain.SourceSummary"
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1681,7 +1736,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateSourceRequest"
+                            "$ref": "#/definitions/driving.CreateSourceRequest"
                         }
                     }
                 ],
@@ -1689,37 +1744,37 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Source"
+                            "$ref": "#/definitions/domain.Source"
                         }
                     },
                     "400": {
                         "description": "Invalid input",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "Source already exists",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1746,26 +1801,26 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SyncState"
+                                "$ref": "#/definitions/domain.SyncState"
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1799,31 +1854,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Source"
+                            "$ref": "#/definitions/domain.Source"
                         }
                     },
                     "400": {
                         "description": "Missing source ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1859,7 +1914,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateSourceRequest"
+                            "$ref": "#/definitions/driving.UpdateSourceRequest"
                         }
                     }
                 ],
@@ -1867,37 +1922,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Source"
+                            "$ref": "#/definitions/domain.Source"
                         }
                     },
                     "400": {
                         "description": "Invalid request",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1929,37 +1984,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Missing source ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -1993,37 +2048,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Missing source ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2069,31 +2124,31 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.SourceDocumentsResponse"
+                            "$ref": "#/definitions/http.SourceDocumentsResponse"
                         }
                     },
                     "400": {
                         "description": "Missing source ID or invalid parameters",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2127,37 +2182,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Missing source ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2195,7 +2250,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.UpdateSelectionRequest"
+                            "$ref": "#/definitions/http.UpdateSelectionRequest"
                         }
                     }
                 ],
@@ -2203,37 +2258,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2267,37 +2322,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SyncState"
+                            "$ref": "#/definitions/domain.SyncState"
                         }
                     },
                     "400": {
                         "description": "Missing source ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Source not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2329,25 +2384,25 @@
                     "202": {
                         "description": "Accepted",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.SyncAcceptedResponse"
+                            "$ref": "#/definitions/http.SyncAcceptedResponse"
                         }
                     },
                     "400": {
                         "description": "Missing source ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2374,26 +2429,26 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary"
+                                "$ref": "#/definitions/domain.UserSummary"
                             }
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2422,7 +2477,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateUserRequest"
+                            "$ref": "#/definitions/driving.CreateUserRequest"
                         }
                     }
                 ],
@@ -2430,37 +2485,37 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary"
+                            "$ref": "#/definitions/domain.UserSummary"
                         }
                     },
                     "400": {
                         "description": "Invalid input",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "409": {
                         "description": "User already exists",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2494,37 +2549,37 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                            "$ref": "#/definitions/http.StatusResponse"
                         }
                     },
                     "400": {
                         "description": "Missing user ID",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "403": {
                         "description": "Forbidden - admin only",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "User not found",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                            "$ref": "#/definitions/http.ErrorResponse"
                         }
                     }
                 }
@@ -2544,7 +2599,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.VersionResponse"
+                            "$ref": "#/definitions/http.VersionResponse"
                         }
                     }
                 }
@@ -2552,7 +2607,7 @@
         }
     },
     "definitions": {
-        "github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider": {
+        "domain.AIProvider": {
             "type": "string",
             "enum": [
                 "openai",
@@ -2569,7 +2624,7 @@
                 "AIProviderVoyage"
             ]
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod": {
+        "domain.AuthMethod": {
             "type": "string",
             "enum": [
                 "oauth2",
@@ -2596,7 +2651,7 @@
                 "AuthMethodPAT"
             ]
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.Chunk": {
+        "domain.Chunk": {
             "type": "object",
             "properties": {
                 "content": {
@@ -2632,7 +2687,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.Document": {
+        "domain.Document": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -2672,28 +2727,28 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.DocumentWithChunks": {
+        "domain.DocumentWithChunks": {
             "type": "object",
             "properties": {
                 "chunks": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Chunk"
+                        "$ref": "#/definitions/domain.Chunk"
                     }
                 },
                 "document": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Document"
+                    "$ref": "#/definitions/domain.Document"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary": {
+        "domain.InstallationSummary": {
             "type": "object",
             "properties": {
                 "account_id": {
                     "type": "string"
                 },
                 "auth_method": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod"
+                    "$ref": "#/definitions/domain.AuthMethod"
                 },
                 "created_at": {
                     "type": "string"
@@ -2711,11 +2766,11 @@
                     "type": "string"
                 },
                 "provider_type": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
+                    "$ref": "#/definitions/domain.ProviderType"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.LoginRequest": {
+        "domain.LoginRequest": {
             "type": "object",
             "properties": {
                 "email": {
@@ -2726,7 +2781,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.LoginResponse": {
+        "domain.LoginResponse": {
             "type": "object",
             "properties": {
                 "expires_at": {
@@ -2739,11 +2794,11 @@
                     "type": "string"
                 },
                 "user": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary"
+                    "$ref": "#/definitions/domain.UserSummary"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType": {
+        "domain.ProviderType": {
             "type": "string",
             "enum": [
                 "github",
@@ -2761,6 +2816,7 @@
                 "dropbox",
                 "onedrive",
                 "s3",
+                "localfs",
                 "zendesk",
                 "intercom"
             ],
@@ -2780,18 +2836,19 @@
                 "ProviderTypeDropbox",
                 "ProviderTypeOneDrive",
                 "ProviderTypeS3",
+                "ProviderTypeLocalFS",
                 "ProviderTypeZendesk",
                 "ProviderTypeIntercom"
             ]
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.RankedChunk": {
+        "domain.RankedChunk": {
             "type": "object",
             "properties": {
                 "chunk": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Chunk"
+                    "$ref": "#/definitions/domain.Chunk"
                 },
                 "document": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Document"
+                    "$ref": "#/definitions/domain.Document"
                 },
                 "highlights": {
                     "description": "Highlighted snippets",
@@ -2805,7 +2862,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.RefreshRequest": {
+        "domain.RefreshRequest": {
             "type": "object",
             "properties": {
                 "refresh_token": {
@@ -2813,7 +2870,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.Role": {
+        "domain.Role": {
             "type": "string",
             "enum": [
                 "admin",
@@ -2836,7 +2893,7 @@
                 "RoleViewer"
             ]
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode": {
+        "domain.SearchMode": {
             "type": "string",
             "enum": [
                 "hybrid",
@@ -2859,11 +2916,11 @@
                 "SearchModeSemanticOnly"
             ]
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.SearchResult": {
+        "domain.SearchResult": {
             "type": "object",
             "properties": {
                 "mode": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode"
+                    "$ref": "#/definitions/domain.SearchMode"
                 },
                 "query": {
                     "type": "string"
@@ -2871,7 +2928,7 @@
                 "results": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.RankedChunk"
+                        "$ref": "#/definitions/domain.RankedChunk"
                     }
                 },
                 "took": {
@@ -2883,7 +2940,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.Settings": {
+        "domain.Settings": {
             "type": "object",
             "properties": {
                 "auto_suggest_enabled": {
@@ -2893,7 +2950,7 @@
                     "description": "Search Defaults",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode"
+                            "$ref": "#/definitions/domain.SearchMode"
                         }
                     ]
                 },
@@ -2927,11 +2984,11 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.Source": {
+        "domain.Source": {
             "type": "object",
             "properties": {
                 "config": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig"
+                    "$ref": "#/definitions/domain.SourceConfig"
                 },
                 "created_at": {
                     "type": "string"
@@ -2954,7 +3011,7 @@
                     "type": "string"
                 },
                 "provider_type": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
+                    "$ref": "#/definitions/domain.ProviderType"
                 },
                 "selected_containers": {
                     "description": "SelectedContainers lists the container IDs to index\nEmpty means index all accessible containers\nExamples: [\"owner/repo1\", \"owner/repo2\"] for GitHub",
@@ -2968,7 +3025,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig": {
+        "domain.SourceConfig": {
             "type": "object",
             "properties": {
                 "base_url": {
@@ -3047,7 +3104,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.SourceSummary": {
+        "domain.SourceSummary": {
             "type": "object",
             "properties": {
                 "document_count": {
@@ -3057,14 +3114,14 @@
                     "type": "string"
                 },
                 "source": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Source"
+                    "$ref": "#/definitions/domain.Source"
                 },
                 "sync_status": {
                     "type": "string"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.SyncState": {
+        "domain.SyncState": {
             "type": "object",
             "properties": {
                 "completed_at": {
@@ -3090,14 +3147,14 @@
                     "type": "string"
                 },
                 "stats": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SyncStats"
+                    "$ref": "#/definitions/domain.SyncStats"
                 },
                 "status": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SyncStatus"
+                    "$ref": "#/definitions/domain.SyncStatus"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.SyncStats": {
+        "domain.SyncStats": {
             "type": "object",
             "properties": {
                 "chunks_indexed": {
@@ -3117,7 +3174,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.SyncStatus": {
+        "domain.SyncStatus": {
             "type": "string",
             "enum": [
                 "idle",
@@ -3132,7 +3189,7 @@
                 "SyncStatusFailed"
             ]
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.User": {
+        "domain.User": {
             "type": "object",
             "properties": {
                 "active": {
@@ -3154,7 +3211,7 @@
                     "type": "string"
                 },
                 "role": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Role"
+                    "$ref": "#/definitions/domain.Role"
                 },
                 "team_id": {
                     "type": "string"
@@ -3164,7 +3221,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary": {
+        "domain.UserSummary": {
             "type": "object",
             "properties": {
                 "active": {
@@ -3183,30 +3240,30 @@
                     "type": "string"
                 },
                 "role": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Role"
+                    "$ref": "#/definitions/domain.Role"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.VespaClusterInfo": {
+        "domain.VespaClusterInfo": {
             "type": "object",
             "properties": {
                 "container_clusters": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.VespaContainerCluster"
+                        "$ref": "#/definitions/domain.VespaContainerCluster"
                     }
                 },
                 "content_clusters": {
                     "description": "Parsed cluster information",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.VespaContentCluster"
+                        "$ref": "#/definitions/domain.VespaContentCluster"
                     }
                 },
                 "hosts": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.VespaHost"
+                        "$ref": "#/definitions/domain.VespaHost"
                     }
                 },
                 "hosts_xml": {
@@ -3228,7 +3285,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.VespaContainerCluster": {
+        "domain.VespaContainerCluster": {
             "type": "object",
             "properties": {
                 "has_feed": {
@@ -3251,7 +3308,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.VespaContentCluster": {
+        "domain.VespaContentCluster": {
             "type": "object",
             "properties": {
                 "documents": {
@@ -3274,7 +3331,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.VespaHost": {
+        "domain.VespaHost": {
             "type": "object",
             "properties": {
                 "alias": {
@@ -3285,7 +3342,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.VespaSchemaMode": {
+        "domain.VespaSchemaMode": {
             "type": "string",
             "enum": [
                 "",
@@ -3298,7 +3355,7 @@
                 "VespacSchemaModeHybrid"
             ]
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driven.Container": {
+        "driven.Container": {
             "type": "object",
             "properties": {
                 "description": {
@@ -3326,7 +3383,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIServiceStatus": {
+        "driving.AIServiceStatus": {
             "type": "object",
             "properties": {
                 "available": {
@@ -3340,28 +3397,28 @@
                     "type": "string"
                 },
                 "provider": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider"
+                    "$ref": "#/definitions/domain.AIProvider"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.AISettingsStatus": {
+        "driving.AISettingsStatus": {
             "type": "object",
             "properties": {
                 "effective_search_mode": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode"
+                    "$ref": "#/definitions/domain.SearchMode"
                 },
                 "embedding": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIServiceStatus"
+                    "$ref": "#/definitions/driving.AIServiceStatus"
                 },
                 "llm": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIServiceStatus"
+                    "$ref": "#/definitions/driving.AIServiceStatus"
                 },
                 "vespa": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.VespaServiceStatus"
+                    "$ref": "#/definitions/driving.VespaServiceStatus"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.AuthorizeRequest": {
+        "driving.AuthorizeRequest": {
             "description": "Request to start OAuth authorization flow",
             "type": "object",
             "properties": {
@@ -3374,14 +3431,14 @@
                     "description": "ProviderType is the OAuth provider (github, slack, notion, etc.)",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
+                            "$ref": "#/definitions/domain.ProviderType"
                         }
                     ],
                     "example": "github"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.AuthorizeResponse": {
+        "driving.AuthorizeResponse": {
             "description": "Response containing the OAuth authorization URL",
             "type": "object",
             "properties": {
@@ -3402,7 +3459,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.CallbackResponse": {
+        "driving.CallbackResponse": {
             "description": "Response after successful OAuth authorization",
             "type": "object",
             "properties": {
@@ -3410,7 +3467,7 @@
                     "description": "Installation is the created installation summary.",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary"
+                            "$ref": "#/definitions/domain.InstallationSummary"
                         }
                     ]
                 },
@@ -3421,7 +3478,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.ConnectVespaRequest": {
+        "driving.ConnectVespaRequest": {
             "type": "object",
             "properties": {
                 "dev_mode": {
@@ -3434,11 +3491,36 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateSourceRequest": {
+        "driving.CreateInstallationRequest": {
+            "description": "Request to create an installation for API key or path-based connectors",
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "description": "APIKey is the authentication credential (or path for localfs).",
+                    "type": "string",
+                    "example": "/data/test-docs"
+                },
+                "name": {
+                    "description": "Name is a human-readable name for the installation.",
+                    "type": "string",
+                    "example": "Local Test Docs"
+                },
+                "provider_type": {
+                    "description": "ProviderType is the data source provider.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/domain.ProviderType"
+                        }
+                    ],
+                    "example": "localfs"
+                }
+            }
+        },
+        "driving.CreateSourceRequest": {
             "type": "object",
             "properties": {
                 "config": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig"
+                    "$ref": "#/definitions/domain.SourceConfig"
                 },
                 "installation_id": {
                     "type": "string"
@@ -3447,11 +3529,17 @@
                     "type": "string"
                 },
                 "provider_type": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
+                    "$ref": "#/definitions/domain.ProviderType"
+                },
+                "selected_containers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateUserRequest": {
+        "driving.CreateUserRequest": {
             "type": "object",
             "properties": {
                 "email": {
@@ -3464,11 +3552,11 @@
                     "type": "string"
                 },
                 "role": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Role"
+                    "$ref": "#/definitions/domain.Role"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.EmbeddingSettingsInput": {
+        "driving.EmbeddingSettingsInput": {
             "type": "object",
             "properties": {
                 "api_key": {
@@ -3481,11 +3569,11 @@
                     "type": "string"
                 },
                 "provider": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider"
+                    "$ref": "#/definitions/domain.AIProvider"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.LLMSettingsInput": {
+        "driving.LLMSettingsInput": {
             "type": "object",
             "properties": {
                 "api_key": {
@@ -3498,11 +3586,11 @@
                     "type": "string"
                 },
                 "provider": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider"
+                    "$ref": "#/definitions/domain.AIProvider"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.ListContainersResponse": {
+        "driving.ListContainersResponse": {
             "description": "Paginated list of containers available for indexing",
             "type": "object",
             "properties": {
@@ -3510,7 +3598,7 @@
                     "description": "Containers is the list of available containers (repos, drives, spaces, etc.)",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driven.Container"
+                        "$ref": "#/definitions/driven.Container"
                     }
                 },
                 "has_more": {
@@ -3523,7 +3611,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.ProviderConfigResponse": {
+        "driving.ProviderConfigResponse": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -3536,20 +3624,20 @@
                     "type": "boolean"
                 },
                 "provider_type": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
+                    "$ref": "#/definitions/domain.ProviderType"
                 },
                 "updated_at": {
                     "type": "string"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.ProviderListItem": {
+        "driving.ProviderListItem": {
             "type": "object",
             "properties": {
                 "auth_methods": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod"
+                        "$ref": "#/definitions/domain.AuthMethod"
                     }
                 },
                 "configured": {
@@ -3568,11 +3656,11 @@
                     "type": "string"
                 },
                 "type": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
+                    "$ref": "#/definitions/domain.ProviderType"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.SaveProviderConfigRequest": {
+        "driving.SaveProviderConfigRequest": {
             "type": "object",
             "properties": {
                 "api_key": {
@@ -3591,7 +3679,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupRequest": {
+        "driving.SetupRequest": {
             "type": "object",
             "properties": {
                 "email": {
@@ -3605,36 +3693,36 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupResponse": {
+        "driving.SetupResponse": {
             "type": "object",
             "properties": {
                 "message": {
                     "type": "string"
                 },
                 "user": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.User"
+                    "$ref": "#/definitions/domain.User"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateAISettingsRequest": {
+        "driving.UpdateAISettingsRequest": {
             "type": "object",
             "properties": {
                 "embedding": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.EmbeddingSettingsInput"
+                    "$ref": "#/definitions/driving.EmbeddingSettingsInput"
                 },
                 "llm": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.LLMSettingsInput"
+                    "$ref": "#/definitions/driving.LLMSettingsInput"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateSettingsRequest": {
+        "driving.UpdateSettingsRequest": {
             "type": "object",
             "properties": {
                 "auto_suggest_enabled": {
                     "type": "boolean"
                 },
                 "default_search_mode": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode"
+                    "$ref": "#/definitions/domain.SearchMode"
                 },
                 "results_per_page": {
                     "type": "integer"
@@ -3650,11 +3738,11 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateSourceRequest": {
+        "driving.UpdateSourceRequest": {
             "type": "object",
             "properties": {
                 "config": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig"
+                    "$ref": "#/definitions/domain.SourceConfig"
                 },
                 "enabled": {
                     "type": "boolean"
@@ -3664,7 +3752,7 @@
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.VespaServiceStatus": {
+        "driving.VespaServiceStatus": {
             "type": "object",
             "properties": {
                 "can_upgrade": {
@@ -3683,11 +3771,11 @@
                     "type": "boolean"
                 },
                 "schema_mode": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.VespaSchemaMode"
+                    "$ref": "#/definitions/domain.VespaSchemaMode"
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.VespaStatus": {
+        "driving.VespaStatus": {
             "type": "object",
             "properties": {
                 "can_upgrade": {
@@ -3698,7 +3786,7 @@
                     "description": "ClusterInfo contains parsed information about the Vespa cluster (production mode only)",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.VespaClusterInfo"
+                            "$ref": "#/definitions/domain.VespaClusterInfo"
                         }
                     ]
                 },
@@ -3718,7 +3806,7 @@
                     "description": "EmbeddingProvider is the provider used for embeddings",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider"
+                            "$ref": "#/definitions/domain.AIProvider"
                         }
                     ]
                 },
@@ -3746,7 +3834,7 @@
                     "description": "SchemaMode indicates the deployed schema type (bm25, hybrid)",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.VespaSchemaMode"
+                            "$ref": "#/definitions/domain.VespaSchemaMode"
                         }
                     ]
                 },
@@ -3756,28 +3844,28 @@
                 }
             }
         },
-        "internal_adapters_driving_http.AdminStatsResponse": {
+        "http.AdminStatsResponse": {
             "description": "System-wide statistics for the admin dashboard",
             "type": "object",
             "properties": {
                 "chunks": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.ChunkStats"
+                    "$ref": "#/definitions/http.ChunkStats"
                 },
                 "documents": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.DocumentStats"
+                    "$ref": "#/definitions/http.DocumentStats"
                 },
                 "installations": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.InstallationStats"
+                    "$ref": "#/definitions/http.InstallationStats"
                 },
                 "sources": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.SourceStats"
+                    "$ref": "#/definitions/http.SourceStats"
                 },
                 "users": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.UserStats"
+                    "$ref": "#/definitions/http.UserStats"
                 }
             }
         },
-        "internal_adapters_driving_http.ChunkStats": {
+        "http.ChunkStats": {
             "type": "object",
             "properties": {
                 "total": {
@@ -3785,7 +3873,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.ComponentHealth": {
+        "http.ComponentHealth": {
             "type": "object",
             "properties": {
                 "message": {
@@ -3798,7 +3886,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.DocumentStats": {
+        "http.DocumentStats": {
             "type": "object",
             "properties": {
                 "total": {
@@ -3806,7 +3894,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.ErrorResponse": {
+        "http.ErrorResponse": {
             "description": "API error response",
             "type": "object",
             "properties": {
@@ -3816,14 +3904,14 @@
                 }
             }
         },
-        "internal_adapters_driving_http.HealthResponse": {
+        "http.HealthResponse": {
             "type": "object",
             "properties": {
                 "components": {
                     "description": "individual component health",
                     "type": "object",
                     "additionalProperties": {
-                        "$ref": "#/definitions/internal_adapters_driving_http.ComponentHealth"
+                        "$ref": "#/definitions/http.ComponentHealth"
                     }
                 },
                 "status": {
@@ -3832,7 +3920,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.InstallationStats": {
+        "http.InstallationStats": {
             "type": "object",
             "properties": {
                 "total": {
@@ -3840,14 +3928,14 @@
                 }
             }
         },
-        "internal_adapters_driving_http.SourceDocumentsResponse": {
+        "http.SourceDocumentsResponse": {
             "description": "Paginated list of documents belonging to a source",
             "type": "object",
             "properties": {
                 "documents": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Document"
+                        "$ref": "#/definitions/domain.Document"
                     }
                 },
                 "limit": {
@@ -3861,7 +3949,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.SourceStats": {
+        "http.SourceStats": {
             "type": "object",
             "properties": {
                 "enabled": {
@@ -3872,7 +3960,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.StatusResponse": {
+        "http.StatusResponse": {
             "description": "Simple status response",
             "type": "object",
             "properties": {
@@ -3882,7 +3970,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.SyncAcceptedResponse": {
+        "http.SyncAcceptedResponse": {
             "description": "Sync accepted response",
             "type": "object",
             "properties": {
@@ -3896,7 +3984,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.UpdateSelectionRequest": {
+        "http.UpdateSelectionRequest": {
             "description": "Request to update which containers a source should index",
             "type": "object",
             "properties": {
@@ -3913,7 +4001,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.UserStats": {
+        "http.UserStats": {
             "type": "object",
             "properties": {
                 "total": {
@@ -3921,7 +4009,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.VersionResponse": {
+        "http.VersionResponse": {
             "description": "API version response",
             "type": "object",
             "properties": {
@@ -3931,7 +4019,7 @@
                 }
             }
         },
-        "internal_adapters_driving_http.aiProviderInfo": {
+        "http.aiProviderInfo": {
             "description": "AI provider configuration status",
             "type": "object",
             "properties": {
@@ -3954,25 +4042,25 @@
                 "provider": {
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider"
+                            "$ref": "#/definitions/domain.AIProvider"
                         }
                     ],
                     "example": "openai"
                 }
             }
         },
-        "internal_adapters_driving_http.aiSettingsResponse": {
+        "http.aiSettingsResponse": {
             "type": "object",
             "properties": {
                 "embedding": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.aiProviderInfo"
+                    "$ref": "#/definitions/http.aiProviderInfo"
                 },
                 "llm": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.aiProviderInfo"
+                    "$ref": "#/definitions/http.aiProviderInfo"
                 }
             }
         },
-        "internal_adapters_driving_http.searchRequest": {
+        "http.searchRequest": {
             "description": "Search query request",
             "type": "object",
             "properties": {
@@ -3988,7 +4076,7 @@
                     ],
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode"
+                            "$ref": "#/definitions/domain.SearchMode"
                         }
                     ],
                     "example": "hybrid"
