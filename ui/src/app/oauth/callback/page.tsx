@@ -13,7 +13,7 @@ function OAuthCallbackContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<CallbackStatus>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [installationName, setInstallationName] = useState<string | null>(null);
+  const [connectionName, setInstallationName] = useState<string | null>(null);
 
   useEffect(() => {
     const processCallback = async () => {
@@ -46,7 +46,7 @@ function OAuthCallbackContent() {
 
       try {
         const result = await handleOAuthCallback(code, state, provider);
-        setInstallationName(result.installation.name);
+        setInstallationName(result.connection.name);
         setStatus("success");
 
         // Retrieve the return URL from state or default to sources page
@@ -55,14 +55,14 @@ function OAuthCallbackContent() {
         // Clean up session storage
         sessionStorage.removeItem("oauth_return_url");
         sessionStorage.removeItem("oauth_provider");
-        sessionStorage.removeItem("oauth_installation_pending");
+        sessionStorage.removeItem("oauth_connection_pending");
 
         // Wait a moment to show success, then redirect
         setTimeout(() => {
           if (storedReturnUrl) {
-            // Append installation_id to return URL
+            // Append connection_id to return URL
             const returnUrl = new URL(storedReturnUrl, window.location.origin);
-            returnUrl.searchParams.set("installation_id", result.installation.id);
+            returnUrl.searchParams.set("connection_id", result.connection.id);
             router.push(returnUrl.pathname + returnUrl.search);
           } else {
             router.push("/admin/sources");
@@ -119,8 +119,8 @@ function OAuthCallbackContent() {
                 Connected Successfully
               </h1>
               <p className="mt-2 text-sm text-sercha-fog-grey">
-                {installationName
-                  ? `"${installationName}" has been connected.`
+                {connectionName
+                  ? `"${connectionName}" has been connected.`
                   : "Your account has been connected."}
               </p>
               <p className="mt-1 text-xs text-sercha-silverline">

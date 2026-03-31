@@ -29,12 +29,12 @@ type SourceStore interface {
 	// SetEnabled updates the enabled status
 	SetEnabled(ctx context.Context, id string, enabled bool) error
 
-	// CountByInstallation returns the number of sources using an installation
-	CountByInstallation(ctx context.Context, installationID string) (int, error)
+	// CountByConnection returns the number of sources using a connection
+	CountByConnection(ctx context.Context, connectionID string) (int, error)
 
-	// ListByInstallation returns sources using an installation
-	ListByInstallation(ctx context.Context, installationID string) ([]*domain.Source, error)
+	// ListByConnection returns sources using a connection
+	ListByConnection(ctx context.Context, connectionID string) ([]*domain.Source, error)
 
-	// UpdateSelection updates the selected containers for a source
-	UpdateSelection(ctx context.Context, id string, containers []string) error
+	// UpdateContainers updates the containers for a source
+	UpdateContainers(ctx context.Context, id string, containers []domain.Container) error
 }

@@ -19,23 +19,23 @@ import { AdminLayout } from "@/components/layout";
 import {
   listProviders,
   listSources,
-  listInstallations,
+  listConnections,
   getCapabilities,
   startOAuth,
-  getInstallation,
-  getInstallationContainers,
+  getConnection,
+  getConnectionContainers,
   createSource,
   ApiError,
   type ProviderListItem,
   type SourceSummary,
-  type InstallationSummary,
+  type ConnectionSummary,
   type Container,
 } from "@/lib/api";
 import { PROVIDER_ICONS } from "@/lib/providers";
 
 type ViewState =
   | "selection"
-  | "installation_picker"
+  | "connection_picker"
   | "connecting"
   | "select"
   | "creating"
@@ -56,8 +56,8 @@ function AddSourceWizardContent() {
   const [pendingProvider, setPendingProvider] = useState<ProviderListItem | null>(null);
 
   // Installation & container state
-  const [selectedInstallation, setSelectedInstallation] = useState<InstallationSummary | null>(null);
-  const [existingInstallations, setExistingInstallations] = useState<InstallationSummary[]>([]);
+  const [selectedConnection, setSelectedInstallation] = useState<ConnectionSummary | null>(null);
+  const [existingConnections, setExistingInstallations] = useState<ConnectionSummary[]>([]);
   const [containers, setContainers] = useState<Container[]>([]);
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -85,11 +85,11 @@ function AddSourceWizardContent() {
         setProviders(configuredProviders);
 
         // Handle OAuth callback return (installation_id and provider come from URL)
-        const installationId = searchParams.get("installation_id");
+        const connectionId = searchParams.get("installation_id");
         const providerFromUrl = searchParams.get("provider");
 
-        if (installationId) {
-          await handleOAuthReturn(installationId, providerFromUrl || undefined, configuredProviders);
+        if (connectionId) {
+          await handleOAuthReturn(connectionId, providerFromUrl || undefined, configuredProviders);
         }
       } catch {
         setProviders([]);
@@ -101,10 +101,10 @@ function AddSourceWizardContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadContainers = async (instId: string, parentId?: string) => {
+  const loadContainers = async (connId: string, parentId?: string) => {
     setIsLoadingContainers(true);
     try {
-      const result = await getInstallationContainers(instId, undefined, parentId);
+      const result = await getConnectionContainers(connId, undefined, parentId);
       setContainers(result.containers);
       // Only auto-select all on initial load (root level)
       if (!parentId && folderPath.length === 0) {
@@ -120,22 +120,22 @@ function AddSourceWizardContent() {
 
   // Navigate into a folder
   const handleDrillDown = async (container: Container) => {
-    if (!selectedInstallation || !container.has_children) return;
+    if (!selectedConnection || !container.has_children) return;
     setFolderPath([...folderPath, { id: container.id, name: container.name }]);
-    await loadContainers(selectedInstallation.id, container.id);
+    await loadContainers(selectedConnection.id, container.id);
   };
 
   // Navigate via breadcrumb
   const handleBreadcrumbClick = async (index: number) => {
-    if (!selectedInstallation) return;
+    if (!selectedConnection) return;
     if (index === -1) {
       // Go to root
       setFolderPath([]);
-      await loadContainers(selectedInstallation.id);
+      await loadContainers(selectedConnection.id);
     } else {
       const newPath = folderPath.slice(0, index + 1);
       setFolderPath(newPath);
-      await loadContainers(selectedInstallation.id, newPath[newPath.length - 1].id);
+      await loadContainers(selectedConnection.id, newPath[newPath.length - 1].id);
     }
   };
 
@@ -146,15 +146,15 @@ function AddSourceWizardContent() {
 
     // Fetch existing installations for this provider
     try {
-      const allInstallations = await listInstallations();
-      const providerInstallations = allInstallations.filter(
+      const allConnections = await listConnections();
+      const providerConnections = allConnections.filter(
         (i) => i.provider_type === provider.type
       );
 
-      if (providerInstallations.length > 0) {
+      if (providerConnections.length > 0) {
         // Show picker to choose existing or connect new
-        setExistingInstallations(providerInstallations);
-        setView("installation_picker");
+        setExistingInstallations(providerConnections);
+        setView("connection_picker");
       } else {
         // No existing installations, go straight to OAuth
         await startOAuthFlow(provider);
@@ -166,7 +166,7 @@ function AddSourceWizardContent() {
   };
 
   // Select an existing installation
-  const handleSelectExistingInstallation = async (installation: InstallationSummary) => {
+  const handleSelectExistingConnection = async (installation: ConnectionSummary) => {
     setSelectedInstallation(installation);
     await loadContainers(installation.id);
     setView("select");
@@ -197,9 +197,9 @@ function AddSourceWizardContent() {
   };
 
   // Handle OAuth callback return
-  const handleOAuthReturn = async (instId: string, providerType?: string, providerList?: ProviderListItem[]) => {
+  const handleOAuthReturn = async (connId: string, providerType?: string, providerList?: ProviderListItem[]) => {
     try {
-      const installation = await getInstallation(instId);
+      const connection = await getConnection(connId);
       setSelectedInstallation(installation);
 
       // Set pending provider from URL params
@@ -209,7 +209,7 @@ function AddSourceWizardContent() {
         if (provider) setPendingProvider(provider);
       }
 
-      await loadContainers(instId);
+      await loadContainers(connId);
       setView("select");
 
       // Clean up URL params
@@ -245,7 +245,7 @@ function AddSourceWizardContent() {
 
   // Create source
   const handleCreateSource = async () => {
-    if (!selectedInstallation || selectedContainers.size === 0) return;
+    if (!selectedConnection || selectedContainers.size === 0) return;
 
     setView("creating");
     setError(null);
@@ -255,7 +255,7 @@ function AddSourceWizardContent() {
       const existingSources = await listSources().catch(() => [] as SourceSummary[]);
 
       // Generate unique source name
-      const baseName = selectedInstallation.name;
+      const baseName = selectedConnection.name;
       const existingNames = new Set(existingSources.map((s) => s.name));
 
       let sourceName: string;
@@ -271,9 +271,9 @@ function AddSourceWizardContent() {
 
       await createSource({
         name: sourceName,
-        provider_type: selectedInstallation.provider_type,
-        installation_id: selectedInstallation.id,
-        selected_containers: Array.from(selectedContainers),
+        provider_type: selectedConnection.provider_type,
+        installation_id: selectedConnection.id,
+        containers: Array.from(selectedContainers),
       });
       setCreatedSourceName(sourceName);
       setView("success");
@@ -302,16 +302,16 @@ function AddSourceWizardContent() {
 
   // Back navigation
   const handleBack = () => {
-    if (view === "installation_picker") {
+    if (view === "connection_picker") {
       setPendingProvider(null);
       setExistingInstallations([]);
       setView("selection");
     } else if (view === "select") {
-      if (existingInstallations.length > 0) {
+      if (existingConnections.length > 0) {
         setSelectedInstallation(null);
         setContainers([]);
         setSelectedContainers(new Set());
-        setView("installation_picker");
+        setView("connection_picker");
       } else {
         handleAddAnother();
       }
@@ -445,7 +445,7 @@ function AddSourceWizardContent() {
   }
 
   // Installation picker view
-  if (view === "installation_picker") {
+  if (view === "connection_picker") {
     return (
       <AdminLayout title="Choose Account" description={`Select ${pendingProvider?.name} account`}>
         <div className="mx-auto max-w-lg">
@@ -477,15 +477,15 @@ function AddSourceWizardContent() {
             </div>
           </div>
 
-          {/* Existing installations */}
+          {/* Existing connections */}
           <div className="mb-6 space-y-3">
             <h3 className="text-sm font-medium text-sercha-fog-grey">
               Existing Connections
             </h3>
-            {existingInstallations.map((installation) => (
+            {existingConnections.map((installation) => (
               <button
                 key={installation.id}
-                onClick={() => handleSelectExistingInstallation(installation)}
+                onClick={() => handleSelectExistingConnection(installation)}
                 className="flex w-full items-center gap-3 rounded-lg border border-sercha-silverline bg-white p-4 text-left transition-all hover:border-sercha-indigo hover:shadow-md"
               >
                 <Image
@@ -525,8 +525,8 @@ function AddSourceWizardContent() {
 
   // Container selection view
   if (view === "select") {
-    // Check provider type from selectedInstallation (more reliable than pendingProvider)
-    const providerType = selectedInstallation?.provider_type || pendingProvider?.type;
+    // Check provider type from selectedConnection (more reliable than pendingProvider)
+    const providerType = selectedConnection?.provider_type || pendingProvider?.type;
     const showFolderNavigation = providerType === "google_drive" || providerType === "onedrive";
 
     return (

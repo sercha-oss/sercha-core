@@ -95,38 +95,38 @@ func (m *MockSourceStore) SetEnabled(ctx context.Context, id string, enabled boo
 	return nil
 }
 
-func (m *MockSourceStore) CountByInstallation(ctx context.Context, installationID string) (int, error) {
+func (m *MockSourceStore) CountByConnection(ctx context.Context, connectionID string) (int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	count := 0
 	for _, source := range m.sources {
-		if source.InstallationID == installationID {
+		if source.ConnectionID == connectionID {
 			count++
 		}
 	}
 	return count, nil
 }
 
-func (m *MockSourceStore) ListByInstallation(ctx context.Context, installationID string) ([]*domain.Source, error) {
+func (m *MockSourceStore) ListByConnection(ctx context.Context, connectionID string) ([]*domain.Source, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []*domain.Source
 	for _, source := range m.sources {
-		if source.InstallationID == installationID {
+		if source.ConnectionID == connectionID {
 			result = append(result, source)
 		}
 	}
 	return result, nil
 }
 
-func (m *MockSourceStore) UpdateSelection(ctx context.Context, id string, containers []string) error {
+func (m *MockSourceStore) UpdateContainers(ctx context.Context, id string, containers []domain.Container) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	source, ok := m.sources[id]
 	if !ok {
 		return domain.ErrNotFound
 	}
-	source.SelectedContainers = containers
+	source.Containers = containers
 	return nil
 }
 

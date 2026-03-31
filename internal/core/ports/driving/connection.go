@@ -7,10 +7,10 @@ import (
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
 )
 
-// CreateInstallationRequest represents a request to create an installation for non-OAuth connectors.
-// @Description Request to create an installation for API key or path-based connectors
-type CreateInstallationRequest struct {
-	// Name is a human-readable name for the installation.
+// CreateConnectionRequest represents a request to create a connection for non-OAuth connectors.
+// @Description Request to create a connection for API key or path-based connectors
+type CreateConnectionRequest struct {
+	// Name is a human-readable name for the connection.
 	Name string `json:"name" example:"Local Test Docs"`
 
 	// ProviderType is the data source provider.
@@ -20,32 +20,32 @@ type CreateInstallationRequest struct {
 	APIKey string `json:"api_key" example:"/data/test-docs"`
 }
 
-// InstallationService manages connector installations (OAuth connections, API keys, etc.).
-// Installations represent authenticated connections to external data sources.
-type InstallationService interface {
-	// Create creates a new installation for non-OAuth connectors (API key, path-based).
+// ConnectionService manages connector connections (OAuth connections, API keys, etc.).
+// Connections represent authenticated links to external data sources.
+type ConnectionService interface {
+	// Create creates a new connection for non-OAuth connectors (API key, path-based).
 	// Returns ErrInvalidInput if required fields are missing.
-	Create(ctx context.Context, req CreateInstallationRequest) (*domain.InstallationSummary, error)
+	Create(ctx context.Context, req CreateConnectionRequest) (*domain.ConnectionSummary, error)
 
-	// List returns all installations (summaries without secrets).
-	List(ctx context.Context) ([]*domain.InstallationSummary, error)
+	// List returns all connections (summaries without secrets).
+	List(ctx context.Context) ([]*domain.ConnectionSummary, error)
 
-	// Get retrieves an installation by ID (summary without secrets).
-	Get(ctx context.Context, id string) (*domain.InstallationSummary, error)
+	// Get retrieves a connection by ID (summary without secrets).
+	Get(ctx context.Context, id string) (*domain.ConnectionSummary, error)
 
-	// Delete removes an installation.
-	// Returns ErrNotFound if installation doesn't exist.
-	// Returns ErrInUse if installation is referenced by sources.
+	// Delete removes a connection.
+	// Returns ErrNotFound if connection doesn't exist.
+	// Returns ErrInUse if connection is referenced by sources.
 	Delete(ctx context.Context, id string) error
 
-	// ListByProvider returns installations for a specific provider type.
-	ListByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.InstallationSummary, error)
+	// ListByProvider returns connections for a specific provider type.
+	ListByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.ConnectionSummary, error)
 
-	// ListContainers lists available containers (repos, drives, spaces) for an installation.
+	// ListContainers lists available containers (repos, drives, spaces) for a connection.
 	// Supports pagination via cursor.
-	ListContainers(ctx context.Context, installationID string, cursor string) (*ListContainersResponse, error)
+	ListContainers(ctx context.Context, connectionID string, cursor string) (*ListContainersResponse, error)
 
-	// TestConnection tests if the installation's credentials are still valid.
+	// TestConnection tests if the connection's credentials are still valid.
 	TestConnection(ctx context.Context, id string) error
 }
 
@@ -62,13 +62,13 @@ type ListContainersResponse struct {
 	HasMore bool `json:"has_more"`
 }
 
-// InstallationSummaryResponse is the API response for an installation.
-// @Description Installation summary (secrets not exposed)
-type InstallationSummaryResponse struct {
-	// ID is the unique installation identifier.
-	ID string `json:"id" example:"inst_abc123def456"`
+// ConnectionSummaryResponse is the API response for a connection.
+// @Description Connection summary (secrets not exposed)
+type ConnectionSummaryResponse struct {
+	// ID is the unique connection identifier.
+	ID string `json:"id" example:"conn_abc123def456"`
 
-	// Name is a human-readable name for the installation.
+	// Name is a human-readable name for the connection.
 	Name string `json:"name" example:"GitHub (octocat)"`
 
 	// ProviderType is the data source provider.
@@ -83,13 +83,13 @@ type InstallationSummaryResponse struct {
 	// OAuthExpiry is when OAuth tokens expire (if applicable).
 	OAuthExpiry *string `json:"oauth_expiry,omitempty" example:"2024-01-15T12:00:00Z"`
 
-	// CreatedAt is when the installation was created.
+	// CreatedAt is when the connection was created.
 	CreatedAt string `json:"created_at" example:"2024-01-15T10:00:00Z"`
 
-	// LastUsedAt is when the installation was last used for syncing.
+	// LastUsedAt is when the connection was last used for syncing.
 	LastUsedAt *string `json:"last_used_at,omitempty" example:"2024-01-15T11:00:00Z"`
 
-	// SourceCount is the number of sources using this installation.
+	// SourceCount is the number of sources using this connection.
 	SourceCount int `json:"source_count" example:"3"`
 }
 

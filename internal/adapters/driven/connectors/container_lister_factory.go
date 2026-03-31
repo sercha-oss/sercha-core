@@ -14,8 +14,8 @@ var _ driven.ContainerListerFactory = (*ContainerListerFactoryImpl)(nil)
 
 // ProviderContainerListerFactory creates ContainerListers for a specific provider type.
 type ProviderContainerListerFactory interface {
-	// Create creates a ContainerLister for an installation.
-	Create(ctx context.Context, installationID string) (driven.ContainerLister, error)
+	// Create creates a ContainerLister for a connection.
+	Create(ctx context.Context, connectionID string) (driven.ContainerLister, error)
 }
 
 // ContainerListerFactoryImpl creates ContainerListers for different providers.
@@ -38,8 +38,8 @@ func (f *ContainerListerFactoryImpl) Register(providerType domain.ProviderType, 
 	f.factories[providerType] = factory
 }
 
-// Create creates a ContainerLister for the given provider and installation.
-func (f *ContainerListerFactoryImpl) Create(ctx context.Context, providerType domain.ProviderType, installationID string) (driven.ContainerLister, error) {
+// Create creates a ContainerLister for the given provider and connection.
+func (f *ContainerListerFactoryImpl) Create(ctx context.Context, providerType domain.ProviderType, connectionID string) (driven.ContainerLister, error) {
 	f.mu.RLock()
 	factory, ok := f.factories[providerType]
 	f.mu.RUnlock()
@@ -48,7 +48,7 @@ func (f *ContainerListerFactoryImpl) Create(ctx context.Context, providerType do
 		return nil, fmt.Errorf("%w: %s does not support container selection", domain.ErrUnsupportedProvider, providerType)
 	}
 
-	return factory.Create(ctx, installationID)
+	return factory.Create(ctx, connectionID)
 }
 
 // SupportsContainerSelection returns true if the provider supports container selection.

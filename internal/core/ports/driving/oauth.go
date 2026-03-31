@@ -65,7 +65,7 @@ type CallbackRequest struct {
 // @Description Response after successful OAuth authorization
 type CallbackResponse struct {
 	// Installation is the created installation summary.
-	Installation *domain.InstallationSummary `json:"installation"`
+	Installation *domain.ConnectionSummary `json:"installation"`
 
 	// Message provides a human-readable status message.
 	Message string `json:"message" example:"Successfully connected to GitHub as octocat"`

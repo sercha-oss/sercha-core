@@ -35,7 +35,7 @@ type Server struct {
 	vespaAdminService   driving.VespaAdminService
 	providerService     driving.ProviderService
 	oauthService        driving.OAuthService
-	installationService driving.InstallationService
+	connectionService   driving.ConnectionService
 	syncOrchestrator    driving.SyncOrchestrator
 	capabilitiesService driving.CapabilitiesService
 
@@ -73,7 +73,7 @@ func NewServer(
 	vespaAdminService driving.VespaAdminService,
 	providerService driving.ProviderService,
 	oauthService driving.OAuthService,
-	installationService driving.InstallationService,
+	connectionService driving.ConnectionService,
 	syncOrchestrator driving.SyncOrchestrator,
 	capabilitiesService driving.CapabilitiesService,
 	taskQueue driven.TaskQueue,
@@ -81,23 +81,23 @@ func NewServer(
 	redisClient Pinger, // can be nil
 ) *Server {
 	s := &Server{
-		router:              http.NewServeMux(),
-		version:             cfg.Version,
-		authService:         authService,
-		userService:         userService,
-		searchService:       searchService,
-		sourceService:       sourceService,
-		docService:          docService,
-		settingsService:     settingsService,
-		vespaAdminService:   vespaAdminService,
-		providerService:     providerService,
-		oauthService:        oauthService,
-		installationService: installationService,
-		syncOrchestrator:    syncOrchestrator,
+		router:            http.NewServeMux(),
+		version:           cfg.Version,
+		authService:       authService,
+		userService:       userService,
+		searchService:     searchService,
+		sourceService:     sourceService,
+		docService:        docService,
+		settingsService:   settingsService,
+		vespaAdminService: vespaAdminService,
+		providerService:   providerService,
+		oauthService:      oauthService,
+		connectionService: connectionService,
+		syncOrchestrator:  syncOrchestrator,
 		capabilitiesService: capabilitiesService,
-		taskQueue:           taskQueue,
-		db:                  db,
-		redisClient:         redisClient,
+		taskQueue:         taskQueue,
+		db:                db,
+		redisClient:       redisClient,
 	}
 
 	s.httpServer = &http.Server{
@@ -243,30 +243,30 @@ func (s *Server) setupRoutes() {
 	// Callback is public - receives redirects from OAuth providers
 	s.router.HandleFunc("GET /api/v1/oauth/callback", s.handleOAuthCallback)
 
-	// Installation endpoints (admin-only)
-	s.router.Handle("POST /api/v1/installations",
+	// Connection endpoints (admin-only)
+	s.router.Handle("POST /api/v1/connections",
 		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleCreateInstallation))))
-	s.router.Handle("GET /api/v1/installations",
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleCreateConnection))))
+	s.router.Handle("GET /api/v1/connections",
 		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListInstallations))))
-	s.router.Handle("GET /api/v1/installations/{id}",
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListConnections))))
+	s.router.Handle("GET /api/v1/connections/{id}",
 		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetInstallation))))
-	s.router.Handle("DELETE /api/v1/installations/{id}",
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetConnection))))
+	s.router.Handle("DELETE /api/v1/connections/{id}",
 		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleDeleteInstallation))))
-	s.router.Handle("GET /api/v1/installations/{id}/containers",
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleDeleteConnection))))
+	s.router.Handle("GET /api/v1/connections/{id}/containers",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListContainers))))
-	s.router.Handle("POST /api/v1/installations/{id}/test",
+	s.router.Handle("POST /api/v1/connections/{id}/test",
 		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleTestInstallation))))
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleTestConnection))))
 
-	// Source selection endpoint (admin-only)
-	s.router.Handle("PUT /api/v1/sources/{id}/selection",
+	// Source container management endpoint (admin-only)
+	s.router.Handle("PUT /api/v1/sources/{id}/containers",
 		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleUpdateSourceSelection))))
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleUpdateSourceContainers))))
 }
 
 // Start starts the HTTP server with graceful shutdown

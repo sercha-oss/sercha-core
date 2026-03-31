@@ -8,7 +8,6 @@ import (
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
-	"github.com/lib/pq"
 )
 
 // Verify interface compliance
@@ -31,8 +30,13 @@ func (s *SourceStore) Save(ctx context.Context, source *domain.Source) error {
 		return err
 	}
 
+	containersJSON, err := json.Marshal(source.Containers)
+	if err != nil {
+		return err
+	}
+
 	query := `
-		INSERT INTO sources (id, name, provider_type, config, enabled, created_at, updated_at, created_by, installation_id, selected_containers)
+		INSERT INTO sources (id, name, provider_type, config, enabled, created_at, updated_at, created_by, connection_id, selected_containers)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
@@ -40,7 +44,7 @@ func (s *SourceStore) Save(ctx context.Context, source *domain.Source) error {
 			config = EXCLUDED.config,
 			enabled = EXCLUDED.enabled,
 			updated_at = EXCLUDED.updated_at,
-			installation_id = EXCLUDED.installation_id,
+			connection_id = EXCLUDED.connection_id,
 			selected_containers = EXCLUDED.selected_containers
 	`
 
@@ -53,8 +57,8 @@ func (s *SourceStore) Save(ctx context.Context, source *domain.Source) error {
 		source.CreatedAt,
 		source.UpdatedAt,
 		source.CreatedBy,
-		sql.NullString{String: source.InstallationID, Valid: source.InstallationID != ""},
-		pq.Array(source.SelectedContainers),
+		sql.NullString{String: source.ConnectionID, Valid: source.ConnectionID != ""},
+		containersJSON,
 	)
 	return err
 }
@@ -63,15 +67,15 @@ func (s *SourceStore) Save(ctx context.Context, source *domain.Source) error {
 func (s *SourceStore) Get(ctx context.Context, id string) (*domain.Source, error) {
 	query := `
 		SELECT id, name, provider_type, config, enabled, created_at, updated_at, created_by,
-		       installation_id, selected_containers
+		       connection_id, selected_containers
 		FROM sources
 		WHERE id = $1
 	`
 
 	var source domain.Source
 	var configJSON []byte
-	var createdBy, installationID sql.NullString
-	var selectedContainers []string
+	var containersJSON []byte
+	var createdBy, connectionID sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&source.ID,
@@ -82,8 +86,8 @@ func (s *SourceStore) Get(ctx context.Context, id string) (*domain.Source, error
 		&source.CreatedAt,
 		&source.UpdatedAt,
 		&createdBy,
-		&installationID,
-		pqArray(&selectedContainers),
+		&connectionID,
+		&containersJSON,
 	)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
@@ -95,9 +99,13 @@ func (s *SourceStore) Get(ctx context.Context, id string) (*domain.Source, error
 	if err := json.Unmarshal(configJSON, &source.Config); err != nil {
 		return nil, err
 	}
+	if len(containersJSON) > 0 {
+		if err := json.Unmarshal(containersJSON, &source.Containers); err != nil {
+			return nil, err
+		}
+	}
 	source.CreatedBy = createdBy.String
-	source.InstallationID = installationID.String
-	source.SelectedContainers = selectedContainers
+	source.ConnectionID = connectionID.String
 
 	return &source, nil
 }
@@ -106,15 +114,15 @@ func (s *SourceStore) Get(ctx context.Context, id string) (*domain.Source, error
 func (s *SourceStore) GetByName(ctx context.Context, name string) (*domain.Source, error) {
 	query := `
 		SELECT id, name, provider_type, config, enabled, created_at, updated_at, created_by,
-		       installation_id, selected_containers
+		       connection_id, selected_containers
 		FROM sources
 		WHERE name = $1
 	`
 
 	var source domain.Source
 	var configJSON []byte
-	var createdBy, installationID sql.NullString
-	var selectedContainers []string
+	var containersJSON []byte
+	var createdBy, connectionID sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, name).Scan(
 		&source.ID,
@@ -125,8 +133,8 @@ func (s *SourceStore) GetByName(ctx context.Context, name string) (*domain.Sourc
 		&source.CreatedAt,
 		&source.UpdatedAt,
 		&createdBy,
-		&installationID,
-		pqArray(&selectedContainers),
+		&connectionID,
+		&containersJSON,
 	)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
@@ -138,9 +146,13 @@ func (s *SourceStore) GetByName(ctx context.Context, name string) (*domain.Sourc
 	if err := json.Unmarshal(configJSON, &source.Config); err != nil {
 		return nil, err
 	}
+	if len(containersJSON) > 0 {
+		if err := json.Unmarshal(containersJSON, &source.Containers); err != nil {
+			return nil, err
+		}
+	}
 	source.CreatedBy = createdBy.String
-	source.InstallationID = installationID.String
-	source.SelectedContainers = selectedContainers
+	source.ConnectionID = connectionID.String
 
 	return &source, nil
 }
@@ -149,7 +161,7 @@ func (s *SourceStore) GetByName(ctx context.Context, name string) (*domain.Sourc
 func (s *SourceStore) List(ctx context.Context) ([]*domain.Source, error) {
 	query := `
 		SELECT id, name, provider_type, config, enabled, created_at, updated_at, created_by,
-		       installation_id, selected_containers
+		       connection_id, selected_containers
 		FROM sources
 		ORDER BY created_at DESC
 	`
@@ -161,7 +173,7 @@ func (s *SourceStore) List(ctx context.Context) ([]*domain.Source, error) {
 func (s *SourceStore) ListEnabled(ctx context.Context) ([]*domain.Source, error) {
 	query := `
 		SELECT id, name, provider_type, config, enabled, created_at, updated_at, created_by,
-		       installation_id, selected_containers
+		       connection_id, selected_containers
 		FROM sources
 		WHERE enabled = true
 		ORDER BY created_at DESC
@@ -181,8 +193,8 @@ func (s *SourceStore) querySources(ctx context.Context, query string, args ...in
 	for rows.Next() {
 		var source domain.Source
 		var configJSON []byte
-		var createdBy, installationID sql.NullString
-		var selectedContainers []string
+		var containersJSON []byte
+		var createdBy, connectionID sql.NullString
 
 		err := rows.Scan(
 			&source.ID,
@@ -193,8 +205,8 @@ func (s *SourceStore) querySources(ctx context.Context, query string, args ...in
 			&source.CreatedAt,
 			&source.UpdatedAt,
 			&createdBy,
-			&installationID,
-			pqArray(&selectedContainers),
+			&connectionID,
+			&containersJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -203,9 +215,13 @@ func (s *SourceStore) querySources(ctx context.Context, query string, args ...in
 		if err := json.Unmarshal(configJSON, &source.Config); err != nil {
 			return nil, err
 		}
+		if len(containersJSON) > 0 {
+			if err := json.Unmarshal(containersJSON, &source.Containers); err != nil {
+				return nil, err
+			}
+		}
 		source.CreatedBy = createdBy.String
-		source.InstallationID = installationID.String
-		source.SelectedContainers = selectedContainers
+		source.ConnectionID = connectionID.String
 		sources = append(sources, &source)
 	}
 
@@ -254,34 +270,39 @@ func (s *SourceStore) SetEnabled(ctx context.Context, id string, enabled bool) e
 	return nil
 }
 
-// CountByInstallation returns the number of sources using an installation
-func (s *SourceStore) CountByInstallation(ctx context.Context, installationID string) (int, error) {
-	query := `SELECT COUNT(*) FROM sources WHERE installation_id = $1`
+// CountByConnection returns the number of sources using a connection
+func (s *SourceStore) CountByConnection(ctx context.Context, connectionID string) (int, error) {
+	query := `SELECT COUNT(*) FROM sources WHERE connection_id = $1`
 	var count int
-	err := s.db.QueryRowContext(ctx, query, installationID).Scan(&count)
+	err := s.db.QueryRowContext(ctx, query, connectionID).Scan(&count)
 	if err != nil {
 		return 0, err
 	}
 	return count, nil
 }
 
-// ListByInstallation returns sources using an installation
-func (s *SourceStore) ListByInstallation(ctx context.Context, installationID string) ([]*domain.Source, error) {
+// ListByConnection returns sources using a connection
+func (s *SourceStore) ListByConnection(ctx context.Context, connectionID string) ([]*domain.Source, error) {
 	query := `
 		SELECT id, name, provider_type, config, enabled, created_at, updated_at, created_by,
-		       installation_id, selected_containers
+		       connection_id, selected_containers
 		FROM sources
-		WHERE installation_id = $1
+		WHERE connection_id = $1
 		ORDER BY created_at DESC
 	`
 
-	return s.querySourcesWithInstallation(ctx, query, installationID)
+	return s.querySourcesWithConnection(ctx, query, connectionID)
 }
 
-// UpdateSelection updates the selected containers for a source
-func (s *SourceStore) UpdateSelection(ctx context.Context, id string, containers []string) error {
+// UpdateContainers updates the selected containers for a source
+func (s *SourceStore) UpdateContainers(ctx context.Context, id string, containers []domain.Container) error {
+	containersJSON, err := json.Marshal(containers)
+	if err != nil {
+		return err
+	}
+
 	query := `UPDATE sources SET selected_containers = $1, updated_at = $2 WHERE id = $3`
-	result, err := s.db.ExecContext(ctx, query, pq.Array(containers), time.Now(), id)
+	result, err := s.db.ExecContext(ctx, query, containersJSON, time.Now(), id)
 	if err != nil {
 		return err
 	}
@@ -297,8 +318,8 @@ func (s *SourceStore) UpdateSelection(ctx context.Context, id string, containers
 	return nil
 }
 
-// querySourcesWithInstallation is like querySources but includes installation fields
-func (s *SourceStore) querySourcesWithInstallation(ctx context.Context, query string, args ...interface{}) ([]*domain.Source, error) {
+// querySourcesWithConnection is like querySources but includes connection fields
+func (s *SourceStore) querySourcesWithConnection(ctx context.Context, query string, args ...interface{}) ([]*domain.Source, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -309,8 +330,8 @@ func (s *SourceStore) querySourcesWithInstallation(ctx context.Context, query st
 	for rows.Next() {
 		var source domain.Source
 		var configJSON []byte
-		var createdBy, installationID sql.NullString
-		var selectedContainers []string
+		var containersJSON []byte
+		var createdBy, connectionID sql.NullString
 
 		err := rows.Scan(
 			&source.ID,
@@ -321,8 +342,8 @@ func (s *SourceStore) querySourcesWithInstallation(ctx context.Context, query st
 			&source.CreatedAt,
 			&source.UpdatedAt,
 			&createdBy,
-			&installationID,
-			pqArray(&selectedContainers),
+			&connectionID,
+			&containersJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -331,9 +352,13 @@ func (s *SourceStore) querySourcesWithInstallation(ctx context.Context, query st
 		if err := json.Unmarshal(configJSON, &source.Config); err != nil {
 			return nil, err
 		}
+		if len(containersJSON) > 0 {
+			if err := json.Unmarshal(containersJSON, &source.Containers); err != nil {
+				return nil, err
+			}
+		}
 		source.CreatedBy = createdBy.String
-		source.InstallationID = installationID.String
-		source.SelectedContainers = selectedContainers
+		source.ConnectionID = connectionID.String
 		sources = append(sources, &source)
 	}
 
@@ -344,73 +369,3 @@ func (s *SourceStore) querySourcesWithInstallation(ctx context.Context, query st
 	return sources, nil
 }
 
-// pqArray is a helper for scanning PostgreSQL arrays
-func pqArray(arr *[]string) interface{} {
-	return &pqStringArray{arr}
-}
-
-type pqStringArray struct {
-	arr *[]string
-}
-
-func (a *pqStringArray) Scan(src interface{}) error {
-	if src == nil {
-		*a.arr = nil
-		return nil
-	}
-
-	switch v := src.(type) {
-	case []byte:
-		return a.scanString(string(v))
-	case string:
-		return a.scanString(v)
-	default:
-		return nil
-	}
-}
-
-func (a *pqStringArray) scanString(s string) error {
-	// Handle PostgreSQL array format: {elem1,elem2,...}
-	if s == "" || s == "{}" {
-		*a.arr = nil
-		return nil
-	}
-
-	// Remove braces
-	if len(s) >= 2 && s[0] == '{' && s[len(s)-1] == '}' {
-		s = s[1 : len(s)-1]
-	}
-
-	if s == "" {
-		*a.arr = nil
-		return nil
-	}
-
-	// Simple split by comma (doesn't handle quoted strings)
-	// For proper handling, use lib/pq's pq.Array
-	*a.arr = splitPgArray(s)
-	return nil
-}
-
-func splitPgArray(s string) []string {
-	var result []string
-	var current string
-	inQuote := false
-
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c == '"':
-			inQuote = !inQuote
-		case c == ',' && !inQuote:
-			result = append(result, current)
-			current = ""
-		default:
-			current += string(c)
-		}
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
-}

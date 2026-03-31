@@ -49,90 +49,90 @@ func (m *mockOAuthStateStore) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// mockInstallationStore implements driven.InstallationStore for testing
-type mockInstallationStore struct {
-	installations map[string]*domain.Installation
-	byAccount     map[string]*domain.Installation // providerType:accountID -> Installation
+// mockConnectionStore implements driven.ConnectionStore for testing
+type mockConnectionStore struct {
+	connections map[string]*domain.Connection
+	byAccount   map[string]*domain.Connection // providerType:accountID -> Connection
 }
 
-func newMockInstallationStore() *mockInstallationStore {
-	return &mockInstallationStore{
-		installations: make(map[string]*domain.Installation),
-		byAccount:     make(map[string]*domain.Installation),
+func newMockConnectionStore() *mockConnectionStore {
+	return &mockConnectionStore{
+		connections: make(map[string]*domain.Connection),
+		byAccount:   make(map[string]*domain.Connection),
 	}
 }
 
-func (m *mockInstallationStore) Save(ctx context.Context, inst *domain.Installation) error {
-	m.installations[inst.ID] = inst
-	key := string(inst.ProviderType) + ":" + inst.AccountID
-	m.byAccount[key] = inst
+func (m *mockConnectionStore) Save(ctx context.Context, conn *domain.Connection) error {
+	m.connections[conn.ID] = conn
+	key := string(conn.ProviderType) + ":" + conn.AccountID
+	m.byAccount[key] = conn
 	return nil
 }
 
-func (m *mockInstallationStore) Get(ctx context.Context, id string) (*domain.Installation, error) {
-	inst, ok := m.installations[id]
+func (m *mockConnectionStore) Get(ctx context.Context, id string) (*domain.Connection, error) {
+	conn, ok := m.connections[id]
 	if !ok {
 		return nil, domain.ErrNotFound
 	}
-	return inst, nil
+	return conn, nil
 }
 
-func (m *mockInstallationStore) List(ctx context.Context) ([]*domain.InstallationSummary, error) {
-	summaries := make([]*domain.InstallationSummary, 0, len(m.installations))
-	for _, inst := range m.installations {
-		summaries = append(summaries, inst.ToSummary())
+func (m *mockConnectionStore) List(ctx context.Context) ([]*domain.ConnectionSummary, error) {
+	summaries := make([]*domain.ConnectionSummary, 0, len(m.connections))
+	for _, conn := range m.connections {
+		summaries = append(summaries, conn.ToSummary())
 	}
 	return summaries, nil
 }
 
-func (m *mockInstallationStore) Delete(ctx context.Context, id string) error {
-	inst, ok := m.installations[id]
+func (m *mockConnectionStore) Delete(ctx context.Context, id string) error {
+	conn, ok := m.connections[id]
 	if !ok {
 		return domain.ErrNotFound
 	}
-	key := string(inst.ProviderType) + ":" + inst.AccountID
+	key := string(conn.ProviderType) + ":" + conn.AccountID
 	delete(m.byAccount, key)
-	delete(m.installations, id)
+	delete(m.connections, id)
 	return nil
 }
 
-func (m *mockInstallationStore) GetByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.InstallationSummary, error) {
-	var summaries []*domain.InstallationSummary
-	for _, inst := range m.installations {
-		if inst.ProviderType == providerType {
-			summaries = append(summaries, inst.ToSummary())
+func (m *mockConnectionStore) GetByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.ConnectionSummary, error) {
+	var summaries []*domain.ConnectionSummary
+	for _, conn := range m.connections {
+		if conn.ProviderType == providerType {
+			summaries = append(summaries, conn.ToSummary())
 		}
 	}
 	return summaries, nil
 }
 
-func (m *mockInstallationStore) GetByAccountID(ctx context.Context, providerType domain.ProviderType, accountID string) (*domain.Installation, error) {
+func (m *mockConnectionStore) GetByAccountID(ctx context.Context, providerType domain.ProviderType, accountID string) (*domain.Connection, error) {
 	key := string(providerType) + ":" + accountID
-	inst, ok := m.byAccount[key]
+	conn, ok := m.byAccount[key]
 	if !ok {
 		return nil, nil
 	}
-	return inst, nil
+	return conn, nil
 }
 
-func (m *mockInstallationStore) UpdateSecrets(ctx context.Context, id string, secrets *domain.InstallationSecrets, expiry *time.Time) error {
-	inst, ok := m.installations[id]
+func (m *mockConnectionStore) UpdateSecrets(ctx context.Context, id string, secrets *domain.ConnectionSecrets, expiry *time.Time) error {
+	conn, ok := m.connections[id]
 	if !ok {
 		return domain.ErrNotFound
 	}
-	inst.Secrets = secrets
-	inst.OAuthExpiry = expiry
-	inst.UpdatedAt = time.Now()
+	conn.Secrets = secrets
+	conn.OAuthExpiry = expiry
+	conn.UpdatedAt = time.Now()
 	return nil
 }
 
-func (m *mockInstallationStore) UpdateLastUsed(ctx context.Context, id string) error {
-	inst, ok := m.installations[id]
+func (m *mockConnectionStore) UpdateLastUsed(ctx context.Context, id string) error {
+	conn, ok := m.connections[id]
 	if !ok {
 		return domain.ErrNotFound
 	}
 	now := time.Now()
-	inst.LastUsedAt = &now
+	conn.LastUsedAt = &now
 	return nil
 }
 
@@ -288,7 +288,7 @@ func (m *mockOAuthHandlerFactory) GetOAuthHandler(providerType domain.ProviderTy
 func TestOAuthService_Authorize(t *testing.T) {
 	configProvider := newMockConfigProvider()
 	oauthStateStore := newMockOAuthStateStore()
-	installStore := newMockInstallationStore()
+	connStore := newMockConnectionStore()
 	handlerFactory := newMockOAuthHandlerFactory()
 
 	// Configure GitHub provider credentials
@@ -303,7 +303,7 @@ func TestOAuthService_Authorize(t *testing.T) {
 	svc := NewOAuthService(OAuthServiceConfig{
 		ConfigProvider:      configProvider,
 		OAuthStateStore:     oauthStateStore,
-		InstallationStore:   installStore,
+		ConnectionStore:     connStore,
 		OAuthHandlerFactory: handlerFactory,
 	})
 
@@ -334,13 +334,13 @@ func TestOAuthService_Authorize(t *testing.T) {
 func TestOAuthService_Authorize_ProviderNotConfigured(t *testing.T) {
 	configProvider := newMockConfigProvider()
 	oauthStateStore := newMockOAuthStateStore()
-	installStore := newMockInstallationStore()
+	connStore := newMockConnectionStore()
 	handlerFactory := newMockOAuthHandlerFactory()
 
 	svc := NewOAuthService(OAuthServiceConfig{
 		ConfigProvider:      configProvider,
 		OAuthStateStore:     oauthStateStore,
-		InstallationStore:   installStore,
+		ConnectionStore:     connStore,
 		OAuthHandlerFactory: handlerFactory,
 	})
 
@@ -356,7 +356,7 @@ func TestOAuthService_Authorize_ProviderNotConfigured(t *testing.T) {
 func TestOAuthService_Authorize_ProviderDisabled(t *testing.T) {
 	configProvider := newMockConfigProvider()
 	oauthStateStore := newMockOAuthStateStore()
-	installStore := newMockInstallationStore()
+	connStore := newMockConnectionStore()
 	handlerFactory := newMockOAuthHandlerFactory()
 
 	// Don't configure GitHub provider credentials (simulates disabled/unconfigured)
@@ -365,7 +365,7 @@ func TestOAuthService_Authorize_ProviderDisabled(t *testing.T) {
 	svc := NewOAuthService(OAuthServiceConfig{
 		ConfigProvider:      configProvider,
 		OAuthStateStore:     oauthStateStore,
-		InstallationStore:   installStore,
+		ConnectionStore:     connStore,
 		OAuthHandlerFactory: handlerFactory,
 	})
 
@@ -381,13 +381,13 @@ func TestOAuthService_Authorize_ProviderDisabled(t *testing.T) {
 func TestOAuthService_Callback_InvalidState(t *testing.T) {
 	configProvider := newMockConfigProvider()
 	oauthStateStore := newMockOAuthStateStore()
-	installStore := newMockInstallationStore()
+	connStore := newMockConnectionStore()
 	handlerFactory := newMockOAuthHandlerFactory()
 
 	svc := NewOAuthService(OAuthServiceConfig{
 		ConfigProvider:      configProvider,
 		OAuthStateStore:     oauthStateStore,
-		InstallationStore:   installStore,
+		ConnectionStore:     connStore,
 		OAuthHandlerFactory: handlerFactory,
 	})
 
@@ -404,13 +404,13 @@ func TestOAuthService_Callback_InvalidState(t *testing.T) {
 func TestOAuthService_Callback_ProviderError(t *testing.T) {
 	configProvider := newMockConfigProvider()
 	oauthStateStore := newMockOAuthStateStore()
-	installStore := newMockInstallationStore()
+	connStore := newMockConnectionStore()
 	handlerFactory := newMockOAuthHandlerFactory()
 
 	svc := NewOAuthService(OAuthServiceConfig{
 		ConfigProvider:      configProvider,
 		OAuthStateStore:     oauthStateStore,
-		InstallationStore:   installStore,
+		ConnectionStore:     connStore,
 		OAuthHandlerFactory: handlerFactory,
 	})
 

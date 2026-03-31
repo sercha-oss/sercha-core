@@ -52,14 +52,14 @@ func (l *ContainerLister) ListContainers(ctx context.Context, cursor string) ([]
 
 // ContainerListerFactory creates ContainerListers for GitHub installations.
 type ContainerListerFactory struct {
-	installationStore driven.InstallationStore
+	installationStore driven.ConnectionStore
 	tokenFactory      driven.TokenProviderFactory
 	baseURL           string
 }
 
 // NewContainerListerFactory creates a factory for GitHub container listers.
 func NewContainerListerFactory(
-	installationStore driven.InstallationStore,
+	installationStore driven.ConnectionStore,
 	tokenFactory driven.TokenProviderFactory,
 	baseURL string,
 ) *ContainerListerFactory {

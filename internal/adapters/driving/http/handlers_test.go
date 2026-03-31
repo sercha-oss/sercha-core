@@ -185,7 +185,7 @@ func (m *mockSourceService) Disable(ctx context.Context, id string) error {
 	return nil
 }
 
-func (m *mockSourceService) UpdateSelection(ctx context.Context, id string, containers []string) error {
+func (m *mockSourceService) UpdateContainers(ctx context.Context, id string, containers []domain.Container) error {
 	return nil
 }
 

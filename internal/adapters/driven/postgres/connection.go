@@ -11,30 +11,30 @@ import (
 	"github.com/lib/pq"
 )
 
-// Ensure InstallationStore implements the interface.
-var _ driven.InstallationStore = (*InstallationStore)(nil)
+// Ensure ConnectionStore implements the interface.
+var _ driven.ConnectionStore = (*ConnectionStore)(nil)
 
-// InstallationStore implements driven.InstallationStore using PostgreSQL.
-type InstallationStore struct {
+// ConnectionStore implements driven.ConnectionStore using PostgreSQL.
+type ConnectionStore struct {
 	db        *sql.DB
 	encryptor *SecretEncryptor
 }
 
-// NewInstallationStore creates a new PostgreSQL-backed installation store.
-func NewInstallationStore(db *sql.DB, encryptor *SecretEncryptor) *InstallationStore {
-	return &InstallationStore{
+// NewConnectionStore creates a new PostgreSQL-backed connection store.
+func NewConnectionStore(db *sql.DB, encryptor *SecretEncryptor) *ConnectionStore {
+	return &ConnectionStore{
 		db:        db,
 		encryptor: encryptor,
 	}
 }
 
-// Save stores a new installation or updates an existing one.
-func (s *InstallationStore) Save(ctx context.Context, inst *domain.Installation) error {
+// Save stores a new connection or updates an existing one.
+func (s *ConnectionStore) Save(ctx context.Context, conn *domain.Connection) error {
 	// Encrypt secrets if present
 	var secretBlob []byte
-	if inst.Secrets != nil {
+	if conn.Secrets != nil {
 		var err error
-		secretBlob, err = s.encryptor.Encrypt(inst.Secrets)
+		secretBlob, err = s.encryptor.Encrypt(conn.Secrets)
 		if err != nil {
 			return fmt.Errorf("encrypt secrets: %w", err)
 		}
@@ -60,34 +60,34 @@ func (s *InstallationStore) Save(ctx context.Context, inst *domain.Installation)
 	`
 
 	now := time.Now()
-	if inst.CreatedAt.IsZero() {
-		inst.CreatedAt = now
+	if conn.CreatedAt.IsZero() {
+		conn.CreatedAt = now
 	}
-	inst.UpdatedAt = now
+	conn.UpdatedAt = now
 
 	_, err := s.db.ExecContext(ctx, query,
-		inst.ID,
-		inst.Name,
-		inst.ProviderType,
-		inst.AuthMethod,
+		conn.ID,
+		conn.Name,
+		conn.ProviderType,
+		conn.AuthMethod,
 		secretBlob,
-		nullString(inst.OAuthTokenType),
-		nullTime(inst.OAuthExpiry),
-		pq.Array(inst.OAuthScopes),
-		nullString(inst.AccountID),
-		inst.CreatedAt,
-		inst.UpdatedAt,
-		nullTime(inst.LastUsedAt),
+		nullString(conn.OAuthTokenType),
+		nullTime(conn.OAuthExpiry),
+		pq.Array(conn.OAuthScopes),
+		nullString(conn.AccountID),
+		conn.CreatedAt,
+		conn.UpdatedAt,
+		nullTime(conn.LastUsedAt),
 	)
 	if err != nil {
-		return fmt.Errorf("save installation: %w", err)
+		return fmt.Errorf("save connection: %w", err)
 	}
 
 	return nil
 }
 
-// Get retrieves an installation by ID with decrypted secrets.
-func (s *InstallationStore) Get(ctx context.Context, id string) (*domain.Installation, error) {
+// Get retrieves a connection by ID with decrypted secrets.
+func (s *ConnectionStore) Get(ctx context.Context, id string) (*domain.Connection, error) {
 	query := `
 		SELECT id, name, provider_type, auth_method, secret_blob,
 			   oauth_token_type, oauth_expiry, oauth_scopes, account_id,
@@ -96,56 +96,56 @@ func (s *InstallationStore) Get(ctx context.Context, id string) (*domain.Install
 		WHERE id = $1
 	`
 
-	var inst domain.Installation
+	var conn domain.Connection
 	var secretBlob []byte
 	var oauthTokenType, accountID sql.NullString
 	var oauthExpiry, lastUsedAt sql.NullTime
 	var oauthScopes []string
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&inst.ID,
-		&inst.Name,
-		&inst.ProviderType,
-		&inst.AuthMethod,
+		&conn.ID,
+		&conn.Name,
+		&conn.ProviderType,
+		&conn.AuthMethod,
 		&secretBlob,
 		&oauthTokenType,
 		&oauthExpiry,
 		pq.Array(&oauthScopes),
 		&accountID,
-		&inst.CreatedAt,
-		&inst.UpdatedAt,
+		&conn.CreatedAt,
+		&conn.UpdatedAt,
 		&lastUsedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get installation: %w", err)
+		return nil, fmt.Errorf("get connection: %w", err)
 	}
 
 	// Decrypt secrets if present
 	if len(secretBlob) > 0 {
-		inst.Secrets = &domain.InstallationSecrets{}
-		if err := s.encryptor.Decrypt(secretBlob, inst.Secrets); err != nil {
+		conn.Secrets = &domain.ConnectionSecrets{}
+		if err := s.encryptor.Decrypt(secretBlob, conn.Secrets); err != nil {
 			return nil, fmt.Errorf("decrypt secrets: %w", err)
 		}
 	}
 
-	inst.OAuthTokenType = oauthTokenType.String
+	conn.OAuthTokenType = oauthTokenType.String
 	if oauthExpiry.Valid {
-		inst.OAuthExpiry = &oauthExpiry.Time
+		conn.OAuthExpiry = &oauthExpiry.Time
 	}
-	inst.OAuthScopes = oauthScopes
-	inst.AccountID = accountID.String
+	conn.OAuthScopes = oauthScopes
+	conn.AccountID = accountID.String
 	if lastUsedAt.Valid {
-		inst.LastUsedAt = &lastUsedAt.Time
+		conn.LastUsedAt = &lastUsedAt.Time
 	}
 
-	return &inst, nil
+	return &conn, nil
 }
 
-// List retrieves all installations as summaries (no secrets).
-func (s *InstallationStore) List(ctx context.Context) ([]*domain.InstallationSummary, error) {
+// List retrieves all connections as summaries (no secrets).
+func (s *ConnectionStore) List(ctx context.Context) ([]*domain.ConnectionSummary, error) {
 	query := `
 		SELECT id, name, provider_type, auth_method, account_id,
 			   oauth_expiry, created_at, last_used_at
@@ -155,13 +155,13 @@ func (s *InstallationStore) List(ctx context.Context) ([]*domain.InstallationSum
 
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("list installations: %w", err)
+		return nil, fmt.Errorf("list connections: %w", err)
 	}
 	defer rows.Close()
 
-	var summaries []*domain.InstallationSummary
+	var summaries []*domain.ConnectionSummary
 	for rows.Next() {
-		var summary domain.InstallationSummary
+		var summary domain.ConnectionSummary
 		var accountID sql.NullString
 		var oauthExpiry, lastUsedAt sql.NullTime
 
@@ -175,7 +175,7 @@ func (s *InstallationStore) List(ctx context.Context) ([]*domain.InstallationSum
 			&summary.CreatedAt,
 			&lastUsedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan installation: %w", err)
+			return nil, fmt.Errorf("scan connection: %w", err)
 		}
 
 		summary.AccountID = accountID.String
@@ -190,18 +190,18 @@ func (s *InstallationStore) List(ctx context.Context) ([]*domain.InstallationSum
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate installations: %w", err)
+		return nil, fmt.Errorf("iterate connections: %w", err)
 	}
 
 	return summaries, nil
 }
 
-// Delete removes an installation by ID.
-func (s *InstallationStore) Delete(ctx context.Context, id string) error {
+// Delete removes a connection by ID.
+func (s *ConnectionStore) Delete(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx,
 		"DELETE FROM connector_installations WHERE id = $1", id)
 	if err != nil {
-		return fmt.Errorf("delete installation: %w", err)
+		return fmt.Errorf("delete connection: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -216,8 +216,8 @@ func (s *InstallationStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetByProvider retrieves installations for a provider type (no secrets).
-func (s *InstallationStore) GetByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.InstallationSummary, error) {
+// GetByProvider retrieves connections for a provider type (no secrets).
+func (s *ConnectionStore) GetByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.ConnectionSummary, error) {
 	query := `
 		SELECT id, name, provider_type, auth_method, account_id,
 			   oauth_expiry, created_at, last_used_at
@@ -228,13 +228,13 @@ func (s *InstallationStore) GetByProvider(ctx context.Context, providerType doma
 
 	rows, err := s.db.QueryContext(ctx, query, providerType)
 	if err != nil {
-		return nil, fmt.Errorf("list installations by provider: %w", err)
+		return nil, fmt.Errorf("list connections by provider: %w", err)
 	}
 	defer rows.Close()
 
-	var summaries []*domain.InstallationSummary
+	var summaries []*domain.ConnectionSummary
 	for rows.Next() {
-		var summary domain.InstallationSummary
+		var summary domain.ConnectionSummary
 		var accountID sql.NullString
 		var oauthExpiry, lastUsedAt sql.NullTime
 
@@ -248,7 +248,7 @@ func (s *InstallationStore) GetByProvider(ctx context.Context, providerType doma
 			&summary.CreatedAt,
 			&lastUsedAt,
 		); err != nil {
-			return nil, fmt.Errorf("scan installation: %w", err)
+			return nil, fmt.Errorf("scan connection: %w", err)
 		}
 
 		summary.AccountID = accountID.String
@@ -263,14 +263,14 @@ func (s *InstallationStore) GetByProvider(ctx context.Context, providerType doma
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate installations: %w", err)
+		return nil, fmt.Errorf("iterate connections: %w", err)
 	}
 
 	return summaries, nil
 }
 
-// GetByAccountID retrieves an installation by provider type and account ID.
-func (s *InstallationStore) GetByAccountID(ctx context.Context, providerType domain.ProviderType, accountID string) (*domain.Installation, error) {
+// GetByAccountID retrieves a connection by provider type and account ID.
+func (s *ConnectionStore) GetByAccountID(ctx context.Context, providerType domain.ProviderType, accountID string) (*domain.Connection, error) {
 	query := `
 		SELECT id, name, provider_type, auth_method, secret_blob,
 			   oauth_token_type, oauth_expiry, oauth_scopes, account_id,
@@ -279,56 +279,56 @@ func (s *InstallationStore) GetByAccountID(ctx context.Context, providerType dom
 		WHERE provider_type = $1 AND account_id = $2
 	`
 
-	var inst domain.Installation
+	var conn domain.Connection
 	var secretBlob []byte
 	var oauthTokenType, accountIDVal sql.NullString
 	var oauthExpiry, lastUsedAt sql.NullTime
 	var oauthScopes []string
 
 	err := s.db.QueryRowContext(ctx, query, providerType, accountID).Scan(
-		&inst.ID,
-		&inst.Name,
-		&inst.ProviderType,
-		&inst.AuthMethod,
+		&conn.ID,
+		&conn.Name,
+		&conn.ProviderType,
+		&conn.AuthMethod,
 		&secretBlob,
 		&oauthTokenType,
 		&oauthExpiry,
 		pq.Array(&oauthScopes),
 		&accountIDVal,
-		&inst.CreatedAt,
-		&inst.UpdatedAt,
+		&conn.CreatedAt,
+		&conn.UpdatedAt,
 		&lastUsedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil // Not found is not an error for this method
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get installation by account: %w", err)
+		return nil, fmt.Errorf("get connection by account: %w", err)
 	}
 
 	// Decrypt secrets if present
 	if len(secretBlob) > 0 {
-		inst.Secrets = &domain.InstallationSecrets{}
-		if err := s.encryptor.Decrypt(secretBlob, inst.Secrets); err != nil {
+		conn.Secrets = &domain.ConnectionSecrets{}
+		if err := s.encryptor.Decrypt(secretBlob, conn.Secrets); err != nil {
 			return nil, fmt.Errorf("decrypt secrets: %w", err)
 		}
 	}
 
-	inst.OAuthTokenType = oauthTokenType.String
+	conn.OAuthTokenType = oauthTokenType.String
 	if oauthExpiry.Valid {
-		inst.OAuthExpiry = &oauthExpiry.Time
+		conn.OAuthExpiry = &oauthExpiry.Time
 	}
-	inst.OAuthScopes = oauthScopes
-	inst.AccountID = accountIDVal.String
+	conn.OAuthScopes = oauthScopes
+	conn.AccountID = accountIDVal.String
 	if lastUsedAt.Valid {
-		inst.LastUsedAt = &lastUsedAt.Time
+		conn.LastUsedAt = &lastUsedAt.Time
 	}
 
-	return &inst, nil
+	return &conn, nil
 }
 
 // UpdateSecrets updates the encrypted secrets and OAuth metadata.
-func (s *InstallationStore) UpdateSecrets(ctx context.Context, id string, secrets *domain.InstallationSecrets, expiry *time.Time) error {
+func (s *ConnectionStore) UpdateSecrets(ctx context.Context, id string, secrets *domain.ConnectionSecrets, expiry *time.Time) error {
 	var secretBlob []byte
 	if secrets != nil {
 		var err error
@@ -362,7 +362,7 @@ func (s *InstallationStore) UpdateSecrets(ctx context.Context, id string, secret
 }
 
 // UpdateLastUsed updates the last_used_at timestamp.
-func (s *InstallationStore) UpdateLastUsed(ctx context.Context, id string) error {
+func (s *ConnectionStore) UpdateLastUsed(ctx context.Context, id string) error {
 	query := `
 		UPDATE connector_installations
 		SET last_used_at = $1

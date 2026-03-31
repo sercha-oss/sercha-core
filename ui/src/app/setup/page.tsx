@@ -30,7 +30,7 @@ function SetupWizardContent() {
 
     // Clear OAuth params when reaching completion step
     if (currentStep === 5) {
-      newParams.delete("installation_id");
+      newParams.delete("connection_id");
       newParams.delete("provider");
     }
 
@@ -68,7 +68,7 @@ function SetupWizardContent() {
       case 4:
         return (
           <StepDataSources
-            installationId={searchParams.get("installation_id") || undefined}
+            connectionId={searchParams.get("connection_id") || undefined}
             provider={searchParams.get("provider") || undefined}
             onComplete={() => completeStep(4)}
             onSkip={() => skipStep(4)}

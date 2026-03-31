@@ -51,16 +51,16 @@ func (s *sourceService) Create(ctx context.Context, creatorID string, req drivin
 
 	now := time.Now()
 	source := &domain.Source{
-		ID:                 generateID(),
-		Name:               strings.TrimSpace(req.Name),
-		ProviderType:       req.ProviderType,
-		Config:             req.Config,
-		InstallationID:     req.InstallationID,
-		SelectedContainers: req.SelectedContainers,
-		Enabled:            true,
-		CreatedAt:          now,
-		UpdatedAt:          now,
-		CreatedBy:          creatorID,
+		ID:           generateID(),
+		Name:         strings.TrimSpace(req.Name),
+		ProviderType: req.ProviderType,
+		Config:       req.Config,
+		ConnectionID: req.ConnectionID,
+		Containers:   req.Containers,
+		Enabled:      true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		CreatedBy:    creatorID,
 	}
 
 	if err := s.sourceStore.Save(ctx, source); err != nil {
@@ -187,13 +187,13 @@ func (s *sourceService) Disable(ctx context.Context, id string) error {
 	return s.sourceStore.SetEnabled(ctx, id, false)
 }
 
-// UpdateSelection updates the selected containers for a source
-func (s *sourceService) UpdateSelection(ctx context.Context, id string, containers []string) error {
+// UpdateContainers updates the selected containers for a source
+func (s *sourceService) UpdateContainers(ctx context.Context, id string, containers []domain.Container) error {
 	// Verify source exists
 	_, err := s.sourceStore.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	return s.sourceStore.UpdateSelection(ctx, id, containers)
+	return s.sourceStore.UpdateContainers(ctx, id, containers)
 }

@@ -49,8 +49,8 @@ var (
 	// ErrUnsupportedAuthMethod indicates the authentication method is not supported
 	ErrUnsupportedAuthMethod = errors.New("unsupported auth method")
 
-	// ErrInstallationNotFound indicates the connector installation was not found
-	ErrInstallationNotFound = errors.New("installation not found")
+	// ErrConnectionNotFound indicates the connector connection was not found
+	ErrConnectionNotFound = errors.New("connection not found")
 
 	// ErrInUse indicates the resource is in use and cannot be deleted
 	ErrInUse = errors.New("resource in use")

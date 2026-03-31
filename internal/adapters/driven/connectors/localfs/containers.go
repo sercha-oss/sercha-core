@@ -91,11 +91,11 @@ func countFiles(path string) int {
 
 // ContainerListerFactory creates ContainerListers for LocalFS installations.
 type ContainerListerFactory struct {
-	installationStore driven.InstallationStore
+	installationStore driven.ConnectionStore
 }
 
 // NewContainerListerFactory creates a factory for LocalFS container listers.
-func NewContainerListerFactory(installationStore driven.InstallationStore) *ContainerListerFactory {
+func NewContainerListerFactory(installationStore driven.ConnectionStore) *ContainerListerFactory {
 	return &ContainerListerFactory{
 		installationStore: installationStore,
 	}

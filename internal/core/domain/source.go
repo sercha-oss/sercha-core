@@ -13,13 +13,22 @@ type Source struct {
 	UpdatedAt    time.Time    `json:"updated_at"`
 	CreatedBy    string       `json:"created_by"` // User ID of creator
 
-	// InstallationID references the connector installation for authentication
-	InstallationID string `json:"installation_id,omitempty"`
+	// ConnectionID references the connector connection for authentication
+	ConnectionID string `json:"connection_id,omitempty"`
 
-	// SelectedContainers lists the container IDs to index
+	// Containers lists the containers to index (typed)
 	// Empty means index all accessible containers
-	// Examples: ["owner/repo1", "owner/repo2"] for GitHub
-	SelectedContainers []string `json:"selected_containers,omitempty"`
+	// Examples: repos for GitHub, channels for Slack, folders for Drive
+	Containers []Container `json:"containers,omitempty"`
+}
+
+// Container represents a selectable unit within a connection.
+// Examples: a repository, a Slack channel, a Drive folder, a Notion database.
+type Container struct {
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Type     string            `json:"type,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // SourceConfig holds provider-specific configuration

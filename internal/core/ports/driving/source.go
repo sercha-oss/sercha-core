@@ -8,11 +8,11 @@ import (
 
 // CreateSourceRequest represents a request to create a new source
 type CreateSourceRequest struct {
-	Name               string              `json:"name"`
-	ProviderType       domain.ProviderType `json:"provider_type"`
-	Config             domain.SourceConfig `json:"config"`
-	InstallationID     string              `json:"installation_id,omitempty"`
-	SelectedContainers []string            `json:"selected_containers,omitempty"`
+	Name         string              `json:"name"`
+	ProviderType domain.ProviderType `json:"provider_type"`
+	Config       domain.SourceConfig `json:"config"`
+	ConnectionID string              `json:"connection_id,omitempty"`
+	Containers   []domain.Container  `json:"containers,omitempty"`
 }
 
 // UpdateSourceRequest represents a request to update a source
@@ -48,7 +48,7 @@ type SourceService interface {
 	// Disable disables a source
 	Disable(ctx context.Context, id string) error
 
-	// UpdateSelection updates the selected containers for a source
+	// UpdateContainers updates the containers for a source
 	// Empty slice means index all containers
-	UpdateSelection(ctx context.Context, id string, containers []string) error
+	UpdateContainers(ctx context.Context, id string, containers []domain.Container) error
 }

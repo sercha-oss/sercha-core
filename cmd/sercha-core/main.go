@@ -229,7 +229,7 @@ func main() {
 
 	// ===== Connector Infrastructure =====
 	var connectorFactory driven.ConnectorFactory
-	var installationStore driven.InstallationStore
+	var installationStore driven.ConnectionStore
 	var oauthStateStore driven.OAuthStateStore
 
 	// Create secret encryptor (shared by all stores that encrypt secrets)
@@ -239,7 +239,7 @@ func main() {
 	}
 
 	// Create stores
-	installationStore = postgres.NewInstallationStore(db.DB, encryptor)
+	installationStore = postgres.NewConnectionStore(db.DB, encryptor)
 	oauthStateStore = postgres.NewOAuthStateStore(db.DB)
 
 	// Create token provider factory
@@ -427,12 +427,12 @@ func main() {
 		ConfigProvider:      cfg,
 		OAuthHandlerFactory: oauthHandlerFactory,
 		OAuthStateStore:     oauthStateStore,
-		InstallationStore:   installationStore,
+		ConnectionStore:     installationStore,
 	})
 
-	// Installation service (manages connector installations)
-	installationService := services.NewInstallationService(services.InstallationServiceConfig{
-		InstallationStore:      installationStore,
+	// Connection service (manages connector connections)
+	connectionService := services.NewConnectionService(services.ConnectionServiceConfig{
+		ConnectionStore:        installationStore,
 		SourceStore:            sourceStore,
 		ContainerListerFactory: containerListerFactory,
 		TokenProviderFactory:   tokenProviderFactory,
@@ -486,7 +486,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, installationService, syncOrchestrator, capabilitiesService, taskQueue, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, taskQueue, db, redisPing)
 
 	case "worker":
 		// Worker-only mode: Task processing, scheduler, no HTTP server
@@ -501,7 +501,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, installationService, syncOrchestrator, capabilitiesService, taskQueue, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, taskQueue, db, redisPing)
 
 	default:
 		log.Fatalf("Unknown mode: %s (use: api, worker, or all)", mode)
@@ -519,7 +519,7 @@ func runAPI(
 	vespaAdminService driving.VespaAdminService,
 	providerService driving.ProviderService,
 	oauthService driving.OAuthService,
-	installationService driving.InstallationService,
+	connectionService driving.ConnectionService,
 	syncOrchestrator driving.SyncOrchestrator,
 	capabilitiesService driving.CapabilitiesService,
 	taskQueue driven.TaskQueue,
@@ -543,7 +543,7 @@ func runAPI(
 		vespaAdminService,
 		providerService,
 		oauthService,
-		installationService,
+		connectionService,
 		syncOrchestrator,
 		capabilitiesService,
 		taskQueue,

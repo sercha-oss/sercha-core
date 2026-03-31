@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import Image from "next/image";
-import { getInstallation, ApiError } from "@/lib/api";
+import { getConnection, ApiError } from "@/lib/api";
 
 type CompletionStatus = "loading" | "success" | "error";
 
@@ -13,12 +13,12 @@ function OAuthCompleteContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<CompletionStatus>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [installationName, setInstallationName] = useState<string | null>(null);
+  const [connectionName, setInstallationName] = useState<string | null>(null);
 
   useEffect(() => {
     const processCompletion = async () => {
       // Read params from URL (set by API redirect)
-      const installationId = searchParams.get("installation_id");
+      const installationId = searchParams.get("connection_id");
       const provider = searchParams.get("provider");
       const returnContext = searchParams.get("return_context");
       const errorCode = searchParams.get("error");
@@ -40,7 +40,7 @@ function OAuthCompleteContent() {
 
       try {
         // Fetch installation details to display name
-        const installation = await getInstallation(installationId);
+        const installation = await getConnection(installationId);
         setInstallationName(installation.name);
         setStatus("success");
 
@@ -48,13 +48,13 @@ function OAuthCompleteContent() {
         setTimeout(() => {
           if (returnContext === "setup") {
             // User started OAuth from FTUE - go back to setup step 4
-            router.push(`/setup?step=4&installation_id=${installationId}&provider=${provider || ""}`);
+            router.push(`/setup?step=4&connection_id=${installationId}&provider=${provider || ""}`);
           } else if (returnContext === "admin-sources") {
             // User started OAuth from admin add source flow - go back to source wizard
-            router.push(`/admin/sources/new?installation_id=${installationId}&provider=${provider || ""}`);
+            router.push(`/admin/sources/new?connection_id=${installationId}&provider=${provider || ""}`);
           } else {
             // Default: go to admin sources list
-            router.push(`/admin/sources?installation_id=${installationId}`);
+            router.push(`/admin/sources?connection_id=${installationId}`);
           }
         }, 1500);
       } catch (err) {
@@ -114,8 +114,8 @@ function OAuthCompleteContent() {
                 Connected Successfully
               </h1>
               <p className="mt-2 text-sm text-sercha-fog-grey">
-                {installationName
-                  ? `"${installationName}" has been connected.`
+                {connectionName
+                  ? `"${connectionName}" has been connected.`
                   : "Your account has been connected."}
               </p>
               <p className="mt-1 text-xs text-sercha-silverline">

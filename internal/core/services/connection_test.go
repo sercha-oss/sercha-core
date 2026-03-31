@@ -10,19 +10,19 @@ import (
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven/mocks"
 )
 
-func TestInstallationService_List(t *testing.T) {
-	instStore := mocks.NewMockInstallationStore()
+func TestConnectionService_List(t *testing.T) {
+	connStore := mocks.NewMockConnectionStore()
 	sourceStore := mocks.NewMockSourceStore()
 
-	svc := NewInstallationService(InstallationServiceConfig{
-		InstallationStore: instStore,
-		SourceStore:       sourceStore,
+	svc := NewConnectionService(ConnectionServiceConfig{
+		ConnectionStore: connStore,
+		SourceStore:     sourceStore,
 	})
 
-	// Save some installations
+	// Save some connections
 	now := time.Now()
-	inst1 := &domain.Installation{
-		ID:           "inst-1",
+	conn1 := &domain.Connection{
+		ID:           "conn-1",
 		Name:         "Test GitHub",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
@@ -30,8 +30,8 @@ func TestInstallationService_List(t *testing.T) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	inst2 := &domain.Installation{
-		ID:           "inst-2",
+	conn2 := &domain.Connection{
+		ID:           "conn-2",
 		Name:         "Test Google",
 		ProviderType: domain.ProviderTypeGoogleDrive,
 		AuthMethod:   domain.AuthMethodOAuth2,
@@ -41,8 +41,8 @@ func TestInstallationService_List(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_ = instStore.Save(ctx, inst1)
-	_ = instStore.Save(ctx, inst2)
+	_ = connStore.Save(ctx, conn1)
+	_ = connStore.Save(ctx, conn2)
 
 	// Test List
 	summaries, err := svc.List(ctx)
@@ -50,17 +50,17 @@ func TestInstallationService_List(t *testing.T) {
 		t.Fatalf("List() error = %v", err)
 	}
 	if len(summaries) != 2 {
-		t.Errorf("List() got %d installations, want 2", len(summaries))
+		t.Errorf("List() got %d connections, want 2", len(summaries))
 	}
 }
 
-func TestInstallationService_Get(t *testing.T) {
-	instStore := mocks.NewMockInstallationStore()
+func TestConnectionService_Get(t *testing.T) {
+	connStore := mocks.NewMockConnectionStore()
 	sourceStore := mocks.NewMockSourceStore()
 
-	svc := NewInstallationService(InstallationServiceConfig{
-		InstallationStore: instStore,
-		SourceStore:       sourceStore,
+	svc := NewConnectionService(ConnectionServiceConfig{
+		ConnectionStore: connStore,
+		SourceStore:     sourceStore,
 	})
 
 	ctx := context.Background()
@@ -68,13 +68,13 @@ func TestInstallationService_Get(t *testing.T) {
 	// Test not found
 	_, err := svc.Get(ctx, "nonexistent")
 	if err == nil {
-		t.Error("Get() expected error for nonexistent installation")
+		t.Error("Get() expected error for nonexistent connection")
 	}
 
-	// Save an installation
+	// Save a connection
 	now := time.Now()
-	inst := &domain.Installation{
-		ID:           "inst-1",
+	conn := &domain.Connection{
+		ID:           "conn-1",
 		Name:         "Test GitHub",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
@@ -82,36 +82,36 @@ func TestInstallationService_Get(t *testing.T) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	_ = instStore.Save(ctx, inst)
+	_ = connStore.Save(ctx, conn)
 
 	// Test found
-	summary, err := svc.Get(ctx, "inst-1")
+	summary, err := svc.Get(ctx, "conn-1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	if summary.ID != "inst-1" {
-		t.Errorf("Get() got ID = %s, want inst-1", summary.ID)
+	if summary.ID != "conn-1" {
+		t.Errorf("Get() got ID = %s, want conn-1", summary.ID)
 	}
 	if summary.Name != "Test GitHub" {
 		t.Errorf("Get() got Name = %s, want Test GitHub", summary.Name)
 	}
 }
 
-func TestInstallationService_Delete(t *testing.T) {
-	instStore := mocks.NewMockInstallationStore()
+func TestConnectionService_Delete(t *testing.T) {
+	connStore := mocks.NewMockConnectionStore()
 	sourceStore := mocks.NewMockSourceStore()
 
-	svc := NewInstallationService(InstallationServiceConfig{
-		InstallationStore: instStore,
-		SourceStore:       sourceStore,
+	svc := NewConnectionService(ConnectionServiceConfig{
+		ConnectionStore: connStore,
+		SourceStore:     sourceStore,
 	})
 
 	ctx := context.Background()
 
-	// Save an installation
+	// Save a connection
 	now := time.Now()
-	inst := &domain.Installation{
-		ID:           "inst-1",
+	conn := &domain.Connection{
+		ID:           "conn-1",
 		Name:         "Test GitHub",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
@@ -119,35 +119,35 @@ func TestInstallationService_Delete(t *testing.T) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	_ = instStore.Save(ctx, inst)
+	_ = connStore.Save(ctx, conn)
 
 	// Delete should succeed
-	err := svc.Delete(ctx, "inst-1")
+	err := svc.Delete(ctx, "conn-1")
 	if err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
 	// Verify deleted
-	if instStore.Count() != 0 {
-		t.Error("Delete() installation still exists")
+	if connStore.Count() != 0 {
+		t.Error("Delete() connection still exists")
 	}
 }
 
-func TestInstallationService_Delete_InUse(t *testing.T) {
-	instStore := mocks.NewMockInstallationStore()
+func TestConnectionService_Delete_InUse(t *testing.T) {
+	connStore := mocks.NewMockConnectionStore()
 	sourceStore := mocks.NewMockSourceStore()
 
-	svc := NewInstallationService(InstallationServiceConfig{
-		InstallationStore: instStore,
-		SourceStore:       sourceStore,
+	svc := NewConnectionService(ConnectionServiceConfig{
+		ConnectionStore: connStore,
+		SourceStore:     sourceStore,
 	})
 
 	ctx := context.Background()
 
-	// Save an installation
+	// Save a connection
 	now := time.Now()
-	inst := &domain.Installation{
-		ID:           "inst-1",
+	conn := &domain.Connection{
+		ID:           "conn-1",
 		Name:         "Test GitHub",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
@@ -155,58 +155,58 @@ func TestInstallationService_Delete_InUse(t *testing.T) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	_ = instStore.Save(ctx, inst)
+	_ = connStore.Save(ctx, conn)
 
-	// Save a source using this installation
+	// Save a source using this connection
 	source := &domain.Source{
-		ID:             "src-1",
-		Name:           "My Repos",
-		ProviderType:   domain.ProviderTypeGitHub,
-		InstallationID: "inst-1",
-		Enabled:        true,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:           "src-1",
+		Name:         "My Repos",
+		ProviderType: domain.ProviderTypeGitHub,
+		ConnectionID: "conn-1",
+		Enabled:      true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	_ = sourceStore.Save(ctx, source)
 
 	// Delete should fail with ErrInUse
-	err := svc.Delete(ctx, "inst-1")
+	err := svc.Delete(ctx, "conn-1")
 	if err != domain.ErrInUse {
 		t.Errorf("Delete() error = %v, want ErrInUse", err)
 	}
 }
 
-func TestInstallationService_ListByProvider(t *testing.T) {
-	instStore := mocks.NewMockInstallationStore()
+func TestConnectionService_ListByProvider(t *testing.T) {
+	connStore := mocks.NewMockConnectionStore()
 	sourceStore := mocks.NewMockSourceStore()
 
-	svc := NewInstallationService(InstallationServiceConfig{
-		InstallationStore: instStore,
-		SourceStore:       sourceStore,
+	svc := NewConnectionService(ConnectionServiceConfig{
+		ConnectionStore: connStore,
+		SourceStore:     sourceStore,
 	})
 
 	ctx := context.Background()
 
-	// Save installations for different providers
+	// Save connections for different providers
 	now := time.Now()
-	inst1 := &domain.Installation{
-		ID:           "inst-1",
+	conn1 := &domain.Connection{
+		ID:           "conn-1",
 		Name:         "GitHub 1",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	inst2 := &domain.Installation{
-		ID:           "inst-2",
+	conn2 := &domain.Connection{
+		ID:           "conn-2",
 		Name:         "GitHub 2",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	inst3 := &domain.Installation{
-		ID:           "inst-3",
+	conn3 := &domain.Connection{
+		ID:           "conn-3",
 		Name:         "Google Drive",
 		ProviderType: domain.ProviderTypeGoogleDrive,
 		AuthMethod:   domain.AuthMethodOAuth2,
@@ -214,9 +214,9 @@ func TestInstallationService_ListByProvider(t *testing.T) {
 		UpdatedAt:    now,
 	}
 
-	_ = instStore.Save(ctx, inst1)
-	_ = instStore.Save(ctx, inst2)
-	_ = instStore.Save(ctx, inst3)
+	_ = connStore.Save(ctx, conn1)
+	_ = connStore.Save(ctx, conn2)
+	_ = connStore.Save(ctx, conn3)
 
 	// List by GitHub
 	summaries, err := svc.ListByProvider(ctx, domain.ProviderTypeGitHub)
@@ -224,7 +224,7 @@ func TestInstallationService_ListByProvider(t *testing.T) {
 		t.Fatalf("ListByProvider() error = %v", err)
 	}
 	if len(summaries) != 2 {
-		t.Errorf("ListByProvider() got %d installations, want 2", len(summaries))
+		t.Errorf("ListByProvider() got %d connections, want 2", len(summaries))
 	}
 
 	// List by Google Drive
@@ -233,7 +233,7 @@ func TestInstallationService_ListByProvider(t *testing.T) {
 		t.Fatalf("ListByProvider() error = %v", err)
 	}
 	if len(summaries) != 1 {
-		t.Errorf("ListByProvider() got %d installations, want 1", len(summaries))
+		t.Errorf("ListByProvider() got %d connections, want 1", len(summaries))
 	}
 }
 
@@ -243,7 +243,7 @@ type mockContainerListerFactory struct {
 	supportsContainerFn func(domain.ProviderType) bool
 }
 
-func (m *mockContainerListerFactory) Create(ctx context.Context, providerType domain.ProviderType, installationID string) (driven.ContainerLister, error) {
+func (m *mockContainerListerFactory) Create(ctx context.Context, providerType domain.ProviderType, connectionID string) (driven.ContainerLister, error) {
 	return m.lister, nil
 }
 
@@ -264,8 +264,8 @@ func (m *mockContainerLister) ListContainers(ctx context.Context, cursor string)
 	return m.containers, m.nextCursor, nil
 }
 
-func TestInstallationService_ListContainers(t *testing.T) {
-	instStore := mocks.NewMockInstallationStore()
+func TestConnectionService_ListContainers(t *testing.T) {
+	connStore := mocks.NewMockConnectionStore()
 	sourceStore := mocks.NewMockSourceStore()
 
 	// Create mock container lister
@@ -276,28 +276,28 @@ func TestInstallationService_ListContainers(t *testing.T) {
 	lister := &mockContainerLister{containers: containers}
 	factory := &mockContainerListerFactory{lister: lister}
 
-	svc := NewInstallationService(InstallationServiceConfig{
-		InstallationStore:      instStore,
-		SourceStore:            sourceStore,
+	svc := NewConnectionService(ConnectionServiceConfig{
+		ConnectionStore:       connStore,
+		SourceStore:           sourceStore,
 		ContainerListerFactory: factory,
 	})
 
 	ctx := context.Background()
 
-	// Save an installation
+	// Save a connection
 	now := time.Now()
-	inst := &domain.Installation{
-		ID:           "inst-1",
+	conn := &domain.Connection{
+		ID:           "conn-1",
 		Name:         "Test GitHub",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	_ = instStore.Save(ctx, inst)
+	_ = connStore.Save(ctx, conn)
 
 	// List containers
-	resp, err := svc.ListContainers(ctx, "inst-1", "")
+	resp, err := svc.ListContainers(ctx, "conn-1", "")
 	if err != nil {
 		t.Fatalf("ListContainers() error = %v", err)
 	}
@@ -306,8 +306,8 @@ func TestInstallationService_ListContainers(t *testing.T) {
 	}
 }
 
-func TestInstallationService_ListContainers_UnsupportedProvider(t *testing.T) {
-	instStore := mocks.NewMockInstallationStore()
+func TestConnectionService_ListContainers_UnsupportedProvider(t *testing.T) {
+	connStore := mocks.NewMockConnectionStore()
 	sourceStore := mocks.NewMockSourceStore()
 
 	// Create factory that doesn't support container selection for this provider
@@ -317,28 +317,28 @@ func TestInstallationService_ListContainers_UnsupportedProvider(t *testing.T) {
 		},
 	}
 
-	svc := NewInstallationService(InstallationServiceConfig{
-		InstallationStore:      instStore,
-		SourceStore:            sourceStore,
+	svc := NewConnectionService(ConnectionServiceConfig{
+		ConnectionStore:       connStore,
+		SourceStore:           sourceStore,
 		ContainerListerFactory: factory,
 	})
 
 	ctx := context.Background()
 
-	// Save an installation
+	// Save a connection
 	now := time.Now()
-	inst := &domain.Installation{
-		ID:           "inst-1",
+	conn := &domain.Connection{
+		ID:           "conn-1",
 		Name:         "Test GitHub",
 		ProviderType: domain.ProviderTypeGitHub,
 		AuthMethod:   domain.AuthMethodOAuth2,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	_ = instStore.Save(ctx, inst)
+	_ = connStore.Save(ctx, conn)
 
 	// List containers should return empty list
-	resp, err := svc.ListContainers(ctx, "inst-1", "")
+	resp, err := svc.ListContainers(ctx, "conn-1", "")
 	if err != nil {
 		t.Fatalf("ListContainers() error = %v", err)
 	}

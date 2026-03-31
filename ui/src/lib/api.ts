@@ -214,7 +214,7 @@ export interface OAuthAuthorizeResponse {
   state: string;
 }
 
-export interface InstallationSummary {
+export interface ConnectionSummary {
   id: string;
   name: string;
   provider_type: string;
@@ -245,8 +245,8 @@ export interface CreateSourceRequest {
   name: string;
   provider_type: string;
   config?: Record<string, unknown>;
-  installation_id: string;
-  selected_containers: string[];
+  connection_id: string;
+  containers: string[];
 }
 
 export interface Source {
@@ -267,8 +267,8 @@ export interface SourceSummaryResponse {
     provider_type: string;
     config: Record<string, unknown>;
     enabled: boolean;
-    installation_id?: string;
-    selected_containers?: string[];
+    connection_id?: string;
+    containers?: string[];
     created_at: string;
     updated_at: string;
     created_by?: string;
@@ -489,8 +489,8 @@ export interface UpdateSourceRequest {
   enabled?: boolean;
 }
 
-export interface UpdateSourceSelectionRequest {
-  selected_containers: string[];
+export interface UpdateSourceContainersRequest {
+  containers: string[];
 }
 
 export interface VersionResponse {
@@ -813,8 +813,8 @@ export async function handleOAuthCallback(
   code: string,
   state: string,
   provider: string
-): Promise<{ installation: InstallationSummary; message: string }> {
-  return apiFetch<{ installation: InstallationSummary; message: string }>(
+): Promise<{ connection: ConnectionSummary; message: string }> {
+  return apiFetch<{ connection: ConnectionSummary; message: string }>(
     `/api/v1/oauth/${provider}/exchange`,
     {
       method: "POST",
@@ -823,13 +823,13 @@ export async function handleOAuthCallback(
   );
 }
 
-// ========== Installations API ==========
+// ========== Connections API ==========
 
-export async function listInstallations(): Promise<InstallationSummary[]> {
-  return apiFetch<InstallationSummary[]>("/api/v1/installations");
+export async function listConnections(): Promise<ConnectionSummary[]> {
+  return apiFetch<ConnectionSummary[]>("/api/v1/connections");
 }
 
-export async function getInstallationContainers(
+export async function getConnectionContainers(
   id: string,
   cursor?: string,
   parentId?: string
@@ -838,7 +838,7 @@ export async function getInstallationContainers(
   if (cursor) params.set("cursor", cursor);
   if (parentId) params.set("parent", parentId);
   const queryString = params.toString();
-  return apiFetch<ContainerListResponse>(`/api/v1/installations/${id}/containers${queryString ? `?${queryString}` : ""}`);
+  return apiFetch<ContainerListResponse>(`/api/v1/connections/${id}/containers${queryString ? `?${queryString}` : ""}`);
 }
 
 // ========== Sources API ==========
@@ -971,23 +971,23 @@ export async function getAIStatus(): Promise<AISettingsStatus> {
   return apiFetch<AISettingsStatus>("/api/v1/settings/ai/status");
 }
 
-// ========== Additional Installation APIs ==========
+// ========== Additional Connection APIs ==========
 
-export async function getInstallation(id: string): Promise<InstallationSummary> {
-  return apiFetch<InstallationSummary>(`/api/v1/installations/${id}`);
+export async function getConnection(id: string): Promise<ConnectionSummary> {
+  return apiFetch<ConnectionSummary>(`/api/v1/connections/${id}`);
 }
 
-export async function deleteInstallation(id: string): Promise<void> {
-  await apiFetch(`/api/v1/installations/${id}`, { method: "DELETE" });
+export async function deleteConnection(id: string): Promise<void> {
+  await apiFetch(`/api/v1/connections/${id}`, { method: "DELETE" });
 }
 
-export async function testInstallation(id: string): Promise<{ status: string; message?: string }> {
-  return apiFetch<{ status: string; message?: string }>(`/api/v1/installations/${id}/test`, {
+export async function testConnection(id: string): Promise<{ status: string; message?: string }> {
+  return apiFetch<{ status: string; message?: string }>(`/api/v1/connections/${id}/test`, {
     method: "POST",
   });
 }
 
-export interface InstallationSourceSummary {
+export interface ConnectionSourceSummary {
   source: {
     id: string;
     name: string;
@@ -999,9 +999,21 @@ export interface InstallationSourceSummary {
   last_sync_at?: string;
 }
 
-export async function getInstallationSources(id: string): Promise<InstallationSourceSummary[]> {
-  return apiFetch<InstallationSourceSummary[]>(`/api/v1/installations/${id}/sources`);
+export async function getConnectionSources(id: string): Promise<ConnectionSourceSummary[]> {
+  return apiFetch<ConnectionSourceSummary[]>(`/api/v1/connections/${id}/sources`);
 }
+
+// Backward compatibility aliases
+export type InstallationSummary = ConnectionSummary;
+export type InstallationSourceSummary = ConnectionSourceSummary;
+export const listInstallations = listConnections;
+export const getInstallation = getConnection;
+export const deleteInstallation = deleteConnection;
+export const testInstallation = testConnection;
+export const getInstallationContainers = getConnectionContainers;
+export const getInstallationSources = getConnectionSources;
+export type UpdateSourceSelectionRequest = UpdateSourceContainersRequest;
+export const updateSourceSelection = updateSourceContainers;
 
 // ========== Additional Source APIs ==========
 
@@ -1016,11 +1028,11 @@ export async function updateSource(id: string, data: UpdateSourceRequest): Promi
   });
 }
 
-export async function updateSourceSelection(
+export async function updateSourceContainers(
   id: string,
-  data: UpdateSourceSelectionRequest
+  data: UpdateSourceContainersRequest
 ): Promise<Source> {
-  return apiFetch<Source>(`/api/v1/sources/${id}/selection`, {
+  return apiFetch<Source>(`/api/v1/sources/${id}/containers`, {
     method: "PUT",
     body: JSON.stringify(data),
   });

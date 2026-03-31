@@ -1128,33 +1128,33 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 // Installation endpoints
 
-// handleCreateInstallation godoc
-// @Summary      Create installation
+// handleCreateConnection godoc
+// @Summary      Create connection
 // @Description  Create a new installation for non-OAuth connectors (API key, path-based). Used for connectors like localfs.
-// @Tags         Installations
+// @Tags         Connections
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        request  body      driving.CreateInstallationRequest  true  "Installation configuration"
-// @Success      201  {object}  domain.InstallationSummary
+// @Param        request  body      driving.CreateConnectionRequest  true  "Installation configuration"
+// @Success      201  {object}  domain.ConnectionSummary
 // @Failure      400  {object}  ErrorResponse  "Invalid request"
 // @Failure      401  {object}  ErrorResponse  "Unauthorized"
 // @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
 // @Failure      500  {object}  ErrorResponse  "Internal server error"
-// @Router       /installations [post]
-func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request) {
-	if s.installationService == nil {
-		writeError(w, http.StatusServiceUnavailable, "installation service not configured")
+// @Router       /connections [post]
+func (s *Server) handleCreateConnection(w http.ResponseWriter, r *http.Request) {
+	if s.connectionService == nil {
+		writeError(w, http.StatusServiceUnavailable, "connection service not configured")
 		return
 	}
 
-	var req driving.CreateInstallationRequest
+	var req driving.CreateConnectionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
-	installation, err := s.installationService.Create(r.Context(), req)
+	installation, err := s.connectionService.Create(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidInput) {
 			writeError(w, http.StatusBadRequest, "missing required fields")
@@ -1167,24 +1167,24 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, installation)
 }
 
-// handleListInstallations godoc
-// @Summary      List installations
-// @Description  Get all connector installations. Installations represent authenticated connections to external data sources (OAuth tokens, API keys, etc.).
-// @Tags         Installations
+// handleListConnections godoc
+// @Summary      List connections
+// @Description  Get all connector connections. Connections represent authenticated connections to external data sources (OAuth tokens, API keys, etc.).
+// @Tags         Connections
 // @Produce      json
 // @Security     BearerAuth
-// @Success      200  {array}   domain.InstallationSummary
+// @Success      200  {array}   domain.ConnectionSummary
 // @Failure      401  {object}  ErrorResponse  "Unauthorized"
 // @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
 // @Failure      500  {object}  ErrorResponse  "Internal server error"
-// @Router       /installations [get]
-func (s *Server) handleListInstallations(w http.ResponseWriter, r *http.Request) {
-	if s.installationService == nil {
-		writeError(w, http.StatusServiceUnavailable, "installation service not configured")
+// @Router       /connections [get]
+func (s *Server) handleListConnections(w http.ResponseWriter, r *http.Request) {
+	if s.connectionService == nil {
+		writeError(w, http.StatusServiceUnavailable, "connection service not configured")
 		return
 	}
 
-	installations, err := s.installationService.List(r.Context())
+	installations, err := s.connectionService.List(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list installations")
 		return
@@ -1193,33 +1193,33 @@ func (s *Server) handleListInstallations(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, installations)
 }
 
-// handleGetInstallation godoc
-// @Summary      Get installation
+// handleGetConnection godoc
+// @Summary      Get connection
 // @Description  Get a connector installation by ID. Returns installation metadata without secrets.
-// @Tags         Installations
+// @Tags         Connections
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Installation ID"
-// @Success      200  {object}  domain.InstallationSummary
+// @Success      200  {object}  domain.ConnectionSummary
 // @Failure      400  {object}  ErrorResponse  "Missing installation ID"
 // @Failure      401  {object}  ErrorResponse  "Unauthorized"
 // @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      404  {object}  ErrorResponse  "Installation not found"
+// @Failure      404  {object}  ErrorResponse  "Connection not found"
 // @Failure      500  {object}  ErrorResponse  "Internal server error"
-// @Router       /installations/{id} [get]
-func (s *Server) handleGetInstallation(w http.ResponseWriter, r *http.Request) {
-	if s.installationService == nil {
-		writeError(w, http.StatusServiceUnavailable, "installation service not configured")
+// @Router       /connections/{id} [get]
+func (s *Server) handleGetConnection(w http.ResponseWriter, r *http.Request) {
+	if s.connectionService == nil {
+		writeError(w, http.StatusServiceUnavailable, "connection service not configured")
 		return
 	}
 
 	id := r.PathValue("id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing installation id")
+		writeError(w, http.StatusBadRequest, "missing connection id")
 		return
 	}
 
-	installation, err := s.installationService.Get(r.Context(), id)
+	installation, err := s.connectionService.Get(r.Context(), id)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
@@ -1233,10 +1233,10 @@ func (s *Server) handleGetInstallation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, installation)
 }
 
-// handleDeleteInstallation godoc
-// @Summary      Delete installation
+// handleDeleteConnection godoc
+// @Summary      Delete connection
 // @Description  Delete a connector installation. Cannot delete installations that are in use by sources.
-// @Tags         Installations
+// @Tags         Connections
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Installation ID"
@@ -1244,23 +1244,23 @@ func (s *Server) handleGetInstallation(w http.ResponseWriter, r *http.Request) {
 // @Failure      400  {object}  ErrorResponse  "Missing installation ID"
 // @Failure      401  {object}  ErrorResponse  "Unauthorized"
 // @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      404  {object}  ErrorResponse  "Installation not found"
-// @Failure      409  {object}  ErrorResponse  "Installation in use by sources"
+// @Failure      404  {object}  ErrorResponse  "Connection not found"
+// @Failure      409  {object}  ErrorResponse  "Connection in use by sources"
 // @Failure      500  {object}  ErrorResponse  "Internal server error"
-// @Router       /installations/{id} [delete]
-func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request) {
-	if s.installationService == nil {
-		writeError(w, http.StatusServiceUnavailable, "installation service not configured")
+// @Router       /connections/{id} [delete]
+func (s *Server) handleDeleteConnection(w http.ResponseWriter, r *http.Request) {
+	if s.connectionService == nil {
+		writeError(w, http.StatusServiceUnavailable, "connection service not configured")
 		return
 	}
 
 	id := r.PathValue("id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing installation id")
+		writeError(w, http.StatusBadRequest, "missing connection id")
 		return
 	}
 
-	err := s.installationService.Delete(r.Context(), id)
+	err := s.connectionService.Delete(r.Context(), id)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
@@ -1279,7 +1279,7 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 // handleListContainers godoc
 // @Summary      List containers
 // @Description  List available containers (repositories, drives, spaces, etc.) for an installation. Use this to populate a resource picker UI for selecting which containers to index.
-// @Tags         Installations
+// @Tags         Connections
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id      path      string  true   "Installation ID"
@@ -1288,24 +1288,24 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 // @Failure      400     {object}  ErrorResponse  "Missing installation ID"
 // @Failure      401     {object}  ErrorResponse  "Unauthorized"
 // @Failure      403     {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      404     {object}  ErrorResponse  "Installation not found"
+// @Failure      404     {object}  ErrorResponse  "Connection not found"
 // @Failure      500     {object}  ErrorResponse  "Internal server error"
-// @Router       /installations/{id}/containers [get]
+// @Router       /connections/{id}/containers [get]
 func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
-	if s.installationService == nil {
-		writeError(w, http.StatusServiceUnavailable, "installation service not configured")
+	if s.connectionService == nil {
+		writeError(w, http.StatusServiceUnavailable, "connection service not configured")
 		return
 	}
 
 	id := r.PathValue("id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing installation id")
+		writeError(w, http.StatusBadRequest, "missing connection id")
 		return
 	}
 
 	cursor := r.URL.Query().Get("cursor")
 
-	containers, err := s.installationService.ListContainers(r.Context(), id, cursor)
+	containers, err := s.connectionService.ListContainers(r.Context(), id, cursor)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
@@ -1319,10 +1319,10 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, containers)
 }
 
-// handleTestInstallation godoc
-// @Summary      Test installation
+// handleTestConnection godoc
+// @Summary      Test connection
 // @Description  Test if an installation's credentials are still valid. This attempts to authenticate with the external service.
-// @Tags         Installations
+// @Tags         Connections
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Installation ID"
@@ -1330,22 +1330,22 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 // @Failure      400  {object}  ErrorResponse  "Missing installation ID"
 // @Failure      401  {object}  ErrorResponse  "Unauthorized"
 // @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      404  {object}  ErrorResponse  "Installation not found"
+// @Failure      404  {object}  ErrorResponse  "Connection not found"
 // @Failure      503  {object}  ErrorResponse  "Credentials invalid or service unavailable"
-// @Router       /installations/{id}/test [post]
-func (s *Server) handleTestInstallation(w http.ResponseWriter, r *http.Request) {
-	if s.installationService == nil {
-		writeError(w, http.StatusServiceUnavailable, "installation service not configured")
+// @Router       /connections/{id}/test [post]
+func (s *Server) handleTestConnection(w http.ResponseWriter, r *http.Request) {
+	if s.connectionService == nil {
+		writeError(w, http.StatusServiceUnavailable, "connection service not configured")
 		return
 	}
 
 	id := r.PathValue("id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "missing installation id")
+		writeError(w, http.StatusBadRequest, "missing connection id")
 		return
 	}
 
-	err := s.installationService.TestConnection(r.Context(), id)
+	err := s.connectionService.TestConnection(r.Context(), id)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
@@ -1359,52 +1359,52 @@ func (s *Server) handleTestInstallation(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "connected"})
 }
 
-// Source selection endpoint
+// Source containers endpoint
 
-// UpdateSelectionRequest represents a request to update source container selection
+// UpdateContainersRequest represents a request to update source container containers
 // @Description Request to update which containers a source should index
-type UpdateSelectionRequest struct {
-	// SelectedContainers is the list of container IDs to index.
+type UpdateContainersRequest struct {
+	// Containers is the list of containers to index.
 	// Empty list means index all available containers.
-	SelectedContainers []string `json:"selected_containers" example:"[\"octocat/hello-world\",\"octocat/spoon-knife\"]"`
+	Containers []domain.Container `json:"containers"`
 }
 
-// handleUpdateSourceSelection godoc
-// @Summary      Update source selection
+// handleUpdateSourceContainers godoc
+// @Summary      Update source containers
 // @Description  Update which containers (repos, drives, spaces) a source should index. Pass an empty array to index all available containers.
 // @Tags         Sources
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id       path      string                   true  "Source ID"
-// @Param        request  body      UpdateSelectionRequest   true  "Container selection"
+// @Param        request  body      UpdateContainersRequest   true  "Container containers"
 // @Success      200      {object}  StatusResponse
 // @Failure      400      {object}  ErrorResponse  "Invalid request"
 // @Failure      401      {object}  ErrorResponse  "Unauthorized"
 // @Failure      403      {object}  ErrorResponse  "Forbidden - admin only"
 // @Failure      404      {object}  ErrorResponse  "Source not found"
 // @Failure      500      {object}  ErrorResponse  "Internal server error"
-// @Router       /sources/{id}/selection [put]
-func (s *Server) handleUpdateSourceSelection(w http.ResponseWriter, r *http.Request) {
+// @Router       /sources/{id}/containers [put]
+func (s *Server) handleUpdateSourceContainers(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing source id")
 		return
 	}
 
-	var req UpdateSelectionRequest
+	var req UpdateContainersRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	err := s.sourceService.UpdateSelection(r.Context(), id, req.SelectedContainers)
+	err := s.sourceService.UpdateContainers(r.Context(), id, req.Containers)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
 			writeError(w, http.StatusNotFound, "source not found")
 		default:
-			writeError(w, http.StatusInternalServerError, "failed to update selection")
+			writeError(w, http.StatusInternalServerError, "failed to update containers")
 		}
 		return
 	}
@@ -1716,7 +1716,7 @@ type AdminStatsResponse struct {
 	Documents     DocumentStats     `json:"documents"`
 	Chunks        ChunkStats        `json:"chunks"`
 	Sources       SourceStats       `json:"sources"`
-	Installations InstallationStats `json:"installations"`
+	Connections ConnectionStats `json:"installations"`
 	Users         UserStats         `json:"users"`
 }
 
@@ -1736,8 +1736,8 @@ type SourceStats struct {
 	Enabled int `json:"enabled"`
 }
 
-// InstallationStats represents installation statistics
-type InstallationStats struct {
+// ConnectionStats represents installation statistics
+type ConnectionStats struct {
 	Total int `json:"total"`
 }
 
@@ -1780,10 +1780,10 @@ func (s *Server) handleGetAdminStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get installation count
+	// Get connection count
 	var installCount int
-	if s.installationService != nil {
-		installations, err := s.installationService.List(ctx)
+	if s.connectionService != nil {
+		installations, err := s.connectionService.List(ctx)
 		if err == nil {
 			installCount = len(installations)
 		}
@@ -1813,7 +1813,7 @@ func (s *Server) handleGetAdminStats(w http.ResponseWriter, r *http.Request) {
 			Total:   len(sources),
 			Enabled: enabledCount,
 		},
-		Installations: InstallationStats{
+		Connections: ConnectionStats{
 			Total: installCount,
 		},
 		Users: UserStats{

@@ -25,8 +25,8 @@ type OAuthServiceConfig struct {
 	// OAuthStateStore manages OAuth flow state.
 	OAuthStateStore driven.OAuthStateStore
 
-	// InstallationStore persists connector installations.
-	InstallationStore driven.InstallationStore
+	// ConnectionStore persists connector installations.
+	ConnectionStore driven.ConnectionStore
 
 	// OAuthHandlerFactory provides OAuth handlers per provider.
 	// Port interface - abstracts connector factory.
@@ -37,7 +37,7 @@ type OAuthServiceConfig struct {
 type oauthService struct {
 	configProvider      driven.ConfigProvider
 	oauthStateStore     driven.OAuthStateStore
-	installationStore   driven.InstallationStore
+	installationStore   driven.ConnectionStore
 	oauthHandlerFactory driven.OAuthHandlerFactory
 }
 
@@ -46,7 +46,7 @@ func NewOAuthService(cfg OAuthServiceConfig) driving.OAuthService {
 	return &oauthService{
 		configProvider:      cfg.ConfigProvider,
 		oauthStateStore:     cfg.OAuthStateStore,
-		installationStore:   cfg.InstallationStore,
+		installationStore:   cfg.ConnectionStore,
 		oauthHandlerFactory: cfg.OAuthHandlerFactory,
 	}
 }
@@ -192,7 +192,7 @@ func (s *oauthService) Callback(ctx context.Context, req driving.CallbackRequest
 		return nil, fmt.Errorf("check existing installation: %w", err)
 	}
 
-	var installation *domain.Installation
+	var installation *domain.Connection
 	if existing != nil {
 		// Update existing installation with new tokens
 		var expiry *time.Time
@@ -201,7 +201,7 @@ func (s *oauthService) Callback(ctx context.Context, req driving.CallbackRequest
 			expiry = &t
 		}
 
-		err = s.installationStore.UpdateSecrets(ctx, existing.ID, &domain.InstallationSecrets{
+		err = s.installationStore.UpdateSecrets(ctx, existing.ID, &domain.ConnectionSecrets{
 			AccessToken:  token.AccessToken,
 			RefreshToken: token.RefreshToken,
 		}, expiry)
@@ -230,7 +230,7 @@ func (s *oauthService) Callback(ctx context.Context, req driving.CallbackRequest
 			expiry = &t
 		}
 
-		installation = &domain.Installation{
+		installation = &domain.Connection{
 			ID:             installationID,
 			Name:           name,
 			ProviderType:   providerType,
@@ -239,7 +239,7 @@ func (s *oauthService) Callback(ctx context.Context, req driving.CallbackRequest
 			OAuthTokenType: token.TokenType,
 			OAuthExpiry:    expiry,
 			OAuthScopes:    splitScopes(token.Scope),
-			Secrets: &domain.InstallationSecrets{
+			Secrets: &domain.ConnectionSecrets{
 				AccessToken:  token.AccessToken,
 				RefreshToken: token.RefreshToken,
 			},

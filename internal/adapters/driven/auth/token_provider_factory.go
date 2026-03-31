@@ -15,19 +15,19 @@ var _ driven.TokenProviderFactory = (*TokenProviderFactory)(nil)
 // TokenRefresherFunc is a function type for token refresh operations.
 type TokenRefresherFunc func(ctx context.Context, refreshToken string) (*driven.OAuthToken, error)
 
-// TokenProviderFactory creates TokenProviders from installation credentials.
+// TokenProviderFactory creates TokenProviders from connection credentials.
 type TokenProviderFactory struct {
-	installationStore driven.InstallationStore
-	refreshers        map[domain.ProviderType]TokenRefresherFunc
+	connectionStore driven.ConnectionStore
+	refreshers      map[domain.ProviderType]TokenRefresherFunc
 }
 
 // NewTokenProviderFactory creates a new TokenProviderFactory.
 func NewTokenProviderFactory(
-	installationStore driven.InstallationStore,
+	connectionStore driven.ConnectionStore,
 ) *TokenProviderFactory {
 	return &TokenProviderFactory{
-		installationStore: installationStore,
-		refreshers:        make(map[domain.ProviderType]TokenRefresherFunc),
+		connectionStore: connectionStore,
+		refreshers:      make(map[domain.ProviderType]TokenRefresherFunc),
 	}
 }
 
@@ -39,56 +39,56 @@ func (f *TokenProviderFactory) RegisterRefresher(
 	f.refreshers[providerType] = refresher
 }
 
-// Create creates a TokenProvider for an installation.
-// It looks up the installation by ID, decrypts credentials, and creates
+// Create creates a TokenProvider for a connection.
+// It looks up the connection by ID, decrypts credentials, and creates
 // an appropriate TokenProvider based on the auth method.
-func (f *TokenProviderFactory) Create(ctx context.Context, installationID string) (driven.TokenProvider, error) {
-	inst, err := f.installationStore.Get(ctx, installationID)
+func (f *TokenProviderFactory) Create(ctx context.Context, connectionID string) (driven.TokenProvider, error) {
+	conn, err := f.connectionStore.Get(ctx, connectionID)
 	if err != nil {
-		return nil, fmt.Errorf("get installation: %w", err)
+		return nil, fmt.Errorf("get connection: %w", err)
 	}
-	if inst == nil {
-		return nil, fmt.Errorf("%w: %s", domain.ErrInstallationNotFound, installationID)
+	if conn == nil {
+		return nil, fmt.Errorf("%w: %s", domain.ErrConnectionNotFound, connectionID)
 	}
 
-	return f.CreateFromInstallation(ctx, inst)
+	return f.CreateFromConnection(ctx, conn)
 }
 
-// CreateFromInstallation creates a TokenProvider from an installation directly.
-// Use this when you already have the installation loaded.
-func (f *TokenProviderFactory) CreateFromInstallation(ctx context.Context, inst *domain.Installation) (driven.TokenProvider, error) {
-	if inst.Secrets == nil {
-		return nil, fmt.Errorf("installation has no secrets: %s", inst.ID)
+// CreateFromConnection creates a TokenProvider from a connection directly.
+// Use this when you already have the connection loaded.
+func (f *TokenProviderFactory) CreateFromConnection(ctx context.Context, conn *domain.Connection) (driven.TokenProvider, error) {
+	if conn.Secrets == nil {
+		return nil, fmt.Errorf("connection has no secrets: %s", conn.ID)
 	}
 
-	switch inst.AuthMethod {
+	switch conn.AuthMethod {
 	case domain.AuthMethodOAuth2:
-		refresher := f.refreshers[inst.ProviderType]
+		refresher := f.refreshers[conn.ProviderType]
 		return NewOAuthTokenProvider(
-			inst.ID,
-			inst.Secrets.AccessToken,
-			inst.Secrets.RefreshToken,
-			inst.OAuthExpiry,
+			conn.ID,
+			conn.Secrets.AccessToken,
+			conn.Secrets.RefreshToken,
+			conn.OAuthExpiry,
 			refresher,
-			f.installationStore,
+			f.connectionStore,
 		), nil
 
 	case domain.AuthMethodAPIKey:
-		return NewStaticTokenProvider(inst.Secrets.APIKey, domain.AuthMethodAPIKey), nil
+		return NewStaticTokenProvider(conn.Secrets.APIKey, domain.AuthMethodAPIKey), nil
 
 	case domain.AuthMethodPAT:
-		token := inst.Secrets.APIKey
+		token := conn.Secrets.APIKey
 		if token == "" {
-			token = inst.Secrets.AccessToken
+			token = conn.Secrets.AccessToken
 		}
 		return NewStaticTokenProvider(token, domain.AuthMethodPAT), nil
 
 	case domain.AuthMethodServiceAccount:
 		// Service accounts typically use the service account JSON as-is
-		return NewStaticTokenProvider(inst.Secrets.ServiceAccountJSON, domain.AuthMethodServiceAccount), nil
+		return NewStaticTokenProvider(conn.Secrets.ServiceAccountJSON, domain.AuthMethodServiceAccount), nil
 
 	default:
-		return nil, fmt.Errorf("%w: %s", domain.ErrUnsupportedAuthMethod, inst.AuthMethod)
+		return nil, fmt.Errorf("%w: %s", domain.ErrUnsupportedAuthMethod, conn.AuthMethod)
 	}
 }
 
@@ -133,30 +133,30 @@ func (p *StaticTokenProvider) IsValid(ctx context.Context) bool {
 // OAuthTokenProvider implements TokenProvider for OAuth2 credentials.
 // It automatically refreshes tokens when they expire.
 type OAuthTokenProvider struct {
-	installationID    string
-	accessToken       string
-	refreshToken      string
-	expiry            *time.Time
-	refresher         TokenRefresherFunc
-	installationStore driven.InstallationStore
+	connectionID    string
+	accessToken     string
+	refreshToken    string
+	expiry          *time.Time
+	refresher       TokenRefresherFunc
+	connectionStore driven.ConnectionStore
 }
 
 // NewOAuthTokenProvider creates a token provider for OAuth credentials.
 func NewOAuthTokenProvider(
-	installationID string,
+	connectionID string,
 	accessToken string,
 	refreshToken string,
 	expiry *time.Time,
 	refresher TokenRefresherFunc,
-	installationStore driven.InstallationStore,
+	connectionStore driven.ConnectionStore,
 ) *OAuthTokenProvider {
 	return &OAuthTokenProvider{
-		installationID:    installationID,
-		accessToken:       accessToken,
-		refreshToken:      refreshToken,
-		expiry:            expiry,
-		refresher:         refresher,
-		installationStore: installationStore,
+		connectionID:    connectionID,
+		accessToken:     accessToken,
+		refreshToken:    refreshToken,
+		expiry:          expiry,
+		refresher:       refresher,
+		connectionStore: connectionStore,
 	}
 }
 
@@ -242,14 +242,14 @@ func (p *OAuthTokenProvider) refresh(ctx context.Context) error {
 		p.expiry = &expiry
 	}
 
-	// Update installation store
-	if p.installationStore != nil {
-		secrets := &domain.InstallationSecrets{
+	// Update connection store
+	if p.connectionStore != nil {
+		secrets := &domain.ConnectionSecrets{
 			AccessToken:  p.accessToken,
 			RefreshToken: p.refreshToken,
 		}
 		// Ignore error - we have the tokens locally, persistence failure is non-fatal
-		_ = p.installationStore.UpdateSecrets(ctx, p.installationID, secrets, p.expiry)
+		_ = p.connectionStore.UpdateSecrets(ctx, p.connectionID, secrets, p.expiry)
 	}
 
 	return nil

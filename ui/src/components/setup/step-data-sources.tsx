@@ -17,23 +17,23 @@ import {
 import {
   listProviders,
   listSources,
-  listInstallations,
+  listConnections,
   getCapabilities,
   startOAuth,
-  getInstallation,
-  getInstallationContainers,
+  getConnection,
+  getConnectionContainers,
   createSource,
   deleteSource,
   ApiError,
   type ProviderListItem,
   type SourceSummary,
-  type InstallationSummary,
+  type ConnectionSummary,
   type Container,
 } from "@/lib/api";
 import { PROVIDER_ICONS } from "@/lib/providers";
 
 interface StepDataSourcesProps {
-  installationId?: string;
+  connectionId?: string;
   provider?: string;
   onComplete: () => void;
   onSkip: () => void;
@@ -41,7 +41,7 @@ interface StepDataSourcesProps {
 
 type SubFlowView =
   | "selection"
-  | "installation_picker"
+  | "connection_picker"
   | "connecting"
   | "select"
   | "creating"
@@ -49,7 +49,7 @@ type SubFlowView =
   | "error";
 
 export function StepDataSources({
-  installationId,
+  connectionId,
   provider: providerFromUrl,
   onComplete,
   onSkip,
@@ -64,9 +64,9 @@ export function StepDataSources({
   const [connectedSources, setConnectedSources] = useState<SourceSummary[]>([]);
   const [pendingProvider, setPendingProvider] = useState<ProviderListItem | null>(null);
 
-  // Installation & container state
-  const [selectedInstallation, setSelectedInstallation] = useState<InstallationSummary | null>(null);
-  const [existingInstallations, setExistingInstallations] = useState<InstallationSummary[]>([]);
+  // Connection & container state
+  const [selectedConnection, setSelectedConnection] = useState<ConnectionSummary | null>(null);
+  const [existingConnections, setExistingConnections] = useState<ConnectionSummary[]>([]);
   const [containers, setContainers] = useState<Container[]>([]);
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -93,9 +93,9 @@ export function StepDataSources({
         setProviders(configuredProviders);
         setConnectedSources(sourceList);
 
-        // Handle OAuth callback return (installation_id and provider come from URL via /oauth/complete)
-        if (installationId) {
-          await handleOAuthReturn(installationId, providerFromUrl);
+        // Handle OAuth callback return (connection_id and provider come from URL via /oauth/complete)
+        if (connectionId) {
+          await handleOAuthReturn(connectionId, providerFromUrl);
         }
       } catch {
         // Don't show error on initial load
@@ -106,7 +106,7 @@ export function StepDataSources({
       }
     };
     loadInitialData();
-  }, [installationId, providerFromUrl]);
+  }, [connectionId, providerFromUrl]);
 
   const loadConnectedSources = async () => {
     try {
@@ -120,7 +120,7 @@ export function StepDataSources({
   const loadContainers = async (instId: string, parentId?: string) => {
     setIsLoadingContainers(true);
     try {
-      const result = await getInstallationContainers(instId, undefined, parentId);
+      const result = await getConnectionContainers(instId, undefined, parentId);
       setContainers(result.containers);
       // Only auto-select all on initial load (root level)
       if (!parentId && folderPath.length === 0) {
@@ -136,22 +136,22 @@ export function StepDataSources({
 
   // Navigate into a folder
   const handleDrillDown = async (container: Container) => {
-    if (!selectedInstallation || !container.has_children) return;
+    if (!selectedConnection || !container.has_children) return;
     setFolderPath([...folderPath, { id: container.id, name: container.name }]);
-    await loadContainers(selectedInstallation.id, container.id);
+    await loadContainers(selectedConnection.id, container.id);
   };
 
   // Navigate via breadcrumb
   const handleBreadcrumbClick = async (index: number) => {
-    if (!selectedInstallation) return;
+    if (!selectedConnection) return;
     if (index === -1) {
       // Go to root
       setFolderPath([]);
-      await loadContainers(selectedInstallation.id);
+      await loadContainers(selectedConnection.id);
     } else {
       const newPath = folderPath.slice(0, index + 1);
       setFolderPath(newPath);
-      await loadContainers(selectedInstallation.id, newPath[newPath.length - 1].id);
+      await loadContainers(selectedConnection.id, newPath[newPath.length - 1].id);
     }
   };
 
@@ -160,19 +160,19 @@ export function StepDataSources({
     setPendingProvider(provider);
     setError(null);
 
-    // Fetch existing installations for this provider
+    // Fetch existing connections for this provider
     try {
-      const allInstallations = await listInstallations();
-      const providerInstallations = allInstallations.filter(
+      const allConnections = await listConnections();
+      const providerConnections = allConnections.filter(
         (i) => i.provider_type === provider.type
       );
 
-      if (providerInstallations.length > 0) {
+      if (providerConnections.length > 0) {
         // Show picker to choose existing or connect new
-        setExistingInstallations(providerInstallations);
-        setView("installation_picker");
+        setExistingConnections(providerConnections);
+        setView("connection_picker");
       } else {
-        // No existing installations, go straight to OAuth
+        // No existing connections, go straight to OAuth
         await startOAuthFlow(provider);
       }
     } catch {
@@ -181,10 +181,10 @@ export function StepDataSources({
     }
   };
 
-  // Select an existing installation
-  const handleSelectExistingInstallation = async (installation: InstallationSummary) => {
-    setSelectedInstallation(installation);
-    await loadContainers(installation.id);
+  // Select an existing connection
+  const handleSelectExistingConnection = async (connection: ConnectionSummary) => {
+    setSelectedConnection(connection);
+    await loadContainers(connection.id);
     setView("select");
   };
 
@@ -194,7 +194,7 @@ export function StepDataSources({
   const startOAuthFlow = async (provider: ProviderListItem) => {
     setView("connecting");
     setError(null);
-    setSelectedInstallation(null);  // Clear any previous installation
+    setSelectedConnection(null);  // Clear any previous connection
     setContainers([]);
     setSelectedContainers(new Set());
 
@@ -202,7 +202,7 @@ export function StepDataSources({
       // Pass "setup" as return_context so OAuth callback returns to FTUE
       const result = await startOAuth(provider.type, undefined, "setup");
       // OAuth provider redirects to API callback, which redirects to /oauth/complete,
-      // which then redirects back here with installation_id and provider in URL params
+      // which then redirects back here with connection_id and provider in URL params
       window.location.href = result.authorization_url;
     } catch (err) {
       if (err instanceof ApiError) {
@@ -215,10 +215,10 @@ export function StepDataSources({
   };
 
   // Handle OAuth callback return
-  const handleOAuthReturn = async (instId: string, providerType?: string) => {
+  const handleOAuthReturn = async (connId: string, providerType?: string) => {
     try {
-      const installation = await getInstallation(instId);
-      setSelectedInstallation(installation);
+      const connection = await getConnection(connId);
+      setSelectedConnection(connection);
 
       // Set pending provider from URL params (passed from /oauth/complete)
       if (providerType) {
@@ -226,11 +226,11 @@ export function StepDataSources({
         if (provider) setPendingProvider(provider);
       }
 
-      await loadContainers(instId);
+      await loadContainers(connId);
       setView("select");
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(err.message || "Failed to load installation");
+        setError(err.message || "Failed to load connection");
       } else {
         setError("Failed to complete connection. Please try again.");
       }
@@ -259,7 +259,7 @@ export function StepDataSources({
 
   // Create source
   const handleCreateSource = async () => {
-    if (!selectedInstallation || selectedContainers.size === 0) return;
+    if (!selectedConnection || selectedContainers.size === 0) return;
 
     setView("creating");
     setError(null);
@@ -269,7 +269,7 @@ export function StepDataSources({
       const latestSources = await listSources().catch(() => connectedSources);
 
       // Generate unique source name
-      const baseName = selectedInstallation.name;
+      const baseName = selectedConnection.name;
       const existingNames = new Set(latestSources.map((s) => s.name));
 
       let sourceName: string;
@@ -287,9 +287,9 @@ export function StepDataSources({
 
       await createSource({
         name: sourceName,
-        provider_type: selectedInstallation.provider_type,
-        installation_id: selectedInstallation.id,
-        selected_containers: Array.from(selectedContainers),
+        provider_type: selectedConnection.provider_type,
+        connection_id: selectedConnection.id,
+        containers: Array.from(selectedContainers),
       });
       setCreatedSourceName(sourceName);
       await loadConnectedSources();  // Refresh to include new source
@@ -307,7 +307,7 @@ export function StepDataSources({
   // Add another source
   const handleAddAnother = () => {
     setPendingProvider(null);
-    setSelectedInstallation(null);
+    setSelectedConnection(null);
     setContainers([]);
     setSelectedContainers(new Set());
     setSearchQuery("");
@@ -328,17 +328,17 @@ export function StepDataSources({
 
   // Back navigation
   const handleBack = () => {
-    if (view === "installation_picker") {
+    if (view === "connection_picker") {
       setPendingProvider(null);
       setExistingInstallations([]);
       setView("selection");
     } else if (view === "select") {
-      // Go back to installation picker if we have existing installations
-      if (existingInstallations.length > 0) {
-        setSelectedInstallation(null);
+      // Go back to connection picker if we have existing connections
+      if (existingConnections.length > 0) {
+        setSelectedConnection(null);
         setContainers([]);
         setSelectedContainers(new Set());
-        setView("installation_picker");
+        setView("connection_picker");
       } else {
         handleAddAnother();
       }
@@ -445,7 +445,7 @@ export function StepDataSources({
   }
 
   // Installation picker view
-  if (view === "installation_picker") {
+  if (view === "connection_picker") {
     return (
       <div className="mx-auto max-w-lg">
         <button
@@ -476,30 +476,30 @@ export function StepDataSources({
           </div>
         </div>
 
-        {/* Existing installations */}
+        {/* Existing connections */}
         <div className="mb-6 space-y-3">
           <h3 className="text-sm font-medium text-sercha-fog-grey">
             Existing Connections
           </h3>
-          {existingInstallations.map((installation) => (
+          {existingConnections.map((connection) => (
             <button
-              key={installation.id}
-              onClick={() => handleSelectExistingInstallation(installation)}
+              key={connection.id}
+              onClick={() => handleSelectExistingConnection(connection)}
               className="flex w-full items-center gap-3 rounded-lg border border-sercha-silverline bg-white p-4 text-left transition-all hover:border-sercha-indigo hover:shadow-md"
             >
               <Image
-                src={PROVIDER_ICONS[installation.provider_type] || "/logos/default.png"}
-                alt={installation.provider_type}
+                src={PROVIDER_ICONS[connection.provider_type] || "/logos/default.png"}
+                alt={connection.provider_type}
                 width={32}
                 height={32}
                 className="h-8 w-8"
               />
               <div className="flex-1">
                 <p className="text-sm font-medium text-sercha-ink-slate">
-                  {installation.name}
+                  {connection.name}
                 </p>
                 <p className="text-xs text-sercha-fog-grey">
-                  {installation.account_id} · {installation.source_count} source{installation.source_count !== 1 ? "s" : ""}
+                  {connection.account_id} · {connection.source_count} source{connection.source_count !== 1 ? "s" : ""}
                 </p>
               </div>
               <span className="text-xs text-sercha-indigo">Select →</span>
@@ -540,8 +540,8 @@ export function StepDataSources({
 
   // Container selection view
   if (view === "select") {
-    // Check provider type from selectedInstallation (more reliable than pendingProvider which may not be set after OAuth return)
-    const providerType = selectedInstallation?.provider_type || pendingProvider?.type;
+    // Check provider type from selectedConnection (more reliable than pendingProvider which may not be set after OAuth return)
+    const providerType = selectedConnection?.provider_type || pendingProvider?.type;
     const showFolderNavigation = providerType === "google_drive" || providerType === "onedrive";
 
     return (

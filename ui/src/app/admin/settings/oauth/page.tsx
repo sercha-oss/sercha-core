@@ -12,12 +12,12 @@ import {
   X,
 } from "lucide-react";
 import {
-  listInstallations,
-  deleteInstallation,
-  getInstallationSources,
+  listConnections,
+  deleteConnection,
+  getConnectionSources,
   getCapabilities,
-  type InstallationSummary,
-  type InstallationSourceSummary,
+  type ConnectionSummary,
+  type ConnectionSourceSummary,
   type CapabilitiesResponse,
 } from "@/lib/api";
 import { getProviderIcon } from "@/lib/providers";
@@ -128,11 +128,11 @@ function ProviderConfigurationSection() {
   );
 }
 
-// OAuth Installations Section
-function OAuthInstallationsSection() {
-  const [installations, setInstallations] = useState<InstallationSummary[]>([]);
+// OAuth Connections Section
+function OAuthConnectionsSection() {
+  const [connections, setInstallations] = useState<ConnectionSummary[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [sources, setSources] = useState<Record<string, InstallationSourceSummary[]>>({});
+  const [sources, setSources] = useState<Record<string, ConnectionSourceSummary[]>>({});
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -146,10 +146,10 @@ function OAuthInstallationsSection() {
     try {
       setLoading(true);
       setError(null);
-      const data = await listInstallations();
+      const data = await listConnections();
       setInstallations(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load installations");
+      setError(err instanceof Error ? err.message : "Failed to load connections");
     } finally {
       setLoading(false);
     }
@@ -163,7 +163,7 @@ function OAuthInstallationsSection() {
       // Fetch sources if not already loaded
       if (!sources[id]) {
         try {
-          const data = await getInstallationSources(id);
+          const data = await getConnectionSources(id);
           setSources((prev) => ({ ...prev, [id]: data }));
         } catch (err) {
           console.error("Failed to load sources:", err);
@@ -180,11 +180,11 @@ function OAuthInstallationsSection() {
 
     setDeleting(id);
     try {
-      await deleteInstallation(id);
+      await deleteConnection(id);
       setInstallations((prev) => prev.filter((i) => i.id !== id));
       setConfirmDeleteId(null);
     } catch (err) {
-      console.error("Failed to delete installation:", err);
+      console.error("Failed to delete connection:", err);
     } finally {
       setDeleting(null);
     }
@@ -218,7 +218,7 @@ function OAuthInstallationsSection() {
   if (loading) {
     return (
       <section className="rounded-2xl border-2 border-sercha-silverline bg-white p-6">
-        <h2 className="mb-4 text-lg font-semibold text-sercha-ink-slate">OAuth Installations</h2>
+        <h2 className="mb-4 text-lg font-semibold text-sercha-ink-slate">OAuth Connections</h2>
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin text-sercha-indigo" />
         </div>
@@ -228,9 +228,9 @@ function OAuthInstallationsSection() {
 
   return (
     <section className="rounded-2xl border-2 border-sercha-silverline bg-white p-6">
-      <h2 className="mb-1 text-lg font-semibold text-sercha-ink-slate">OAuth Installations</h2>
+      <h2 className="mb-1 text-lg font-semibold text-sercha-ink-slate">OAuth Connections</h2>
       <p className="mb-4 text-sm text-sercha-fog-grey">
-        Manage connected accounts. Deleting an installation will also delete all associated sources and documents.
+        Manage connected accounts. Deleting an connection will also delete all associated sources and documents.
       </p>
 
       {error && (
@@ -240,16 +240,16 @@ function OAuthInstallationsSection() {
         </div>
       )}
 
-      {installations.length === 0 ? (
+      {connections.length === 0 ? (
         <div className="rounded-lg border border-dashed border-sercha-silverline bg-sercha-snow p-6 text-center">
-          <p className="text-sm text-sercha-fog-grey">No OAuth installations configured.</p>
+          <p className="text-sm text-sercha-fog-grey">No OAuth connections configured.</p>
           <p className="mt-1 text-xs text-sercha-fog-grey">
-            Connect a data source to see installations here.
+            Connect a data source to see connections here.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {installations.map((inst) => (
+          {connections.map((inst) => (
             <div
               key={inst.id}
               className="rounded-lg border border-sercha-silverline bg-sercha-snow"
@@ -358,10 +358,10 @@ function OAuthInstallationsSection() {
 // Main OAuth Settings Page
 export default function OAuthSettingsPage() {
   return (
-    <AdminLayout title="OAuth Settings" description="Manage provider configuration and installations">
+    <AdminLayout title="OAuth Settings" description="Manage provider configuration and connections">
       <div className="space-y-6">
         <ProviderConfigurationSection />
-        <OAuthInstallationsSection />
+        <OAuthConnectionsSection />
       </div>
     </AdminLayout>
   );

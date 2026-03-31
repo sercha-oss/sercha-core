@@ -120,9 +120,14 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 	// Determine containers to sync
 	// If selected containers are specified, sync each one
 	// Otherwise, sync with empty containerID (provider indexes all content)
-	containers := source.SelectedContainers
-	if len(containers) == 0 {
-		containers = []string{""} // Empty string means sync all accessible content
+	var containerIDs []string
+	if len(source.Containers) > 0 {
+		containerIDs = make([]string, len(source.Containers))
+		for i, c := range source.Containers {
+			containerIDs[i] = c.ID
+		}
+	} else {
+		containerIDs = []string{""} // Empty string means sync all accessible content
 	}
 
 	// Aggregate stats across all containers
@@ -131,7 +136,7 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 	var syncErrors []string
 
 	// Step 3: Sync each container
-	for _, containerID := range containers {
+	for _, containerID := range containerIDs {
 		containerStats, cursor, err := o.syncContainer(ctx, source, syncState, containerID)
 		if err != nil {
 			o.logger.Error("container sync failed",
@@ -158,7 +163,7 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 
 	// Step 4: Update final sync state
 	completedAt := time.Now()
-	if len(syncErrors) > 0 && len(syncErrors) == len(containers) {
+	if len(syncErrors) > 0 && len(syncErrors) == len(containerIDs) {
 		// All containers failed
 		syncState.Status = domain.SyncStatusFailed
 		syncState.Error = fmt.Sprintf("all containers failed: %v", syncErrors)
@@ -184,7 +189,7 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 
 	o.logger.Info("sync completed",
 		"source_id", sourceID,
-		"containers_count", len(containers),
+		"containers_count", len(containerIDs),
 		"duration_seconds", duration,
 		"documents_added", aggregatedStats.DocumentsAdded,
 		"documents_updated", aggregatedStats.DocumentsUpdated,
