@@ -270,38 +270,6 @@ func (m *mockOAuthHandler) DefaultConfig() driven.OAuthConfig {
 	}
 }
 
-// mockTokenProviderFactory implements driven.TokenProviderFactory for testing
-type mockTokenProviderFactory struct{}
-
-func (m *mockTokenProviderFactory) Create(ctx context.Context, installationID string) (driven.TokenProvider, error) {
-	return &mockTokenProvider{}, nil
-}
-
-func (m *mockTokenProviderFactory) CreateFromInstallation(ctx context.Context, inst *domain.Installation) (driven.TokenProvider, error) {
-	return &mockTokenProvider{}, nil
-}
-
-type mockTokenProvider struct{}
-
-func (m *mockTokenProvider) GetAccessToken(ctx context.Context) (string, error) {
-	return "mock-token", nil
-}
-
-func (m *mockTokenProvider) GetCredentials(ctx context.Context) (*domain.Credentials, error) {
-	return &domain.Credentials{
-		AccessToken: "mock-token",
-		AuthMethod:  domain.AuthMethodOAuth2,
-	}, nil
-}
-
-func (m *mockTokenProvider) AuthMethod() domain.AuthMethod {
-	return domain.AuthMethodOAuth2
-}
-
-func (m *mockTokenProvider) IsValid(ctx context.Context) bool {
-	return true
-}
-
 // mockOAuthHandlerFactory implements driven.OAuthHandlerFactory for testing
 type mockOAuthHandlerFactory struct {
 	handlers map[domain.ProviderType]driven.OAuthHandler
