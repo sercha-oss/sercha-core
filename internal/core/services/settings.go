@@ -15,24 +15,27 @@ var _ driving.SettingsService = (*settingsService)(nil)
 
 // settingsService implements the SettingsService interface
 type settingsService struct {
-	settingsStore driven.SettingsStore
-	aiFactory     driven.AIServiceFactory
-	services      *runtime.Services
-	teamID        string
+	settingsStore  driven.SettingsStore
+	aiFactory      driven.AIServiceFactory
+	configProvider driven.ConfigProvider
+	services       *runtime.Services
+	teamID         string
 }
 
 // NewSettingsService creates a new SettingsService
 func NewSettingsService(
 	settingsStore driven.SettingsStore,
 	aiFactory driven.AIServiceFactory,
+	configProvider driven.ConfigProvider,
 	services *runtime.Services,
 	teamID string,
 ) driving.SettingsService {
 	return &settingsService{
-		settingsStore: settingsStore,
-		aiFactory:     aiFactory,
-		services:      services,
-		teamID:        teamID,
+		settingsStore:  settingsStore,
+		aiFactory:      aiFactory,
+		configProvider: configProvider,
+		services:       services,
+		teamID:         teamID,
 	}
 }
 
@@ -94,32 +97,38 @@ func (s *settingsService) UpdateAISettings(ctx context.Context, req driving.Upda
 
 	// Update embedding settings if provided
 	if req.Embedding != nil {
+		// Validate that the provider is configured in environment
+		if !s.configProvider.IsAIConfigured(req.Embedding.Provider) {
+			return nil, domain.ErrInvalidProvider
+		}
+
 		aiSettings.Embedding = domain.EmbeddingSettings{
 			Provider: req.Embedding.Provider,
 			Model:    req.Embedding.Model,
-			APIKey:   req.Embedding.APIKey,
-			BaseURL:  req.Embedding.BaseURL,
 		}
 	}
 
 	// Update LLM settings if provided
 	if req.LLM != nil {
+		// Validate that the provider is configured in environment
+		if !s.configProvider.IsAIConfigured(req.LLM.Provider) {
+			return nil, domain.ErrInvalidProvider
+		}
+
 		aiSettings.LLM = domain.LLMSettings{
 			Provider: req.LLM.Provider,
 			Model:    req.LLM.Model,
-			APIKey:   req.LLM.APIKey,
-			BaseURL:  req.LLM.BaseURL,
 		}
 	}
 
-	// Validate
+	// Validate domain constraints
 	if err := aiSettings.Validate(); err != nil {
 		return nil, err
 	}
 
 	aiSettings.UpdatedAt = time.Now()
 
-	// Save to persistent store
+	// Save to persistent store (no API keys stored)
 	if err := s.settingsStore.SaveAISettings(ctx, s.teamID, aiSettings); err != nil {
 		return nil, err
 	}
@@ -129,17 +138,23 @@ func (s *settingsService) UpdateAISettings(ctx context.Context, req driving.Upda
 
 	// Create and set embedding service
 	if aiSettings.Embedding.IsConfigured() {
-		embSvc, err := s.aiFactory.CreateEmbeddingService(&aiSettings.Embedding)
-		if err != nil {
-			// Log but continue - service will be unavailable
-			status.Embedding = driving.AIServiceStatus{Available: false}
-		} else if err := s.services.ValidateAndSetEmbedding(ctx, embSvc); err != nil {
+		// Get credentials from config provider
+		credentials := s.configProvider.GetAICredentials(aiSettings.Embedding.Provider)
+		if credentials == nil {
 			status.Embedding = driving.AIServiceStatus{Available: false}
 		} else {
-			status.Embedding = driving.AIServiceStatus{
-				Available: true,
-				Provider:  aiSettings.Embedding.Provider,
-				Model:     aiSettings.Embedding.Model,
+			embSvc, err := s.aiFactory.CreateEmbeddingService(&aiSettings.Embedding, credentials)
+			if err != nil {
+				// Log but continue - service will be unavailable
+				status.Embedding = driving.AIServiceStatus{Available: false}
+			} else if err := s.services.ValidateAndSetEmbedding(ctx, embSvc); err != nil {
+				status.Embedding = driving.AIServiceStatus{Available: false}
+			} else {
+				status.Embedding = driving.AIServiceStatus{
+					Available: true,
+					Provider:  aiSettings.Embedding.Provider,
+					Model:     aiSettings.Embedding.Model,
+				}
 			}
 		}
 	} else {
@@ -150,16 +165,22 @@ func (s *settingsService) UpdateAISettings(ctx context.Context, req driving.Upda
 
 	// Create and set LLM service
 	if aiSettings.LLM.IsConfigured() {
-		llmSvc, err := s.aiFactory.CreateLLMService(&aiSettings.LLM)
-		if err != nil {
-			status.LLM = driving.AIServiceStatus{Available: false}
-		} else if err := s.services.ValidateAndSetLLM(ctx, llmSvc); err != nil {
+		// Get credentials from config provider
+		credentials := s.configProvider.GetAICredentials(aiSettings.LLM.Provider)
+		if credentials == nil {
 			status.LLM = driving.AIServiceStatus{Available: false}
 		} else {
-			status.LLM = driving.AIServiceStatus{
-				Available: true,
-				Provider:  aiSettings.LLM.Provider,
-				Model:     aiSettings.LLM.Model,
+			llmSvc, err := s.aiFactory.CreateLLMService(&aiSettings.LLM, credentials)
+			if err != nil {
+				status.LLM = driving.AIServiceStatus{Available: false}
+			} else if err := s.services.ValidateAndSetLLM(ctx, llmSvc); err != nil {
+				status.LLM = driving.AIServiceStatus{Available: false}
+			} else {
+				status.LLM = driving.AIServiceStatus{
+					Available: true,
+					Provider:  aiSettings.LLM.Provider,
+					Model:     aiSettings.LLM.Model,
+				}
 			}
 		}
 	} else {

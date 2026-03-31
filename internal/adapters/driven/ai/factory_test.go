@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
+	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
 )
 
 func TestNewFactory(t *testing.T) {
@@ -16,7 +17,7 @@ func TestNewFactory(t *testing.T) {
 func TestFactory_CreateEmbeddingService_NilSettings(t *testing.T) {
 	factory := NewFactory()
 
-	svc, err := factory.CreateEmbeddingService(nil)
+	svc, err := factory.CreateEmbeddingService(nil, nil)
 	if err != nil {
 		t.Errorf("expected no error for nil settings, got %v", err)
 	}
@@ -31,10 +32,9 @@ func TestFactory_CreateEmbeddingService_NotConfigured(t *testing.T) {
 	settings := &domain.EmbeddingSettings{
 		Provider: "",
 		Model:    "",
-		APIKey:   "",
 	}
 
-	svc, err := factory.CreateEmbeddingService(settings)
+	svc, err := factory.CreateEmbeddingService(settings, nil)
 	if err != nil {
 		t.Errorf("expected no error for unconfigured settings, got %v", err)
 	}
@@ -49,11 +49,14 @@ func TestFactory_CreateEmbeddingService_OpenAI(t *testing.T) {
 	settings := &domain.EmbeddingSettings{
 		Provider: domain.AIProviderOpenAI,
 		Model:    "text-embedding-3-small",
-		APIKey:   "sk-test",
+	}
+
+	credentials := &driven.AICredentials{
+		APIKey: "sk-test",
 	}
 
 	// OpenAI embedding is implemented
-	svc, err := factory.CreateEmbeddingService(settings)
+	svc, err := factory.CreateEmbeddingService(settings, credentials)
 	if err != nil {
 		t.Errorf("expected no error for OpenAI, got %v", err)
 	}
@@ -68,11 +71,14 @@ func TestFactory_CreateEmbeddingService_Ollama(t *testing.T) {
 	settings := &domain.EmbeddingSettings{
 		Provider: domain.AIProviderOllama,
 		Model:    "nomic-embed-text",
-		BaseURL:  "http://localhost:11434",
+	}
+
+	credentials := &driven.AICredentials{
+		BaseURL: "http://localhost:11434",
 	}
 
 	// Currently returns error since not implemented
-	_, err := factory.CreateEmbeddingService(settings)
+	_, err := factory.CreateEmbeddingService(settings, credentials)
 	if err == nil {
 		t.Error("expected error since Ollama not yet implemented")
 	}
@@ -84,11 +90,14 @@ func TestFactory_CreateEmbeddingService_Voyage(t *testing.T) {
 	settings := &domain.EmbeddingSettings{
 		Provider: domain.AIProviderVoyage,
 		Model:    "voyage-2",
-		APIKey:   "test-key",
+	}
+
+	credentials := &driven.AICredentials{
+		APIKey: "test-key",
 	}
 
 	// Currently returns error since not implemented
-	_, err := factory.CreateEmbeddingService(settings)
+	_, err := factory.CreateEmbeddingService(settings, credentials)
 	if err == nil {
 		t.Error("expected error since Voyage not yet implemented")
 	}
@@ -100,11 +109,14 @@ func TestFactory_CreateEmbeddingService_Cohere(t *testing.T) {
 	settings := &domain.EmbeddingSettings{
 		Provider: domain.AIProviderCohere,
 		Model:    "embed-english-v3.0",
-		APIKey:   "test-key",
+	}
+
+	credentials := &driven.AICredentials{
+		APIKey: "test-key",
 	}
 
 	// Currently returns error since not implemented
-	_, err := factory.CreateEmbeddingService(settings)
+	_, err := factory.CreateEmbeddingService(settings, credentials)
 	if err == nil {
 		t.Error("expected error since Cohere not yet implemented")
 	}
@@ -116,10 +128,13 @@ func TestFactory_CreateEmbeddingService_InvalidProvider(t *testing.T) {
 	settings := &domain.EmbeddingSettings{
 		Provider: "invalid-provider",
 		Model:    "some-model",
-		APIKey:   "test-key",
 	}
 
-	_, err := factory.CreateEmbeddingService(settings)
+	credentials := &driven.AICredentials{
+		APIKey: "test-key",
+	}
+
+	_, err := factory.CreateEmbeddingService(settings, credentials)
 	if err == nil {
 		t.Error("expected error for invalid provider")
 	}
@@ -128,7 +143,7 @@ func TestFactory_CreateEmbeddingService_InvalidProvider(t *testing.T) {
 func TestFactory_CreateLLMService_NilSettings(t *testing.T) {
 	factory := NewFactory()
 
-	svc, err := factory.CreateLLMService(nil)
+	svc, err := factory.CreateLLMService(nil, nil)
 	if err != nil {
 		t.Errorf("expected no error for nil settings, got %v", err)
 	}
@@ -143,10 +158,12 @@ func TestFactory_CreateLLMService_NotConfigured(t *testing.T) {
 	settings := &domain.LLMSettings{
 		Provider: "",
 		Model:    "",
-		APIKey:   "",
 	}
 
-	svc, err := factory.CreateLLMService(settings)
+	credentials := &driven.AICredentials{
+		APIKey: "test-key",
+	}
+	svc, err := factory.CreateLLMService(settings, credentials)
 	if err != nil {
 		t.Errorf("expected no error for unconfigured settings, got %v", err)
 	}
@@ -161,11 +178,13 @@ func TestFactory_CreateLLMService_OpenAI(t *testing.T) {
 	settings := &domain.LLMSettings{
 		Provider: domain.AIProviderOpenAI,
 		Model:    "gpt-4o-mini",
-		APIKey:   "sk-test",
 	}
 
 	// Currently returns error since not implemented
-	_, err := factory.CreateLLMService(settings)
+	credentials := &driven.AICredentials{
+		APIKey: "test-key",
+	}
+	_, err := factory.CreateLLMService(settings, credentials)
 	if err == nil {
 		t.Error("expected error since OpenAI LLM not yet implemented")
 	}
@@ -177,11 +196,13 @@ func TestFactory_CreateLLMService_Anthropic(t *testing.T) {
 	settings := &domain.LLMSettings{
 		Provider: domain.AIProviderAnthropic,
 		Model:    "claude-3-5-sonnet-20241022",
-		APIKey:   "test-key",
 	}
 
 	// Currently returns error since not implemented
-	_, err := factory.CreateLLMService(settings)
+	credentials := &driven.AICredentials{
+		APIKey: "test-key",
+	}
+	_, err := factory.CreateLLMService(settings, credentials)
 	if err == nil {
 		t.Error("expected error since Anthropic not yet implemented")
 	}
@@ -193,11 +214,13 @@ func TestFactory_CreateLLMService_Ollama(t *testing.T) {
 	settings := &domain.LLMSettings{
 		Provider: domain.AIProviderOllama,
 		Model:    "llama3.2",
-		BaseURL:  "http://localhost:11434",
 	}
 
 	// Currently returns error since not implemented
-	_, err := factory.CreateLLMService(settings)
+	credentials := &driven.AICredentials{
+		BaseURL: "http://localhost:11434",
+	}
+	_, err := factory.CreateLLMService(settings, credentials)
 	if err == nil {
 		t.Error("expected error since Ollama LLM not yet implemented")
 	}
@@ -209,10 +232,12 @@ func TestFactory_CreateLLMService_InvalidProvider(t *testing.T) {
 	settings := &domain.LLMSettings{
 		Provider: "invalid-provider",
 		Model:    "some-model",
-		APIKey:   "test-key",
 	}
 
-	_, err := factory.CreateLLMService(settings)
+	credentials := &driven.AICredentials{
+		APIKey: "test-key",
+	}
+	_, err := factory.CreateLLMService(settings, credentials)
 	if err == nil {
 		t.Error("expected error for invalid provider")
 	}
@@ -223,6 +248,6 @@ func TestFactory_ImplementsInterface(t *testing.T) {
 	factory := NewFactory()
 
 	// These calls ensure the factory methods have correct signatures
-	_, _ = factory.CreateEmbeddingService(nil)
-	_, _ = factory.CreateLLMService(nil)
+	_, _ = factory.CreateEmbeddingService(nil, nil)
+	_, _ = factory.CreateLLMService(nil, nil)
 }

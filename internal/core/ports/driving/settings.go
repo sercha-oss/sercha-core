@@ -45,20 +45,18 @@ type UpdateAISettingsRequest struct {
 	LLM       *LLMSettingsInput       `json:"llm,omitempty"`
 }
 
-// EmbeddingSettingsInput is the input for embedding configuration
+// EmbeddingSettingsInput is the input for embedding configuration.
+// API keys and base URLs come from environment variables, not request input.
 type EmbeddingSettingsInput struct {
 	Provider domain.AIProvider `json:"provider"`
 	Model    string            `json:"model"`
-	APIKey   string            `json:"api_key"`
-	BaseURL  string            `json:"base_url,omitempty"`
 }
 
-// LLMSettingsInput is the input for LLM configuration
+// LLMSettingsInput is the input for LLM configuration.
+// API keys and base URLs come from environment variables, not request input.
 type LLMSettingsInput struct {
 	Provider domain.AIProvider `json:"provider"`
 	Model    string            `json:"model"`
-	APIKey   string            `json:"api_key"`
-	BaseURL  string            `json:"base_url,omitempty"`
 }
 
 // AISettingsStatus represents the status of AI services

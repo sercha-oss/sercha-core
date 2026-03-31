@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"time"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
@@ -13,32 +12,20 @@ import (
 var _ driving.ProviderService = (*providerService)(nil)
 
 // providerService implements the ProviderService interface.
-// It manages OAuth app configurations for data source providers.
+// It provides information about available providers based on environment configuration.
 type providerService struct {
-	configStore driven.ProviderConfigStore
+	configProvider driven.ConfigProvider
 }
 
 // NewProviderService creates a new ProviderService.
-func NewProviderService(configStore driven.ProviderConfigStore) driving.ProviderService {
+func NewProviderService(configProvider driven.ConfigProvider) driving.ProviderService {
 	return &providerService{
-		configStore: configStore,
+		configProvider: configProvider,
 	}
 }
 
 // List returns all available providers with their configuration status.
 func (s *providerService) List(ctx context.Context) ([]*driving.ProviderListItem, error) {
-	// Get configuration status for all providers
-	configs, err := s.configStore.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a map for quick lookup
-	configMap := make(map[domain.ProviderType]*domain.ProviderConfigSummary)
-	for _, cfg := range configs {
-		configMap[cfg.ProviderType] = cfg
-	}
-
 	// Build list with all core providers
 	coreProviders := domain.CoreProviders()
 	items := make([]*driving.ProviderListItem, 0, len(coreProviders))
@@ -51,89 +38,14 @@ func (s *providerService) List(ctx context.Context) ([]*driving.ProviderListItem
 			Description: info.description,
 			AuthMethods: info.authMethods,
 			DocsURL:     info.docsURL,
-			Configured:  false,
-			Enabled:     false,
-		}
-
-		// Check if configured
-		if cfg, ok := configMap[providerType]; ok {
-			item.Configured = cfg.HasSecrets
-			item.Enabled = cfg.Enabled
+			Configured:  s.configProvider.IsOAuthConfigured(providerType),
+			Enabled:     s.configProvider.IsOAuthConfigured(providerType),
 		}
 
 		items = append(items, item)
 	}
 
 	return items, nil
-}
-
-// GetConfig retrieves provider config by type (no secrets exposed).
-func (s *providerService) GetConfig(ctx context.Context, providerType domain.ProviderType) (*driving.ProviderConfigResponse, error) {
-	cfg, err := s.configStore.Get(ctx, providerType)
-	if err != nil {
-		return nil, err
-	}
-	if cfg == nil {
-		return nil, domain.ErrNotFound
-	}
-
-	return &driving.ProviderConfigResponse{
-		ProviderType: cfg.ProviderType,
-		HasSecrets:   cfg.IsConfigured(),
-		Enabled:      cfg.Enabled,
-		CreatedAt:    cfg.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    cfg.UpdatedAt.Format(time.RFC3339),
-	}, nil
-}
-
-// SaveConfig creates or updates provider config.
-func (s *providerService) SaveConfig(ctx context.Context, providerType domain.ProviderType, req driving.SaveProviderConfigRequest) (*driving.ProviderConfigResponse, error) {
-	// Validate provider type
-	if !isValidProvider(providerType) {
-		return nil, domain.ErrInvalidInput
-	}
-
-	// Build config
-	cfg := &domain.ProviderConfig{
-		ProviderType: providerType,
-		Enabled:      true, // Default to enabled
-	}
-
-	// Set enabled from request if provided
-	if req.Enabled != nil {
-		cfg.Enabled = *req.Enabled
-	}
-
-	// Set secrets
-	cfg.Secrets = &domain.ProviderSecrets{
-		ClientID:     req.ClientID,
-		ClientSecret: req.ClientSecret,
-		APIKey:       req.APIKey,
-	}
-
-	// Save
-	if err := s.configStore.Save(ctx, cfg); err != nil {
-		return nil, err
-	}
-
-	// Reload to get timestamps
-	saved, err := s.configStore.Get(ctx, providerType)
-	if err != nil {
-		return nil, err
-	}
-
-	return &driving.ProviderConfigResponse{
-		ProviderType: saved.ProviderType,
-		HasSecrets:   saved.IsConfigured(),
-		Enabled:      saved.Enabled,
-		CreatedAt:    saved.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    saved.UpdatedAt.Format(time.RFC3339),
-	}, nil
-}
-
-// DeleteConfig removes provider config.
-func (s *providerService) DeleteConfig(ctx context.Context, providerType domain.ProviderType) error {
-	return s.configStore.Delete(ctx, providerType)
 }
 
 // providerMeta holds static metadata about a provider.
@@ -231,14 +143,4 @@ func providerMetadata(pt domain.ProviderType) providerMeta {
 			authMethods: []domain.AuthMethod{domain.AuthMethodOAuth2},
 		}
 	}
-}
-
-// isValidProvider checks if the provider type is valid for Sercha Core.
-func isValidProvider(pt domain.ProviderType) bool {
-	for _, p := range domain.CoreProviders() {
-		if p == pt {
-			return true
-		}
-	}
-	return false
 }

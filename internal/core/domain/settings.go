@@ -52,12 +52,6 @@ func DefaultSettings(teamID string) *Settings {
 	}
 }
 
-// APIKeyConfig holds API key configuration (stored encrypted)
-type APIKeyConfig struct {
-	Provider AIProvider `json:"provider"`
-	APIKey   string     `json:"-"` // Never serialize
-	BaseURL  string     `json:"base_url,omitempty"`
-}
 
 // EmbeddingConfig holds embedding model configuration
 type EmbeddingConfig struct {
@@ -87,41 +81,29 @@ type AISettings struct {
 }
 
 // EmbeddingSettings configures the embedding service
+// API keys and base URLs come from environment variables, not stored here
 type EmbeddingSettings struct {
 	Provider AIProvider `json:"provider"`
 	Model    string     `json:"model"`
-	APIKey   string     `json:"-"` // Never serialize to JSON
-	BaseURL  string     `json:"base_url,omitempty"`
 }
 
 // IsConfigured returns true if embedding settings are properly configured
+// Note: API key availability is checked at the infrastructure layer (config package)
 func (e *EmbeddingSettings) IsConfigured() bool {
-	if e.Provider == "" {
-		return false
-	}
-	if e.Provider.RequiresAPIKey() && e.APIKey == "" {
-		return false
-	}
-	return true
+	return e.Provider != "" && e.Model != ""
 }
 
 // LLMSettings configures the LLM service
+// API keys and base URLs come from environment variables, not stored here
 type LLMSettings struct {
 	Provider AIProvider `json:"provider"`
 	Model    string     `json:"model"`
-	APIKey   string     `json:"-"` // Never serialize to JSON
-	BaseURL  string     `json:"base_url,omitempty"`
 }
 
 // IsConfigured returns true if LLM settings are properly configured
+// Note: API key availability is checked at the infrastructure layer (config package)
 func (l *LLMSettings) IsConfigured() bool {
-	if l.Provider == "" {
-		return false
-	}
-	if l.Provider.RequiresAPIKey() && l.APIKey == "" {
-		return false
-	}
-	return true
+	return l.Provider != "" && l.Model != ""
 }
 
 // RequiresAPIKey returns true if this provider requires an API key

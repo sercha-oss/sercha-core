@@ -76,6 +76,40 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I ensure a localfs installation exists with path "([^"]*)"$`, iEnsureLocalFSInstallationExists)
 	sc.Step(`^I ensure a source exists from container "([^"]*)"$`, iEnsureSourceExistsFromContainer)
 	sc.Step(`^I ensure the source is synced$`, iEnsureSourceIsSynced)
+
+	// Capabilities steps
+	sc.Step(`^I get system capabilities$`, iGetSystemCapabilities)
+	sc.Step(`^I should see OAuth providers in capabilities$`, iShouldSeeOAuthProvidersInCapabilities)
+	sc.Step(`^I should see AI provider capabilities$`, iShouldSeeAIProviderCapabilities)
+	sc.Step(`^I should see feature flags in capabilities$`, iShouldSeeFeatureFlagsInCapabilities)
+	sc.Step(`^I should see operational limits in capabilities$`, iShouldSeeOperationalLimitsInCapabilities)
+	sc.Step(`^limits should have sync intervals$`, limitsShouldHaveSyncIntervals)
+	sc.Step(`^limits should have worker constraints$`, limitsShouldHaveWorkerConstraints)
+
+	// Provider list steps
+	sc.Step(`^I list all providers$`, iListAllProviders)
+	sc.Step(`^I should see a list of providers$`, iShouldSeeAListOfProviders)
+	sc.Step(`^each provider should have a configured status$`, eachProviderShouldHaveAConfiguredStatus)
+	sc.Step(`^I should see localfs in the provider list$`, iShouldSeeLocalfsInTheProviderList)
+	sc.Step(`^localfs should be marked as configured$`, localfsShouldBeMarkedAsConfigured)
+	sc.Step(`^OAuth provider configuration should match capabilities$`, oauthProviderConfigurationShouldMatchCapabilities)
+
+	// AI settings steps
+	sc.Step(`^I get AI settings$`, iGetAISettings)
+	sc.Step(`^I should see embedding settings$`, iShouldSeeEmbeddingSettings)
+	sc.Step(`^I should see LLM settings$`, iShouldSeeLLMSettings)
+	sc.Step(`^settings should indicate credential availability$`, settingsShouldIndicateCredentialAvailability)
+	sc.Step(`^the response should not contain API keys$`, theResponseShouldNotContainAPIKeys)
+	sc.Step(`^the response should only show has_api_key flags$`, theResponseShouldOnlyShowHasAPIKeyFlags)
+	sc.Step(`^OpenAI is configured in environment$`, openAIIsConfiguredInEnvironment)
+	sc.Step(`^I update AI settings to use OpenAI$`, iUpdateAISettingsToUseOpenAI)
+	sc.Step(`^AI settings should be updated$`, aiSettingsShouldBeUpdated)
+	sc.Step(`^Anthropic is not configured in environment$`, anthropicIsNotConfiguredInEnvironment)
+	sc.Step(`^I update AI settings to use Anthropic$`, iUpdateAISettingsToUseAnthropic)
+	sc.Step(`^the error should mention provider not configured$`, theErrorShouldMentionProviderNotConfigured)
+	sc.Step(`^I update AI embedding to "([^"]*)" with model "([^"]*)"$`, iUpdateAIEmbeddingToWithModel)
+	sc.Step(`^embedding should use OpenAI provider$`, embeddingShouldUseOpenAIProvider)
+	sc.Step(`^AI settings providers should match capability providers$`, aiSettingsProvidersShouldMatchCapabilityProviders)
 }
 
 // Common steps
@@ -737,4 +771,547 @@ func iEnsureSourceIsSynced() error {
 	}
 
 	return iWaitForSyncToComplete()
+}
+
+// Capabilities steps
+
+var lastCapabilities map[string]any
+
+func iGetSystemCapabilities() error {
+	if err := testCtx.Request(http.MethodGet, "/api/v1/capabilities", nil); err != nil {
+		return err
+	}
+	if testCtx.LastStatusCode != http.StatusOK {
+		return fmt.Errorf("expected status 200, got %d", testCtx.LastStatusCode)
+	}
+	if err := testCtx.ParseResponse(&lastCapabilities); err != nil {
+		return err
+	}
+	return nil
+}
+
+func iShouldSeeOAuthProvidersInCapabilities() error {
+	if lastCapabilities == nil {
+		return fmt.Errorf("no capabilities response available")
+	}
+	providers, ok := lastCapabilities["oauth_providers"]
+	if !ok {
+		return fmt.Errorf("oauth_providers field missing from capabilities")
+	}
+	if providers == nil {
+		return fmt.Errorf("oauth_providers is null")
+	}
+	// It's ok if the list is empty - means no OAuth configured
+	return nil
+}
+
+func iShouldSeeAIProviderCapabilities() error {
+	if lastCapabilities == nil {
+		return fmt.Errorf("no capabilities response available")
+	}
+	aiProviders, ok := lastCapabilities["ai_providers"]
+	if !ok {
+		return fmt.Errorf("ai_providers field missing from capabilities")
+	}
+	aiProvidersMap, ok := aiProviders.(map[string]any)
+	if !ok {
+		return fmt.Errorf("ai_providers is not an object")
+	}
+	if _, ok := aiProvidersMap["embedding"]; !ok {
+		return fmt.Errorf("ai_providers.embedding field missing")
+	}
+	if _, ok := aiProvidersMap["llm"]; !ok {
+		return fmt.Errorf("ai_providers.llm field missing")
+	}
+	return nil
+}
+
+func iShouldSeeFeatureFlagsInCapabilities() error {
+	if lastCapabilities == nil {
+		return fmt.Errorf("no capabilities response available")
+	}
+	features, ok := lastCapabilities["features"]
+	if !ok {
+		return fmt.Errorf("features field missing from capabilities")
+	}
+	featuresMap, ok := features.(map[string]any)
+	if !ok {
+		return fmt.Errorf("features is not an object")
+	}
+	if _, ok := featuresMap["semantic_search"]; !ok {
+		return fmt.Errorf("features.semantic_search field missing")
+	}
+	if _, ok := featuresMap["vector_indexing"]; !ok {
+		return fmt.Errorf("features.vector_indexing field missing")
+	}
+	return nil
+}
+
+func iShouldSeeOperationalLimitsInCapabilities() error {
+	if lastCapabilities == nil {
+		return fmt.Errorf("no capabilities response available")
+	}
+	limits, ok := lastCapabilities["limits"]
+	if !ok {
+		return fmt.Errorf("limits field missing from capabilities")
+	}
+	limitsMap, ok := limits.(map[string]any)
+	if !ok {
+		return fmt.Errorf("limits is not an object")
+	}
+	// Check for required fields
+	requiredFields := []string{"sync_min_interval", "sync_max_interval", "max_workers", "max_results_per_page"}
+	for _, field := range requiredFields {
+		if _, ok := limitsMap[field]; !ok {
+			return fmt.Errorf("limits.%s field missing", field)
+		}
+	}
+	return nil
+}
+
+func limitsShouldHaveSyncIntervals() error {
+	if lastCapabilities == nil {
+		return fmt.Errorf("no capabilities response available")
+	}
+	limits := lastCapabilities["limits"].(map[string]any)
+	minInterval, ok := limits["sync_min_interval"].(float64)
+	if !ok {
+		return fmt.Errorf("sync_min_interval is not a number")
+	}
+	maxInterval, ok := limits["sync_max_interval"].(float64)
+	if !ok {
+		return fmt.Errorf("sync_max_interval is not a number")
+	}
+	if minInterval <= 0 {
+		return fmt.Errorf("sync_min_interval must be positive, got %f", minInterval)
+	}
+	if maxInterval <= minInterval {
+		return fmt.Errorf("sync_max_interval (%f) must be greater than sync_min_interval (%f)", maxInterval, minInterval)
+	}
+	return nil
+}
+
+func limitsShouldHaveWorkerConstraints() error {
+	if lastCapabilities == nil {
+		return fmt.Errorf("no capabilities response available")
+	}
+	limits := lastCapabilities["limits"].(map[string]any)
+	maxWorkers, ok := limits["max_workers"].(float64)
+	if !ok {
+		return fmt.Errorf("max_workers is not a number")
+	}
+	if maxWorkers <= 0 {
+		return fmt.Errorf("max_workers must be positive, got %f", maxWorkers)
+	}
+	return nil
+}
+
+// Provider list steps
+
+var lastProviders []map[string]any
+
+func iListAllProviders() error {
+	if err := testCtx.Request(http.MethodGet, "/api/v1/providers", nil); err != nil {
+		return err
+	}
+	if testCtx.LastStatusCode != http.StatusOK {
+		return fmt.Errorf("expected status 200, got %d: %s", testCtx.LastStatusCode, string(testCtx.LastBody))
+	}
+	if err := testCtx.ParseResponse(&lastProviders); err != nil {
+		return err
+	}
+	return nil
+}
+
+func iShouldSeeAListOfProviders() error {
+	if lastProviders == nil {
+		return fmt.Errorf("no providers response available")
+	}
+	if len(lastProviders) == 0 {
+		return fmt.Errorf("providers list is empty")
+	}
+	return nil
+}
+
+func eachProviderShouldHaveAConfiguredStatus() error {
+	if lastProviders == nil {
+		return fmt.Errorf("no providers response available")
+	}
+	for i, provider := range lastProviders {
+		if _, ok := provider["configured"]; !ok {
+			providerType := provider["type"]
+			return fmt.Errorf("provider %d (%v) missing 'configured' field", i, providerType)
+		}
+	}
+	return nil
+}
+
+func iShouldSeeLocalfsInTheProviderList() error {
+	if lastProviders == nil {
+		return fmt.Errorf("no providers response available")
+	}
+	for _, provider := range lastProviders {
+		if provider["type"] == "localfs" {
+			return nil
+		}
+	}
+	return fmt.Errorf("localfs provider not found in list")
+}
+
+func localfsShouldBeMarkedAsConfigured() error {
+	if lastProviders == nil {
+		return fmt.Errorf("no providers response available")
+	}
+	for _, provider := range lastProviders {
+		if provider["type"] == "localfs" {
+			configured, ok := provider["configured"].(bool)
+			if !ok {
+				return fmt.Errorf("localfs configured field is not a boolean")
+			}
+			if !configured {
+				return fmt.Errorf("localfs should be configured but is not")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("localfs provider not found")
+}
+
+func oauthProviderConfigurationShouldMatchCapabilities() error {
+	// First get capabilities
+	if err := iGetSystemCapabilities(); err != nil {
+		return err
+	}
+
+	oauthProviders, ok := lastCapabilities["oauth_providers"].([]any)
+	if !ok {
+		return fmt.Errorf("oauth_providers is not an array")
+	}
+
+	// Create a set of configured OAuth providers from capabilities
+	configuredOAuth := make(map[string]bool)
+	for _, p := range oauthProviders {
+		if providerStr, ok := p.(string); ok {
+			configuredOAuth[providerStr] = true
+		}
+	}
+
+	// Check that provider list matches capabilities
+	if lastProviders == nil {
+		return fmt.Errorf("no providers response available")
+	}
+
+	for _, provider := range lastProviders {
+		providerType, ok := provider["type"].(string)
+		if !ok {
+			continue
+		}
+
+		// Skip non-OAuth providers (like localfs)
+		if providerType == "localfs" {
+			continue
+		}
+
+		// OAuth providers should match capabilities
+		configured, ok := provider["configured"].(bool)
+		if !ok {
+			return fmt.Errorf("provider %s configured field is not a boolean", providerType)
+		}
+
+		inCapabilities := configuredOAuth[providerType]
+		if configured != inCapabilities {
+			return fmt.Errorf("provider %s configured=%v but in capabilities=%v", providerType, configured, inCapabilities)
+		}
+	}
+
+	return nil
+}
+
+// AI settings steps
+
+var lastAISettings map[string]any
+
+func iGetAISettings() error {
+	if err := testCtx.Request(http.MethodGet, "/api/v1/settings/ai", nil); err != nil {
+		return err
+	}
+	if testCtx.LastStatusCode != http.StatusOK {
+		return fmt.Errorf("expected status 200, got %d: %s", testCtx.LastStatusCode, string(testCtx.LastBody))
+	}
+	if err := testCtx.ParseResponse(&lastAISettings); err != nil {
+		return err
+	}
+	return nil
+}
+
+func iShouldSeeEmbeddingSettings() error {
+	if lastAISettings == nil {
+		return fmt.Errorf("no AI settings response available")
+	}
+	if _, ok := lastAISettings["embedding"]; !ok {
+		return fmt.Errorf("embedding field missing from AI settings")
+	}
+	return nil
+}
+
+func iShouldSeeLLMSettings() error {
+	if lastAISettings == nil {
+		return fmt.Errorf("no AI settings response available")
+	}
+	if _, ok := lastAISettings["llm"]; !ok {
+		return fmt.Errorf("llm field missing from AI settings")
+	}
+	return nil
+}
+
+func settingsShouldIndicateCredentialAvailability() error {
+	if lastAISettings == nil {
+		return fmt.Errorf("no AI settings response available")
+	}
+
+	// Check embedding has has_api_key field
+	embedding, ok := lastAISettings["embedding"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("embedding is not an object")
+	}
+	if _, ok := embedding["has_api_key"]; !ok {
+		return fmt.Errorf("embedding.has_api_key field missing")
+	}
+
+	// Check LLM has has_api_key field
+	llm, ok := lastAISettings["llm"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("llm is not an object")
+	}
+	if _, ok := llm["has_api_key"]; !ok {
+		return fmt.Errorf("llm.has_api_key field missing")
+	}
+
+	return nil
+}
+
+func theResponseShouldNotContainAPIKeys() error {
+	// Check that response body doesn't contain API key fields
+	bodyStr := string(testCtx.LastBody)
+
+	// Look for common API key field patterns that shouldn't be there
+	forbiddenPatterns := []string{
+		"api_key",
+		"apiKey",
+		"secret",
+		"token",
+	}
+
+	for _, pattern := range forbiddenPatterns {
+		if jsonContainsField(bodyStr, pattern) {
+			// Allow has_api_key but not api_key
+			if pattern == "api_key" && !jsonContainsField(bodyStr, "has_api_key") {
+				return fmt.Errorf("response contains forbidden field: %s", pattern)
+			} else if pattern != "api_key" {
+				return fmt.Errorf("response contains forbidden field: %s", pattern)
+			}
+		}
+	}
+
+	return nil
+}
+
+func theResponseShouldOnlyShowHasAPIKeyFlags() error {
+	if lastAISettings == nil {
+		return fmt.Errorf("no AI settings response available")
+	}
+
+	// Check embedding only has has_api_key, not api_key
+	embedding, ok := lastAISettings["embedding"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("embedding is not an object")
+	}
+	if _, ok := embedding["api_key"]; ok {
+		return fmt.Errorf("embedding should not have api_key field, only has_api_key")
+	}
+
+	// Check LLM only has has_api_key, not api_key
+	llm, ok := lastAISettings["llm"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("llm is not an object")
+	}
+	if _, ok := llm["api_key"]; ok {
+		return fmt.Errorf("llm should not have api_key field, only has_api_key")
+	}
+
+	return nil
+}
+
+func openAIIsConfiguredInEnvironment() error {
+	// Get capabilities to check if OpenAI is configured
+	if err := iGetSystemCapabilities(); err != nil {
+		return err
+	}
+
+	aiProviders := lastCapabilities["ai_providers"].(map[string]any)
+	embedding := aiProviders["embedding"].([]any)
+
+	// Check if openai is in the list
+	for _, p := range embedding {
+		if p == "openai" {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("OpenAI is not configured in environment - skipping test")
+}
+
+func iUpdateAISettingsToUseOpenAI() error {
+	return testCtx.Request(http.MethodPut, "/api/v1/settings/ai", map[string]any{
+		"embedding": map[string]string{
+			"provider": "openai",
+			"model":    "text-embedding-3-small",
+		},
+	})
+}
+
+func aiSettingsShouldBeUpdated() error {
+	if testCtx.LastStatusCode != http.StatusOK {
+		return fmt.Errorf("expected status 200, got %d: %s", testCtx.LastStatusCode, string(testCtx.LastBody))
+	}
+	return nil
+}
+
+func anthropicIsNotConfiguredInEnvironment() error {
+	// Get capabilities to check if Anthropic is NOT configured
+	if err := iGetSystemCapabilities(); err != nil {
+		return err
+	}
+
+	aiProviders := lastCapabilities["ai_providers"].(map[string]any)
+	llm := aiProviders["llm"].([]any)
+
+	// Check if anthropic is in the list
+	for _, p := range llm {
+		if p == "anthropic" {
+			return fmt.Errorf("Anthropic is configured in environment - skipping test")
+		}
+	}
+
+	return nil
+}
+
+func iUpdateAISettingsToUseAnthropic() error {
+	return testCtx.Request(http.MethodPut, "/api/v1/settings/ai", map[string]any{
+		"llm": map[string]string{
+			"provider": "anthropic",
+			"model":    "claude-3-sonnet-20240229",
+		},
+	})
+}
+
+func theErrorShouldMentionProviderNotConfigured() error {
+	if testCtx.LastStatusCode == http.StatusOK {
+		return fmt.Errorf("expected error status, got 200")
+	}
+
+	bodyStr := string(testCtx.LastBody)
+	errorPatterns := []string{"not configured", "unavailable", "unsupported"}
+
+	for _, pattern := range errorPatterns {
+		if stringContains(bodyStr, pattern) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("error message doesn't mention provider not configured: %s", bodyStr)
+}
+
+func iUpdateAIEmbeddingToWithModel(provider, model string) error {
+	return testCtx.Request(http.MethodPut, "/api/v1/settings/ai", map[string]any{
+		"embedding": map[string]string{
+			"provider": provider,
+			"model":    model,
+		},
+	})
+}
+
+func embeddingShouldUseOpenAIProvider() error {
+	// Get current AI settings
+	if err := iGetAISettings(); err != nil {
+		return err
+	}
+
+	embedding := lastAISettings["embedding"].(map[string]any)
+	provider, ok := embedding["provider"].(string)
+	if !ok {
+		return fmt.Errorf("provider field missing or not a string")
+	}
+
+	if provider != "openai" {
+		return fmt.Errorf("expected provider to be 'openai', got '%s'", provider)
+	}
+
+	return nil
+}
+
+func aiSettingsProvidersShouldMatchCapabilityProviders() error {
+	if lastAISettings == nil {
+		return fmt.Errorf("no AI settings available")
+	}
+	if lastCapabilities == nil {
+		return fmt.Errorf("no capabilities available")
+	}
+
+	// Get embedding provider from settings if configured
+	embedding := lastAISettings["embedding"].(map[string]any)
+	if isConfigured, ok := embedding["is_configured"].(bool); ok && isConfigured {
+		embeddingProvider, ok := embedding["provider"].(string)
+		if !ok {
+			return fmt.Errorf("embedding provider not a string")
+		}
+
+		// Check it's in capabilities
+		aiProviders := lastCapabilities["ai_providers"].(map[string]any)
+		embeddingCaps := aiProviders["embedding"].([]any)
+
+		found := false
+		for _, p := range embeddingCaps {
+			if p == embeddingProvider {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("embedding provider %s not in capabilities", embeddingProvider)
+		}
+	}
+
+	// Get LLM provider from settings if configured
+	llm := lastAISettings["llm"].(map[string]any)
+	if isConfigured, ok := llm["is_configured"].(bool); ok && isConfigured {
+		llmProvider, ok := llm["provider"].(string)
+		if !ok {
+			return fmt.Errorf("llm provider not a string")
+		}
+
+		// Check it's in capabilities
+		aiProviders := lastCapabilities["ai_providers"].(map[string]any)
+		llmCaps := aiProviders["llm"].([]any)
+
+		found := false
+		for _, p := range llmCaps {
+			if p == llmProvider {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("llm provider %s not in capabilities", llmProvider)
+		}
+	}
+
+	return nil
+}
+
+// Helper function to check if JSON contains a field
+func jsonContainsField(jsonStr, field string) bool {
+	return stringContains(jsonStr, `"`+field+`"`)
 }

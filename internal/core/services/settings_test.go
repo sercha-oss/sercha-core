@@ -55,7 +55,7 @@ type mockAIFactory struct {
 	llmErr       error
 }
 
-func (m *mockAIFactory) CreateEmbeddingService(settings *domain.EmbeddingSettings) (driven.EmbeddingService, error) {
+func (m *mockAIFactory) CreateEmbeddingService(settings *domain.EmbeddingSettings, credentials *driven.AICredentials) (driven.EmbeddingService, error) {
 	if settings == nil || !settings.IsConfigured() {
 		return nil, nil
 	}
@@ -65,7 +65,7 @@ func (m *mockAIFactory) CreateEmbeddingService(settings *domain.EmbeddingSetting
 	return &mockEmbeddingService{}, nil
 }
 
-func (m *mockAIFactory) CreateLLMService(settings *domain.LLMSettings) (driven.LLMService, error) {
+func (m *mockAIFactory) CreateLLMService(settings *domain.LLMSettings, credentials *driven.AICredentials) (driven.LLMService, error) {
 	if settings == nil || !settings.IsConfigured() {
 		return nil, nil
 	}
@@ -142,7 +142,8 @@ func TestSettingsService_Get(t *testing.T) {
 	}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 	settings, err := svc.Get(context.Background())
 	if err != nil {
@@ -157,7 +158,8 @@ func TestSettingsService_Update(t *testing.T) {
 	store := &mockSettingsStore{}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 	resultsPerPage := 50
 	req := driving.UpdateSettingsRequest{
@@ -182,7 +184,8 @@ func TestSettingsService_Update_AllFields(t *testing.T) {
 	}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 	// Note: AI configuration (provider, model, endpoint) is now managed via UpdateAISettings
 	searchMode := domain.SearchModeHybrid
@@ -224,13 +227,13 @@ func TestSettingsService_GetAISettings(t *testing.T) {
 			Embedding: domain.EmbeddingSettings{
 				Provider: domain.AIProviderOpenAI,
 				Model:    "text-embedding-3-small",
-				APIKey:   "sk-test",
 			},
 		},
 	}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 	aiSettings, err := svc.GetAISettings(context.Background())
 	if err != nil {
@@ -246,13 +249,17 @@ func TestSettingsService_UpdateAISettings(t *testing.T) {
 	factory := &mockAIFactory{}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, factory, services, "team-1")
+	configProvider := newMockConfigProvider()
+	// Configure AI provider credentials
+	configProvider.aiCredentials[domain.AIProviderOpenAI] = &driven.AICredentials{
+		APIKey: "sk-test",
+	}
+	svc := NewSettingsService(store, factory, configProvider, services, "team-1")
 
 	req := driving.UpdateAISettingsRequest{
 		Embedding: &driving.EmbeddingSettingsInput{
 			Provider: domain.AIProviderOpenAI,
 			Model:    "text-embedding-3-small",
-			APIKey:   "sk-test",
 		},
 	}
 
@@ -272,13 +279,17 @@ func TestSettingsService_UpdateAISettings_FactoryError(t *testing.T) {
 	}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, factory, services, "team-1")
+	configProvider := newMockConfigProvider()
+	// Configure AI provider credentials
+	configProvider.aiCredentials[domain.AIProviderOpenAI] = &driven.AICredentials{
+		APIKey: "sk-test",
+	}
+	svc := NewSettingsService(store, factory, configProvider, services, "team-1")
 
 	req := driving.UpdateAISettingsRequest{
 		Embedding: &driving.EmbeddingSettingsInput{
 			Provider: domain.AIProviderOpenAI,
 			Model:    "text-embedding-3-small",
-			APIKey:   "sk-test",
 		},
 	}
 
@@ -301,7 +312,8 @@ func TestSettingsService_UpdateAISettings_DisableService(t *testing.T) {
 	mock := &mockEmbeddingService{}
 	services.SetEmbeddingService(mock)
 
-	svc := NewSettingsService(store, factory, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, factory, configProvider, services, "team-1")
 
 	// Update with empty embedding (should disable)
 	req := driving.UpdateAISettingsRequest{
@@ -332,7 +344,8 @@ func TestSettingsService_GetAIStatus(t *testing.T) {
 	// Set up embedding service
 	services.SetEmbeddingService(&mockEmbeddingService{})
 
-	svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 	status, err := svc.GetAIStatus(context.Background())
 	if err != nil {
@@ -351,7 +364,8 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		store := &mockSettingsStore{}
 		config := domain.NewRuntimeConfig("postgres")
 		services := runtime.NewServices(config)
-		svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+		configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err != nil {
@@ -364,7 +378,8 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		config := domain.NewRuntimeConfig("postgres")
 		services := runtime.NewServices(config)
 		services.SetEmbeddingService(&mockEmbeddingService{})
-		svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+		configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err != nil {
@@ -377,7 +392,8 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		config := domain.NewRuntimeConfig("postgres")
 		services := runtime.NewServices(config)
 		services.SetEmbeddingService(&mockEmbeddingService{healthCheckErr: errors.New("connection failed")})
-		svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+		configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err == nil {
@@ -390,7 +406,8 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		config := domain.NewRuntimeConfig("postgres")
 		services := runtime.NewServices(config)
 		services.SetLLMService(&mockLLMService{})
-		svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+		configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err != nil {
@@ -403,7 +420,8 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		config := domain.NewRuntimeConfig("postgres")
 		services := runtime.NewServices(config)
 		services.SetLLMService(&mockLLMService{pingErr: errors.New("connection failed")})
-		svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+		configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err == nil {
@@ -417,13 +435,18 @@ func TestSettingsService_UpdateAISettings_WithLLM(t *testing.T) {
 	factory := &mockAIFactory{}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, factory, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, factory, configProvider, services, "team-1")
+
+	// Configure AI credentials
+	configProvider.aiCredentials[domain.AIProviderOpenAI] = &driven.AICredentials{
+		APIKey: "sk-test",
+	}
 
 	req := driving.UpdateAISettingsRequest{
 		LLM: &driving.LLMSettingsInput{
 			Provider: domain.AIProviderOpenAI,
 			Model:    "gpt-4o-mini",
-			APIKey:   "sk-test",
 		},
 	}
 
@@ -443,13 +466,17 @@ func TestSettingsService_UpdateAISettings_SaveError(t *testing.T) {
 	factory := &mockAIFactory{}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, factory, services, "team-1")
+	configProvider := newMockConfigProvider()
+	// Configure AI credentials
+	configProvider.aiCredentials[domain.AIProviderOpenAI] = &driven.AICredentials{
+		APIKey: "sk-test",
+	}
+	svc := NewSettingsService(store, factory, configProvider, services, "team-1")
 
 	req := driving.UpdateAISettingsRequest{
 		Embedding: &driving.EmbeddingSettingsInput{
 			Provider: domain.AIProviderOpenAI,
 			Model:    "text-embedding-3-small",
-			APIKey:   "sk-test",
 		},
 	}
 
@@ -469,7 +496,8 @@ func TestSettingsService_Update_ExistingSettings(t *testing.T) {
 	}
 	config := domain.NewRuntimeConfig("postgres")
 	services := runtime.NewServices(config)
-	svc := NewSettingsService(store, &mockAIFactory{}, services, "team-1")
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 	resultsPerPage := 25
 	req := driving.UpdateSettingsRequest{

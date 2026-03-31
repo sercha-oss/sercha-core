@@ -191,6 +191,24 @@ export interface ProviderConfigResponse {
   enabled: boolean;
 }
 
+export interface CapabilitiesResponse {
+  oauth_providers: string[];
+  ai_providers: {
+    embedding: string[];
+    llm: string[];
+  };
+  features: {
+    semantic_search: boolean;
+    vector_indexing: boolean;
+  };
+  limits: {
+    sync_min_interval: number;
+    sync_max_interval: number;
+    max_workers: number;
+    max_results_per_page: number;
+  };
+}
+
 export interface OAuthAuthorizeResponse {
   authorization_url: string;
   state: string;
@@ -754,18 +772,24 @@ export async function getProviderConfig(type: string): Promise<ProviderConfigRes
   return apiFetch<ProviderConfigResponse>(`/api/v1/providers/${type}/config`);
 }
 
-export async function saveProviderConfig(
-  type: string,
-  data: ProviderConfigRequest
-): Promise<ProviderConfigResponse> {
-  return apiFetch<ProviderConfigResponse>(`/api/v1/providers/${type}/config`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
+// Deprecated: OAuth credentials now managed via environment variables
+// export async function saveProviderConfig(
+//   type: string,
+//   data: ProviderConfigRequest
+// ): Promise<ProviderConfigResponse> {
+//   return apiFetch<ProviderConfigResponse>(`/api/v1/providers/${type}/config`, {
+//     method: "POST",
+//     body: JSON.stringify(data),
+//   });
+// }
 
-export async function deleteProviderConfig(type: string): Promise<void> {
-  await apiFetch(`/api/v1/providers/${type}/config`, { method: "DELETE" });
+// Deprecated: OAuth credentials now managed via environment variables
+// export async function deleteProviderConfig(type: string): Promise<void> {
+//   await apiFetch(`/api/v1/providers/${type}/config`, { method: "DELETE" });
+// }
+
+export async function getCapabilities(): Promise<CapabilitiesResponse> {
+  return apiFetch<CapabilitiesResponse>("/api/v1/capabilities");
 }
 
 // ========== OAuth API ==========

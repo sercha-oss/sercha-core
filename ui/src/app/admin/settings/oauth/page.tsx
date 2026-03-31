@@ -9,101 +9,58 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
-  Pencil,
-  ExternalLink,
   X,
-  Plus,
 } from "lucide-react";
 import {
   listInstallations,
   deleteInstallation,
   getInstallationSources,
-  listProviders,
-  saveProviderConfig,
-  deleteProviderConfig,
-  InstallationSummary,
-  InstallationSourceSummary,
-  ProviderListItem,
+  getCapabilities,
+  type InstallationSummary,
+  type InstallationSourceSummary,
+  type CapabilitiesResponse,
 } from "@/lib/api";
-import { getProviderIcon, getProviderHelpUrl } from "@/lib/providers";
+import { getProviderIcon } from "@/lib/providers";
 
-// Provider Credentials Section
-function ProviderCredentialsSection() {
-  const [providers, setProviders] = useState<ProviderListItem[]>([]);
+// Provider Configuration Status Section (Read-only)
+function ProviderConfigurationSection() {
+  const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingProvider, setEditingProvider] = useState<ProviderListItem | null>(null);
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [confirmDeleteType, setConfirmDeleteType] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
-    loadProviders();
+    loadCapabilities();
   }, []);
 
-  const loadProviders = async () => {
+  const loadCapabilities = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await listProviders();
-      setProviders(data);
+      const data = await getCapabilities();
+      setCapabilities(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load providers");
+      setError(err instanceof Error ? err.message : "Failed to load capabilities");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEdit = (provider: ProviderListItem) => {
-    setEditingProvider(provider);
-    setClientId("");
-    setClientSecret("");
-  };
-
-  const handleSave = async () => {
-    if (!editingProvider || !clientId || !clientSecret) return;
-
-    setSaving(true);
-    try {
-      await saveProviderConfig(editingProvider.type, {
-        client_id: clientId,
-        client_secret: clientSecret,
-      });
-      await loadProviders();
-      setEditingProvider(null);
-      setClientId("");
-      setClientSecret("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save credentials");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async (type: string) => {
-    if (confirmDeleteType !== type) {
-      setConfirmDeleteType(type);
-      return;
-    }
-
-    setDeleting(type);
-    try {
-      await deleteProviderConfig(type);
-      await loadProviders();
-      setConfirmDeleteType(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete credentials");
-    } finally {
-      setDeleting(null);
-    }
+  const providerNames: Record<string, string> = {
+    github: "GitHub",
+    google_drive: "Google Drive",
+    slack: "Slack",
+    notion: "Notion",
+    confluence: "Confluence",
+    jira: "Jira",
+    gitlab: "GitLab",
+    linear: "Linear",
+    dropbox: "Dropbox",
   };
 
   if (loading) {
     return (
       <section className="rounded-2xl border-2 border-sercha-silverline bg-white p-6">
-        <h2 className="mb-4 text-lg font-semibold text-sercha-ink-slate">Provider Credentials</h2>
+        <h2 className="mb-4 text-lg font-semibold text-sercha-ink-slate">OAuth Providers</h2>
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin text-sercha-indigo" />
         </div>
@@ -113,9 +70,9 @@ function ProviderCredentialsSection() {
 
   return (
     <section className="rounded-2xl border-2 border-sercha-silverline bg-white p-6">
-      <h2 className="mb-1 text-lg font-semibold text-sercha-ink-slate">Provider Credentials</h2>
+      <h2 className="mb-1 text-lg font-semibold text-sercha-ink-slate">OAuth Providers</h2>
       <p className="mb-4 text-sm text-sercha-fog-grey">
-        Configure OAuth app credentials (Client ID & Secret) for each provider.
+        OAuth credentials are configured via environment variables on the server.
       </p>
 
       {error && (
@@ -128,203 +85,43 @@ function ProviderCredentialsSection() {
         </div>
       )}
 
-      {providers.filter(p => p.configured).length === 0 ? (
-        <div className="rounded-lg border border-dashed border-sercha-silverline bg-sercha-snow p-6 text-center">
-          <p className="text-sm text-sercha-fog-grey">No provider credentials configured.</p>
-          <p className="mt-1 text-xs text-sercha-fog-grey">
-            Configure providers when adding a new data source.
-          </p>
-        </div>
-      ) : (
-      <div className="space-y-3">
-        {providers.filter(p => p.configured).map((provider) => (
-          <div
-            key={provider.type}
-            className="rounded-lg border border-sercha-silverline bg-sercha-snow"
-          >
-            <div className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white border border-sercha-silverline overflow-hidden">
-                  <Image
-                    src={getProviderIcon(provider.type)}
-                    alt={provider.name}
-                    width={24}
-                    height={24}
-                    className="object-contain"
-                  />
-                </div>
-                <div>
-                  <div className="font-medium text-sercha-ink-slate">{provider.name}</div>
-                  <div className="text-sm text-sercha-fog-grey">{provider.description}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {provider.configured ? (
-                  <>
-                    <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">
-                      Configured
-                    </span>
-                    <button
-                      onClick={() => handleEdit(provider)}
-                      className="rounded-lg p-2 text-sercha-fog-grey hover:bg-sercha-mist hover:text-sercha-ink-slate"
-                      title="Edit credentials"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(provider.type)}
-                      disabled={deleting === provider.type}
-                      className={`rounded-lg p-2 ${
-                        confirmDeleteType === provider.type
-                          ? "bg-red-100 text-red-600"
-                          : "text-sercha-fog-grey hover:bg-red-50 hover:text-red-600"
-                      }`}
-                      title="Delete credentials"
-                    >
-                      {deleting === provider.type ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="rounded-full bg-sercha-mist px-2 py-1 text-xs text-sercha-fog-grey">
-                      Not configured
-                    </span>
-                    <button
-                      onClick={() => handleEdit(provider)}
-                      className="flex items-center gap-1 rounded-lg bg-sercha-indigo px-3 py-1.5 text-sm font-medium text-white hover:bg-sercha-indigo/90"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Configure
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Delete Confirmation */}
-            {confirmDeleteType === provider.type && (
-              <div className="border-t border-red-200 bg-red-50 px-4 py-3">
-                <p className="text-sm text-red-700">
-                  Delete {provider.name} credentials? Existing installations will stop working.
-                </p>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    onClick={() => setConfirmDeleteType(null)}
-                    className="rounded-lg border border-sercha-silverline bg-white px-3 py-1.5 text-sm text-sercha-ink-slate hover:bg-sercha-mist"
+      {capabilities && (
+        <div className="space-y-3">
+          {Object.keys(providerNames).map((providerType) => {
+            const isConfigured = capabilities.oauth_providers.includes(providerType);
+            return (
+              <div
+                key={providerType}
+                className="rounded-lg border border-sercha-silverline bg-sercha-snow p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white border border-sercha-silverline overflow-hidden">
+                      <Image
+                        src={getProviderIcon(providerType)}
+                        alt={providerNames[providerType]}
+                        width={24}
+                        height={24}
+                        className="object-contain"
+                      />
+                    </div>
+                    <div className="font-medium text-sercha-ink-slate">
+                      {providerNames[providerType]}
+                    </div>
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-1 text-xs font-medium ${
+                      isConfigured
+                        ? "bg-green-100 text-green-700"
+                        : "bg-sercha-mist text-sercha-fog-grey"
+                    }`}
                   >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => handleDelete(provider.type)}
-                    disabled={deleting === provider.type}
-                    className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {deleting === provider.type ? "Deleting..." : "Delete Credentials"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-      )}
-
-      {/* Edit/Configure Modal */}
-      {editingProvider && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sercha-snow border border-sercha-silverline overflow-hidden">
-                  <Image
-                    src={getProviderIcon(editingProvider.type)}
-                    alt={editingProvider.name}
-                    width={24}
-                    height={24}
-                    className="object-contain"
-                  />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-sercha-ink-slate">
-                    {editingProvider.configured ? "Edit" : "Configure"} {editingProvider.name}
-                  </h3>
-                  <p className="text-sm text-sercha-fog-grey">Enter your OAuth app credentials</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setEditingProvider(null)}
-                className="rounded-lg p-2 text-sercha-fog-grey hover:bg-sercha-mist"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-sercha-ink-slate">
-                  Client ID
-                </label>
-                <input
-                  type="text"
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  placeholder="Enter client ID"
-                  className="w-full rounded-lg border border-sercha-silverline px-3 py-2 text-sm focus:border-sercha-indigo focus:outline-none focus:ring-1 focus:ring-sercha-indigo"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-sercha-ink-slate">
-                  Client Secret
-                </label>
-                <input
-                  type="password"
-                  value={clientSecret}
-                  onChange={(e) => setClientSecret(e.target.value)}
-                  placeholder="Enter client secret"
-                  className="w-full rounded-lg border border-sercha-silverline px-3 py-2 text-sm focus:border-sercha-indigo focus:outline-none focus:ring-1 focus:ring-sercha-indigo"
-                />
-              </div>
-
-              {getProviderHelpUrl(editingProvider.type) && (
-                <a
-                  href={getProviderHelpUrl(editingProvider.type)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-sm text-sercha-indigo hover:underline"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Get credentials from {editingProvider.name}
-                </a>
-              )}
-            </div>
-
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                onClick={() => setEditingProvider(null)}
-                className="rounded-lg border border-sercha-silverline px-4 py-2 text-sm font-medium text-sercha-ink-slate hover:bg-sercha-mist"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || !clientId || !clientSecret}
-                className="rounded-lg bg-sercha-indigo px-4 py-2 text-sm font-medium text-white hover:bg-sercha-indigo/90 disabled:opacity-50"
-              >
-                {saving ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Saving...
+                    {isConfigured ? "Configured" : "Not configured"}
                   </span>
-                ) : (
-                  "Save Credentials"
-                )}
-              </button>
-            </div>
-          </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>
@@ -561,9 +358,9 @@ function OAuthInstallationsSection() {
 // Main OAuth Settings Page
 export default function OAuthSettingsPage() {
   return (
-    <AdminLayout title="OAuth Settings" description="Manage provider credentials and installations">
+    <AdminLayout title="OAuth Settings" description="Manage provider configuration and installations">
       <div className="space-y-6">
-        <ProviderCredentialsSection />
+        <ProviderConfigurationSection />
         <OAuthInstallationsSection />
       </div>
     </AdminLayout>

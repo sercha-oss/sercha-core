@@ -18,39 +18,47 @@ func NewFactory() *Factory {
 	return &Factory{}
 }
 
-// CreateEmbeddingService creates an embedding service from settings
-func (f *Factory) CreateEmbeddingService(settings *domain.EmbeddingSettings) (driven.EmbeddingService, error) {
+// CreateEmbeddingService creates an embedding service from settings and credentials
+func (f *Factory) CreateEmbeddingService(settings *domain.EmbeddingSettings, credentials *driven.AICredentials) (driven.EmbeddingService, error) {
 	if settings == nil || !settings.IsConfigured() {
 		return nil, nil
 	}
 
+	if credentials == nil {
+		return nil, fmt.Errorf("credentials required for provider %s", settings.Provider)
+	}
+
 	switch settings.Provider {
 	case domain.AIProviderOpenAI:
-		return NewOpenAIEmbedding(settings.APIKey, settings.Model, settings.BaseURL)
+		return NewOpenAIEmbedding(credentials.APIKey, settings.Model, credentials.BaseURL)
 	case domain.AIProviderOllama:
-		return NewOllamaEmbedding(settings.BaseURL, settings.Model)
+		return NewOllamaEmbedding(credentials.BaseURL, settings.Model)
 	case domain.AIProviderVoyage:
-		return NewVoyageEmbedding(settings.APIKey, settings.Model)
+		return NewVoyageEmbedding(credentials.APIKey, settings.Model)
 	case domain.AIProviderCohere:
-		return NewCohereEmbedding(settings.APIKey, settings.Model)
+		return NewCohereEmbedding(credentials.APIKey, settings.Model)
 	default:
 		return nil, fmt.Errorf("%w: %s", domain.ErrInvalidProvider, settings.Provider)
 	}
 }
 
-// CreateLLMService creates an LLM service from settings
-func (f *Factory) CreateLLMService(settings *domain.LLMSettings) (driven.LLMService, error) {
+// CreateLLMService creates an LLM service from settings and credentials
+func (f *Factory) CreateLLMService(settings *domain.LLMSettings, credentials *driven.AICredentials) (driven.LLMService, error) {
 	if settings == nil || !settings.IsConfigured() {
 		return nil, nil
 	}
 
+	if credentials == nil {
+		return nil, fmt.Errorf("credentials required for provider %s", settings.Provider)
+	}
+
 	switch settings.Provider {
 	case domain.AIProviderOpenAI:
-		return NewOpenAILLM(settings.APIKey, settings.Model, settings.BaseURL)
+		return NewOpenAILLM(credentials.APIKey, settings.Model, credentials.BaseURL)
 	case domain.AIProviderAnthropic:
-		return NewAnthropicLLM(settings.APIKey, settings.Model)
+		return NewAnthropicLLM(credentials.APIKey, settings.Model)
 	case domain.AIProviderOllama:
-		return NewOllamaLLM(settings.BaseURL, settings.Model)
+		return NewOllamaLLM(credentials.BaseURL, settings.Model)
 	default:
 		return nil, fmt.Errorf("%w: %s", domain.ErrInvalidProvider, settings.Provider)
 	}

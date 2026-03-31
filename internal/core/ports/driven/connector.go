@@ -93,17 +93,28 @@ type ConnectorFactory interface {
 
 // OAuthHandler handles OAuth flow for a provider.
 type OAuthHandler interface {
-	// BuildAuthURL builds the OAuth authorization URL with state.
-	BuildAuthURL(state string, redirectURL string) string
+	// DefaultConfig returns the default OAuth configuration (auth URL, token URL, scopes)
+	DefaultConfig() OAuthConfig
 
-	// ExchangeCode exchanges an authorization code for tokens.
-	ExchangeCode(ctx context.Context, code string, redirectURL string) (*OAuthToken, error)
+	// BuildAuthURL constructs the OAuth authorization URL with PKCE
+	BuildAuthURL(clientID, redirectURI, state, codeChallenge string, scopes []string) string
 
-	// RefreshToken refreshes an expired access token.
-	RefreshToken(ctx context.Context, refreshToken string) (*OAuthToken, error)
+	// ExchangeCode exchanges an authorization code for access tokens
+	ExchangeCode(ctx context.Context, clientID, clientSecret, code, redirectURI, codeVerifier string) (*OAuthToken, error)
 
-	// GetUserInfo retrieves user info using the access token.
+	// GetUserInfo retrieves user information using an access token
 	GetUserInfo(ctx context.Context, accessToken string) (*OAuthUserInfo, error)
+
+	// RefreshToken refreshes an expired access token
+	RefreshToken(ctx context.Context, refreshToken string) (*OAuthToken, error)
+}
+
+// OAuthHandlerFactory creates OAuth handlers for specific providers.
+// This abstracts the connectors.Factory dependency.
+type OAuthHandlerFactory interface {
+	// GetOAuthHandler returns an OAuth handler for the given provider.
+	// Returns nil if the provider doesn't support OAuth or isn't implemented.
+	GetOAuthHandler(providerType domain.ProviderType) OAuthHandler
 }
 
 // OAuthToken represents OAuth tokens from a provider.

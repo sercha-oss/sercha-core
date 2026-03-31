@@ -271,6 +271,22 @@ func (m *mockSettingsService) TestConnection(ctx context.Context) error {
 	return errors.New("not implemented")
 }
 
+type mockCapabilitiesService struct {
+	getCapabilitiesFn func(ctx context.Context) (*driving.CapabilitiesResponse, error)
+}
+
+func (m *mockCapabilitiesService) GetCapabilities(ctx context.Context) (*driving.CapabilitiesResponse, error) {
+	if m.getCapabilitiesFn != nil {
+		return m.getCapabilitiesFn(ctx)
+	}
+	return &driving.CapabilitiesResponse{
+		AIProviders: driving.AIProvidersCapability{
+			Embedding: []domain.AIProvider{domain.AIProviderOpenAI},
+			LLM:       []domain.AIProvider{domain.AIProviderOpenAI},
+		},
+	}, nil
+}
+
 type mockVespaAdminService struct {
 	connectFn     func(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error)
 	statusFn      func(ctx context.Context) (*driving.VespaStatus, error)
@@ -1945,18 +1961,21 @@ func TestHandleGetAISettings_Success(t *testing.T) {
 				Embedding: domain.EmbeddingSettings{
 					Provider: domain.AIProviderOpenAI,
 					Model:    "text-embedding-3-small",
-					APIKey:   "secret-key",
 				},
 				LLM: domain.LLMSettings{
 					Provider: domain.AIProviderOpenAI,
 					Model:    "gpt-4",
-					APIKey:   "secret-key",
 				},
 			}, nil
 		},
 	}
 
-	server := &Server{settingsService: mockSettings}
+	mockCapabilities := &mockCapabilitiesService{}
+
+	server := &Server{
+		settingsService:      mockSettings,
+		capabilitiesService: mockCapabilities,
+	}
 
 	req := httptest.NewRequest("GET", "/api/v1/settings/ai", nil)
 	rr := httptest.NewRecorder()
@@ -2017,7 +2036,6 @@ func TestHandleUpdateAISettings_Success(t *testing.T) {
 		Embedding: &driving.EmbeddingSettingsInput{
 			Provider: domain.AIProviderOpenAI,
 			Model:    "text-embedding-3-small",
-			APIKey:   "test-key",
 		},
 	})
 	req := httptest.NewRequest("PUT", "/api/v1/settings/ai", bytes.NewBuffer(body))

@@ -6,8 +6,6 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   Loader2,
-  Eye,
-  EyeOff,
   CheckCircle2,
   XCircle,
   Search,
@@ -22,7 +20,7 @@ import {
   listProviders,
   listSources,
   listInstallations,
-  saveProviderConfig,
+  getCapabilities,
   startOAuth,
   getInstallation,
   getInstallationContainers,
@@ -33,11 +31,10 @@ import {
   type InstallationSummary,
   type Container,
 } from "@/lib/api";
-import { PROVIDER_ICONS, PROVIDER_HELP_URLS } from "@/lib/providers";
+import { PROVIDER_ICONS } from "@/lib/providers";
 
 type ViewState =
   | "selection"
-  | "credentials"
   | "installation_picker"
   | "connecting"
   | "select"
@@ -58,12 +55,6 @@ function AddSourceWizardContent() {
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [pendingProvider, setPendingProvider] = useState<ProviderListItem | null>(null);
 
-  // Credentials state
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [showSecret, setShowSecret] = useState(false);
-  const [isSavingCredentials, setIsSavingCredentials] = useState(false);
-
   // Installation & container state
   const [selectedInstallation, setSelectedInstallation] = useState<InstallationSummary | null>(null);
   const [existingInstallations, setExistingInstallations] = useState<InstallationSummary[]>([]);
@@ -82,15 +73,23 @@ function AddSourceWizardContent() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const providerList = await listProviders();
-        setProviders(providerList);
+        const [caps, providerList] = await Promise.all([
+          getCapabilities(),
+          listProviders(),
+        ]);
+
+        // Filter providers to only show those configured in environment
+        const configuredProviders = providerList.filter((p) =>
+          caps.oauth_providers.includes(p.type)
+        );
+        setProviders(configuredProviders);
 
         // Handle OAuth callback return (installation_id and provider come from URL)
         const installationId = searchParams.get("installation_id");
         const providerFromUrl = searchParams.get("provider");
 
         if (installationId) {
-          await handleOAuthReturn(installationId, providerFromUrl || undefined, providerList);
+          await handleOAuthReturn(installationId, providerFromUrl || undefined, configuredProviders);
         }
       } catch {
         setProviders([]);
@@ -145,31 +144,24 @@ function AddSourceWizardContent() {
     setPendingProvider(provider);
     setError(null);
 
-    if (provider.configured) {
-      // Fetch existing installations for this provider
-      try {
-        const allInstallations = await listInstallations();
-        const providerInstallations = allInstallations.filter(
-          (i) => i.provider_type === provider.type
-        );
+    // Fetch existing installations for this provider
+    try {
+      const allInstallations = await listInstallations();
+      const providerInstallations = allInstallations.filter(
+        (i) => i.provider_type === provider.type
+      );
 
-        if (providerInstallations.length > 0) {
-          // Show picker to choose existing or connect new
-          setExistingInstallations(providerInstallations);
-          setView("installation_picker");
-        } else {
-          // No existing installations, go straight to OAuth
-          await startOAuthFlow(provider);
-        }
-      } catch {
-        // If fetch fails, just go to OAuth
+      if (providerInstallations.length > 0) {
+        // Show picker to choose existing or connect new
+        setExistingInstallations(providerInstallations);
+        setView("installation_picker");
+      } else {
+        // No existing installations, go straight to OAuth
         await startOAuthFlow(provider);
       }
-    } else {
-      // Need to collect credentials first
-      setClientId("");
-      setClientSecret("");
-      setView("credentials");
+    } catch {
+      // If fetch fails, just go to OAuth
+      await startOAuthFlow(provider);
     }
   };
 
@@ -180,38 +172,7 @@ function AddSourceWizardContent() {
     setView("select");
   };
 
-  // Save credentials and start OAuth
-  const handleCredentialsSave = async () => {
-    if (!pendingProvider || !clientId || !clientSecret) return;
-
-    setIsSavingCredentials(true);
-    setError(null);
-
-    try {
-      await saveProviderConfig(pendingProvider.type, {
-        client_id: clientId,
-        client_secret: clientSecret,
-      });
-
-      // Update provider as configured
-      setProviders((prev) =>
-        prev.map((p) =>
-          p.type === pendingProvider.type ? { ...p, configured: true } : p
-        )
-      );
-
-      // Now start OAuth
-      await startOAuthFlow({ ...pendingProvider, configured: true });
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message || "Failed to save credentials");
-      } else {
-        setError("Failed to save credentials. Please try again.");
-      }
-    } finally {
-      setIsSavingCredentials(false);
-    }
-  };
+  // Removed: credentials are now managed via environment variables
 
   // Start OAuth redirect
   const startOAuthFlow = async (provider: ProviderListItem) => {
@@ -336,17 +297,12 @@ function AddSourceWizardContent() {
     setSearchQuery("");
     setFolderPath([]);
     setError(null);
-    setClientId("");
-    setClientSecret("");
     setView("selection");
   };
 
   // Back navigation
   const handleBack = () => {
-    if (view === "credentials") {
-      setPendingProvider(null);
-      setView("selection");
-    } else if (view === "installation_picker") {
+    if (view === "installation_picker") {
       setPendingProvider(null);
       setExistingInstallations([]);
       setView("selection");
@@ -561,149 +517,6 @@ function AddSourceWizardContent() {
               <ExternalLink className="h-4 w-4" />
               Connect New {pendingProvider?.name} Account
             </button>
-          </div>
-        </div>
-      </AdminLayout>
-    );
-  }
-
-  // Credentials view
-  if (view === "credentials") {
-    return (
-      <AdminLayout title={`Configure ${pendingProvider?.name}`} description="Enter OAuth credentials">
-        <div className="mx-auto max-w-lg">
-          <button
-            onClick={handleBack}
-            className="mb-4 flex items-center gap-1 text-sm text-sercha-fog-grey hover:text-sercha-ink-slate"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </button>
-
-          <div className="mb-8 flex items-center gap-4">
-            {pendingProvider && (
-              <Image
-                src={PROVIDER_ICONS[pendingProvider.type] || "/icon.svg"}
-                alt={pendingProvider.name}
-                width={48}
-                height={48}
-                className="h-12 w-12"
-              />
-            )}
-            <div>
-              <h1 className="text-2xl font-semibold text-sercha-ink-slate">
-                Configure {pendingProvider?.name}
-              </h1>
-              <p className="mt-1 text-sm text-sercha-fog-grey">
-                Enter your OAuth app credentials to connect.
-              </p>
-            </div>
-          </div>
-
-          {/* Help Link */}
-          {pendingProvider && PROVIDER_HELP_URLS[pendingProvider.type] && (
-            <div className="mb-6 rounded-lg border border-sercha-indigo/20 bg-sercha-indigo/5 p-4">
-              <p className="text-sm text-sercha-fog-grey">
-                Need to create an OAuth app?{" "}
-                <a
-                  href={PROVIDER_HELP_URLS[pendingProvider.type]}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 font-medium text-sercha-indigo hover:underline"
-                >
-                  Open {pendingProvider.name} Developer Console
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </p>
-            </div>
-          )}
-
-          {/* OAuth Redirect URL Hint */}
-          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <p className="mb-1 text-sm font-medium text-amber-800">
-              OAuth Callback URL
-            </p>
-            <p className="mb-2 text-xs text-amber-700">
-              Set this as the &quot;Redirect URI&quot; or &quot;Callback URL&quot; in your OAuth app settings:
-            </p>
-            <code className="block rounded bg-amber-100 px-3 py-2 text-xs text-amber-900 break-all">
-              {typeof window !== "undefined"
-                ? `${window.location.origin.replace(":3000", ":8080")}/api/v1/oauth/callback`
-                : "http://localhost:8080/api/v1/oauth/callback"}
-            </code>
-          </div>
-
-          <div className="space-y-4">
-            {/* Client ID */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-sercha-ink-slate">
-                Client ID
-              </label>
-              <input
-                type="text"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 text-sm text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-                placeholder="Enter client ID"
-                disabled={isSavingCredentials}
-              />
-            </div>
-
-            {/* Client Secret */}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-sercha-ink-slate">
-                Client Secret
-              </label>
-              <div className="relative">
-                <input
-                  type={showSecret ? "text" : "password"}
-                  value={clientSecret}
-                  onChange={(e) => setClientSecret(e.target.value)}
-                  className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 pr-10 text-sm text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-                  placeholder="Enter client secret"
-                  disabled={isSavingCredentials}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowSecret(!showSecret)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-sercha-fog-grey hover:text-sercha-ink-slate"
-                >
-                  {showSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-                {error}
-              </div>
-            )}
-
-            {/* Buttons */}
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={handleBack}
-                disabled={isSavingCredentials}
-                className="flex-1 rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 text-sm font-medium text-sercha-fog-grey transition-colors hover:bg-sercha-mist"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCredentialsSave}
-                disabled={isSavingCredentials || !clientId || !clientSecret}
-                className="flex flex-1 items-center justify-center rounded-lg bg-sercha-indigo px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sercha-indigo/90 focus:outline-none focus:ring-2 focus:ring-sercha-indigo/50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSavingCredentials ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save & Connect"
-                )}
-              </button>
-            </div>
           </div>
         </div>
       </AdminLayout>

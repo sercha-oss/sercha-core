@@ -86,23 +86,7 @@ func TestSettings(t *testing.T) {
 	}
 }
 
-func TestAPIKeyConfig(t *testing.T) {
-	config := APIKeyConfig{
-		Provider: AIProviderOpenAI,
-		APIKey:   "sk-secret-key",
-		BaseURL:  "https://api.openai.com/v1",
-	}
-
-	if config.Provider != AIProviderOpenAI {
-		t.Errorf("expected Provider openai, got %s", config.Provider)
-	}
-	if config.APIKey != "sk-secret-key" {
-		t.Errorf("expected APIKey sk-secret-key, got %s", config.APIKey)
-	}
-	if config.BaseURL != "https://api.openai.com/v1" {
-		t.Errorf("expected BaseURL https://api.openai.com/v1, got %s", config.BaseURL)
-	}
-}
+// TestAPIKeyConfig removed - API keys no longer stored in domain models
 
 func TestDefaultEmbeddingConfig(t *testing.T) {
 	config := DefaultEmbeddingConfig()
@@ -151,27 +135,27 @@ func TestEmbeddingSettings_IsConfigured(t *testing.T) {
 	}{
 		{
 			name:     "empty provider",
-			settings: EmbeddingSettings{Provider: "", Model: "test", APIKey: "key"},
+			settings: EmbeddingSettings{Provider: "", Model: "test"},
 			expected: false,
 		},
 		{
-			name:     "openai without api key",
-			settings: EmbeddingSettings{Provider: AIProviderOpenAI, Model: "test", APIKey: ""},
+			name:     "provider without model",
+			settings: EmbeddingSettings{Provider: AIProviderOpenAI, Model: ""},
 			expected: false,
 		},
 		{
-			name:     "openai with api key",
-			settings: EmbeddingSettings{Provider: AIProviderOpenAI, Model: "test", APIKey: "sk-test"},
+			name:     "openai with model",
+			settings: EmbeddingSettings{Provider: AIProviderOpenAI, Model: "text-embedding-3-small"},
 			expected: true,
 		},
 		{
-			name:     "ollama without api key (ok)",
-			settings: EmbeddingSettings{Provider: AIProviderOllama, Model: "nomic", BaseURL: "http://localhost:11434"},
+			name:     "ollama with model",
+			settings: EmbeddingSettings{Provider: AIProviderOllama, Model: "nomic"},
 			expected: true,
 		},
 		{
-			name:     "voyage with api key",
-			settings: EmbeddingSettings{Provider: AIProviderVoyage, Model: "voyage-2", APIKey: "key"},
+			name:     "voyage with model",
+			settings: EmbeddingSettings{Provider: AIProviderVoyage, Model: "voyage-2"},
 			expected: true,
 		},
 	}
@@ -194,27 +178,27 @@ func TestLLMSettings_IsConfigured(t *testing.T) {
 	}{
 		{
 			name:     "empty provider",
-			settings: LLMSettings{Provider: "", Model: "test", APIKey: "key"},
+			settings: LLMSettings{Provider: "", Model: "test"},
 			expected: false,
 		},
 		{
-			name:     "openai without api key",
-			settings: LLMSettings{Provider: AIProviderOpenAI, Model: "gpt-4", APIKey: ""},
+			name:     "provider without model",
+			settings: LLMSettings{Provider: AIProviderOpenAI, Model: ""},
 			expected: false,
 		},
 		{
-			name:     "openai with api key",
-			settings: LLMSettings{Provider: AIProviderOpenAI, Model: "gpt-4", APIKey: "sk-test"},
+			name:     "openai with model",
+			settings: LLMSettings{Provider: AIProviderOpenAI, Model: "gpt-4"},
 			expected: true,
 		},
 		{
-			name:     "anthropic with api key",
-			settings: LLMSettings{Provider: AIProviderAnthropic, Model: "claude-3", APIKey: "key"},
+			name:     "anthropic with model",
+			settings: LLMSettings{Provider: AIProviderAnthropic, Model: "claude-3-5-sonnet"},
 			expected: true,
 		},
 		{
-			name:     "ollama without api key (ok)",
-			settings: LLMSettings{Provider: AIProviderOllama, Model: "llama3", BaseURL: "http://localhost:11434"},
+			name:     "ollama with model",
+			settings: LLMSettings{Provider: AIProviderOllama, Model: "llama3"},
 			expected: true,
 		},
 	}
@@ -345,12 +329,10 @@ func TestAISettings(t *testing.T) {
 		Embedding: EmbeddingSettings{
 			Provider: AIProviderOpenAI,
 			Model:    "text-embedding-3-small",
-			APIKey:   "sk-test",
 		},
 		LLM: LLMSettings{
 			Provider: AIProviderAnthropic,
 			Model:    "claude-3-5-sonnet",
-			APIKey:   "sk-ant-test",
 		},
 	}
 

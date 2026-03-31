@@ -99,28 +99,25 @@ func (s *SettingsStore) SaveSettings(ctx context.Context, settings *domain.Setti
 }
 
 // GetAISettings retrieves AI-specific settings for a team
+// Note: API keys and base URLs are NOT stored in database - they come from environment variables
 func (s *SettingsStore) GetAISettings(ctx context.Context, teamID string) (*domain.AISettings, error) {
 	query := `
-		SELECT team_id, embedding_provider, embedding_model, embedding_api_key, embedding_base_url,
-			   llm_provider, llm_model, llm_api_key, llm_base_url, updated_at
+		SELECT team_id, embedding_provider, embedding_model,
+			   llm_provider, llm_model, updated_at
 		FROM ai_settings
 		WHERE team_id = $1
 	`
 
 	var settings domain.AISettings
-	var embProvider, embModel, embAPIKey, embBaseURL sql.NullString
-	var llmProvider, llmModel, llmAPIKey, llmBaseURL sql.NullString
+	var embProvider, embModel sql.NullString
+	var llmProvider, llmModel sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, teamID).Scan(
 		&settings.TeamID,
 		&embProvider,
 		&embModel,
-		&embAPIKey,
-		&embBaseURL,
 		&llmProvider,
 		&llmModel,
-		&llmAPIKey,
-		&llmBaseURL,
 		&settings.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -135,34 +132,27 @@ func (s *SettingsStore) GetAISettings(ctx context.Context, teamID string) (*doma
 		settings.Embedding.Provider = domain.AIProvider(embProvider.String)
 	}
 	settings.Embedding.Model = embModel.String
-	settings.Embedding.APIKey = embAPIKey.String
-	settings.Embedding.BaseURL = embBaseURL.String
 
 	if llmProvider.Valid {
 		settings.LLM.Provider = domain.AIProvider(llmProvider.String)
 	}
 	settings.LLM.Model = llmModel.String
-	settings.LLM.APIKey = llmAPIKey.String
-	settings.LLM.BaseURL = llmBaseURL.String
 
 	return &settings, nil
 }
 
 // SaveAISettings persists AI-specific settings
+// Note: Only provider and model are stored - API keys and base URLs come from environment
 func (s *SettingsStore) SaveAISettings(ctx context.Context, teamID string, settings *domain.AISettings) error {
 	query := `
-		INSERT INTO ai_settings (team_id, embedding_provider, embedding_model, embedding_api_key, embedding_base_url,
-								 llm_provider, llm_model, llm_api_key, llm_base_url, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO ai_settings (team_id, embedding_provider, embedding_model,
+								 llm_provider, llm_model, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (team_id) DO UPDATE SET
 			embedding_provider = EXCLUDED.embedding_provider,
 			embedding_model = EXCLUDED.embedding_model,
-			embedding_api_key = EXCLUDED.embedding_api_key,
-			embedding_base_url = EXCLUDED.embedding_base_url,
 			llm_provider = EXCLUDED.llm_provider,
 			llm_model = EXCLUDED.llm_model,
-			llm_api_key = EXCLUDED.llm_api_key,
-			llm_base_url = EXCLUDED.llm_base_url,
 			updated_at = EXCLUDED.updated_at
 	`
 
@@ -172,12 +162,8 @@ func (s *SettingsStore) SaveAISettings(ctx context.Context, teamID string, setti
 		teamID,
 		string(settings.Embedding.Provider),
 		settings.Embedding.Model,
-		settings.Embedding.APIKey,
-		settings.Embedding.BaseURL,
 		string(settings.LLM.Provider),
 		settings.LLM.Model,
-		settings.LLM.APIKey,
-		settings.LLM.BaseURL,
 		settings.UpdatedAt,
 	)
 	return err

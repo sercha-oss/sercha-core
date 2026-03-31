@@ -37,6 +37,7 @@ type Server struct {
 	oauthService        driving.OAuthService
 	installationService driving.InstallationService
 	syncOrchestrator    driving.SyncOrchestrator
+	capabilitiesService driving.CapabilitiesService
 
 	// Infrastructure
 	taskQueue   driven.TaskQueue
@@ -74,6 +75,7 @@ func NewServer(
 	oauthService driving.OAuthService,
 	installationService driving.InstallationService,
 	syncOrchestrator driving.SyncOrchestrator,
+	capabilitiesService driving.CapabilitiesService,
 	taskQueue driven.TaskQueue,
 	db Pinger,
 	redisClient Pinger, // can be nil
@@ -92,6 +94,7 @@ func NewServer(
 		oauthService:        oauthService,
 		installationService: installationService,
 		syncOrchestrator:    syncOrchestrator,
+		capabilitiesService: capabilitiesService,
 		taskQueue:           taskQueue,
 		db:                  db,
 		redisClient:         redisClient,
@@ -118,6 +121,7 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("GET /health", s.handleHealth)
 	s.router.HandleFunc("GET /ready", s.handleReady)
 	s.router.HandleFunc("GET /version", s.handleVersion)
+	s.router.HandleFunc("GET /api/v1/capabilities", s.handleGetCapabilities)
 
 	// Auth endpoints (public)
 	s.router.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
@@ -227,18 +231,10 @@ func (s *Server) setupRoutes() {
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleVespaHealth))))
 
 	// Provider configuration endpoints (admin-only)
+	// Note: Provider credentials are now managed via environment variables, not API
 	s.router.Handle("GET /api/v1/providers",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListProviders))))
-	s.router.Handle("GET /api/v1/providers/{type}/config",
-		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetProviderConfig))))
-	s.router.Handle("POST /api/v1/providers/{type}/config",
-		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleSaveProviderConfig))))
-	s.router.Handle("DELETE /api/v1/providers/{type}/config",
-		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleDeleteProviderConfig))))
 
 	// OAuth flow endpoints (admin-only for authorization initiation)
 	s.router.Handle("POST /api/v1/oauth/{provider}/authorize",

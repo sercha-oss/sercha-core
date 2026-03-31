@@ -5,14 +5,13 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  Eye,
-  EyeOff,
   Sparkles,
   ExternalLink,
 } from "lucide-react";
 import {
   getAISettings,
   getAIProviders,
+  getCapabilities,
   updateAISettings,
   testAIConnection,
   ApiError,
@@ -38,16 +37,10 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
   // Embedding state
   const [embeddingProvider, setEmbeddingProvider] = useState<AIProvider | "">("");
   const [embeddingModel, setEmbeddingModel] = useState("");
-  const [embeddingApiKey, setEmbeddingApiKey] = useState("");
-  const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState("");
-  const [showEmbeddingKey, setShowEmbeddingKey] = useState(false);
 
   // LLM state
   const [llmProvider, setLlmProvider] = useState<AIProvider | "">("");
   const [llmModel, setLlmModel] = useState("");
-  const [llmApiKey, setLlmApiKey] = useState("");
-  const [llmBaseUrl, setLlmBaseUrl] = useState("");
-  const [showLlmKey, setShowLlmKey] = useState(false);
 
   // Status
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
@@ -58,23 +51,32 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [providersData, existingSettings] = await Promise.all([
+        const [caps, providersData, existingSettings] = await Promise.all([
+          getCapabilities(),
           getAIProviders(),
           getAISettings().catch(() => null), // Ignore if no settings yet
         ]);
 
-        setEmbeddingProviders(providersData.embedding);
-        setLlmProviders(providersData.llm);
+        // Filter providers to only show those configured in environment
+        const filteredEmbedding = providersData.embedding.filter((p) =>
+          caps.ai_providers.embedding.includes(p.id)
+        );
+        const filteredLLM = providersData.llm.filter((p) =>
+          caps.ai_providers.llm.includes(p.id)
+        );
+
+        setEmbeddingProviders(filteredEmbedding);
+        setLlmProviders(filteredLLM);
 
         // Pre-populate with existing settings if available
         if (existingSettings?.embedding?.provider) {
           setEmbeddingProvider(existingSettings.embedding.provider);
           setEmbeddingModel(existingSettings.embedding.model || "");
-        } else if (providersData.embedding.length > 0) {
+        } else if (filteredEmbedding.length > 0) {
           // Default to first provider and model
-          setEmbeddingProvider(providersData.embedding[0].id);
-          if (providersData.embedding[0].models.length > 0) {
-            setEmbeddingModel(providersData.embedding[0].models[0].id);
+          setEmbeddingProvider(filteredEmbedding[0].id);
+          if (filteredEmbedding[0].models.length > 0) {
+            setEmbeddingModel(filteredEmbedding[0].models[0].id);
           }
         }
 
@@ -114,8 +116,6 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
     } else {
       setEmbeddingModel("");
     }
-    setEmbeddingApiKey("");
-    setEmbeddingBaseUrl("");
     setTestStatus("idle");
   };
 
@@ -129,8 +129,6 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
     } else {
       setLlmModel("");
     }
-    setLlmApiKey("");
-    setLlmBaseUrl("");
   };
 
   const handleTest = async () => {
@@ -144,16 +142,12 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
         settings.embedding = {
           provider: embeddingProvider as AIProvider,
           model: embeddingModel,
-          api_key: embeddingApiKey || undefined,
-          base_url: embeddingBaseUrl || undefined,
         };
       }
       if (llmProvider) {
         settings.llm = {
           provider: llmProvider as AIProvider,
           model: llmModel,
-          api_key: llmApiKey || undefined,
-          base_url: llmBaseUrl || undefined,
         };
       }
 
@@ -183,8 +177,6 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
         settings.embedding = {
           provider: embeddingProvider as AIProvider,
           model: embeddingModel,
-          api_key: embeddingApiKey || undefined,
-          base_url: embeddingBaseUrl || undefined,
         };
       }
 
@@ -193,8 +185,6 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
         settings.llm = {
           provider: llmProvider as AIProvider,
           model: llmModel,
-          api_key: llmApiKey || undefined,
-          base_url: llmBaseUrl || undefined,
         };
       }
 
@@ -211,16 +201,10 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
     }
   };
 
-  // Check if we can test (need at least embedding or LLM configured with required fields)
+  // Check if we can test (need at least embedding or LLM configured)
   const canTest =
-    (embeddingProvider &&
-      embeddingModel &&
-      (!selectedEmbeddingProvider?.requires_api_key || embeddingApiKey) &&
-      (!selectedEmbeddingProvider?.requires_base_url || embeddingBaseUrl)) ||
-    (llmProvider &&
-      llmModel &&
-      (!selectedLlmProvider?.requires_api_key || llmApiKey) &&
-      (!selectedLlmProvider?.requires_base_url || llmBaseUrl));
+    (embeddingProvider && embeddingModel) ||
+    (llmProvider && llmModel);
 
   if (loadingProviders) {
     return (
@@ -317,48 +301,14 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
                 )}
               </div>
             )}
-
-            {/* API Key */}
-            {embeddingProvider && selectedEmbeddingProvider?.requires_api_key && (
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium text-sercha-ink-slate">
-                  API Key
-                </label>
-                <div className="relative">
-                  <input
-                    type={showEmbeddingKey ? "text" : "password"}
-                    value={embeddingApiKey}
-                    onChange={(e) => setEmbeddingApiKey(e.target.value)}
-                    className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 pr-10 text-sm text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-                    placeholder="sk-..."
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowEmbeddingKey(!showEmbeddingKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-sercha-fog-grey hover:text-sercha-ink-slate"
-                  >
-                    {showEmbeddingKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Base URL (for providers that need it) */}
-            {embeddingProvider && selectedEmbeddingProvider?.requires_base_url && (
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium text-sercha-ink-slate">
-                  Base URL
-                </label>
-                <input
-                  type="url"
-                  value={embeddingBaseUrl}
-                  onChange={(e) => setEmbeddingBaseUrl(e.target.value)}
-                  className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 text-sm text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-                  placeholder="http://localhost:11434"
-                />
-              </div>
-            )}
           </div>
+
+          {/* Info Note */}
+          {embeddingProvider && (
+            <p className="mt-3 text-xs text-sercha-fog-grey">
+              API keys are configured via environment variables on the server.
+            </p>
+          )}
         </div>
 
         {/* LLM Configuration */}
@@ -429,48 +379,14 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
                 </select>
               </div>
             )}
-
-            {/* API Key */}
-            {llmProvider && selectedLlmProvider?.requires_api_key && (
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium text-sercha-ink-slate">
-                  API Key
-                </label>
-                <div className="relative">
-                  <input
-                    type={showLlmKey ? "text" : "password"}
-                    value={llmApiKey}
-                    onChange={(e) => setLlmApiKey(e.target.value)}
-                    className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 pr-10 text-sm text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-                    placeholder="sk-..."
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowLlmKey(!showLlmKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-sercha-fog-grey hover:text-sercha-ink-slate"
-                  >
-                    {showLlmKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Base URL (for providers that need it) */}
-            {llmProvider && selectedLlmProvider?.requires_base_url && (
-              <div className="md:col-span-2">
-                <label className="mb-1.5 block text-sm font-medium text-sercha-ink-slate">
-                  Base URL
-                </label>
-                <input
-                  type="url"
-                  value={llmBaseUrl}
-                  onChange={(e) => setLlmBaseUrl(e.target.value)}
-                  className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 text-sm text-sercha-fog-grey placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-                  placeholder="http://localhost:11434"
-                />
-              </div>
-            )}
           </div>
+
+          {/* Info Note */}
+          {llmProvider && (
+            <p className="mt-3 text-xs text-sercha-fog-grey">
+              API keys are configured via environment variables on the server.
+            </p>
+          )}
         </div>
 
         {/* Test Status */}

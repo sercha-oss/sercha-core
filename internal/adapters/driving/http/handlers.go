@@ -131,6 +131,29 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"version": s.version})
 }
 
+// handleGetCapabilities godoc
+// @Summary      Get capabilities
+// @Description  Returns information about what features are available based on environment configuration
+// @Tags         Capabilities
+// @Produce      json
+// @Success      200  {object}  driving.CapabilitiesResponse
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /capabilities [get]
+func (s *Server) handleGetCapabilities(w http.ResponseWriter, r *http.Request) {
+	if s.capabilitiesService == nil {
+		writeError(w, http.StatusServiceUnavailable, "capabilities service not available")
+		return
+	}
+
+	caps, err := s.capabilitiesService.GetCapabilities(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get capabilities")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, caps)
+}
+
 // Auth endpoints
 
 // handleLogin godoc
@@ -721,7 +744,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 // handleGetAISettings godoc
 // @Summary      Get AI settings
-// @Description  Get AI provider configuration (admin only). API keys are masked.
+// @Description  Get AI provider configuration (admin only). Shows provider/model choice and credential availability from environment.
 // @Tags         AI Settings
 // @Produce      json
 // @Security     BearerAuth
@@ -737,25 +760,40 @@ func (s *Server) handleGetAISettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mask API keys for security
+	// Get capabilities to determine credential availability
+	caps, err := s.capabilitiesService.GetCapabilities(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get capabilities")
+		return
+	}
+
+	// Build response with info from settings (user choices) and capabilities (env config)
 	resp := aiSettingsResponse{
 		Embedding: aiProviderInfo{
 			Provider:     aiSettings.Embedding.Provider,
 			Model:        aiSettings.Embedding.Model,
-			BaseURL:      aiSettings.Embedding.BaseURL,
-			HasAPIKey:    aiSettings.Embedding.APIKey != "",
+			HasAPIKey:    isProviderConfigured(aiSettings.Embedding.Provider, caps.AIProviders.Embedding),
 			IsConfigured: aiSettings.Embedding.IsConfigured(),
 		},
 		LLM: aiProviderInfo{
 			Provider:     aiSettings.LLM.Provider,
 			Model:        aiSettings.LLM.Model,
-			BaseURL:      aiSettings.LLM.BaseURL,
-			HasAPIKey:    aiSettings.LLM.APIKey != "",
+			HasAPIKey:    isProviderConfigured(aiSettings.LLM.Provider, caps.AIProviders.LLM),
 			IsConfigured: aiSettings.LLM.IsConfigured(),
 		},
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// isProviderConfigured checks if a provider is in the list of configured providers
+func isProviderConfigured(provider domain.AIProvider, configuredProviders []domain.AIProvider) bool {
+	for _, p := range configuredProviders {
+		if p == provider {
+			return true
+		}
+	}
+	return false
 }
 
 type aiSettingsResponse struct {
@@ -768,9 +806,8 @@ type aiSettingsResponse struct {
 type aiProviderInfo struct {
 	Provider     domain.AIProvider `json:"provider,omitempty" example:"openai"`
 	Model        string            `json:"model,omitempty" example:"text-embedding-3-small"`
-	BaseURL      string            `json:"base_url,omitempty" example:"https://api.openai.com/v1"`
-	HasAPIKey    bool              `json:"has_api_key" example:"true"`
-	IsConfigured bool              `json:"is_configured" example:"true"`
+	HasAPIKey    bool              `json:"has_api_key" example:"true"` // True if credentials are configured via environment
+	IsConfigured bool              `json:"is_configured" example:"true"` // True if provider and model are selected
 }
 
 // handleUpdateAISettings godoc
@@ -968,138 +1005,6 @@ func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, providers)
-}
-
-// handleGetProviderConfig godoc
-// @Summary      Get provider config
-// @Description  Get OAuth app configuration for a provider type (admin only). Secrets are not exposed.
-// @Tags         Providers
-// @Produce      json
-// @Security     BearerAuth
-// @Param        type  path      string  true  "Provider type (e.g., github, slack, notion)"
-// @Success      200   {object}  driving.ProviderConfigResponse
-// @Failure      400   {object}  ErrorResponse  "Missing provider type"
-// @Failure      401   {object}  ErrorResponse  "Unauthorized"
-// @Failure      403   {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      404   {object}  ErrorResponse  "Provider not configured"
-// @Failure      500   {object}  ErrorResponse  "Internal server error"
-// @Router       /providers/{type}/config [get]
-func (s *Server) handleGetProviderConfig(w http.ResponseWriter, r *http.Request) {
-	if s.providerService == nil {
-		writeError(w, http.StatusServiceUnavailable, "provider service not configured - set MASTER_KEY to enable")
-		return
-	}
-
-	providerType := domain.ProviderType(r.PathValue("type"))
-	if providerType == "" {
-		writeError(w, http.StatusBadRequest, "missing provider type")
-		return
-	}
-
-	cfg, err := s.providerService.GetConfig(r.Context(), providerType)
-	if err != nil {
-		switch err {
-		case domain.ErrNotFound:
-			writeError(w, http.StatusNotFound, "provider not configured")
-		default:
-			writeError(w, http.StatusInternalServerError, "failed to get provider config")
-		}
-		return
-	}
-
-	writeJSON(w, http.StatusOK, cfg)
-}
-
-// handleSaveProviderConfig godoc
-// @Summary      Save provider config
-// @Description  Create or update OAuth app configuration for a provider type (admin only). This configures the OAuth client credentials that will be used for all installations of this provider.
-// @Tags         Providers
-// @Accept       json
-// @Produce      json
-// @Security     BearerAuth
-// @Param        type     path      string                          true  "Provider type (e.g., github, slack, notion)"
-// @Param        request  body      driving.SaveProviderConfigRequest  true  "Provider configuration"
-// @Success      200      {object}  driving.ProviderConfigResponse
-// @Failure      400      {object}  ErrorResponse  "Invalid input"
-// @Failure      401      {object}  ErrorResponse  "Unauthorized"
-// @Failure      403      {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      500      {object}  ErrorResponse  "Internal server error"
-// @Router       /providers/{type}/config [post]
-func (s *Server) handleSaveProviderConfig(w http.ResponseWriter, r *http.Request) {
-	if s.providerService == nil {
-		writeError(w, http.StatusServiceUnavailable, "provider service not configured - set MASTER_KEY to enable")
-		return
-	}
-
-	providerType := domain.ProviderType(r.PathValue("type"))
-	if providerType == "" {
-		writeError(w, http.StatusBadRequest, "missing provider type")
-		return
-	}
-
-	var req driving.SaveProviderConfigRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	// Validate required fields
-	if req.ClientID == "" && req.APIKey == "" {
-		writeError(w, http.StatusBadRequest, "client_id or api_key is required")
-		return
-	}
-
-	cfg, err := s.providerService.SaveConfig(r.Context(), providerType, req)
-	if err != nil {
-		switch err {
-		case domain.ErrInvalidInput:
-			writeError(w, http.StatusBadRequest, "invalid provider type")
-		default:
-			writeError(w, http.StatusInternalServerError, "failed to save provider config")
-		}
-		return
-	}
-
-	writeJSON(w, http.StatusOK, cfg)
-}
-
-// handleDeleteProviderConfig godoc
-// @Summary      Delete provider config
-// @Description  Delete OAuth app configuration for a provider type (admin only). This will prevent new installations for this provider.
-// @Tags         Providers
-// @Produce      json
-// @Security     BearerAuth
-// @Param        type  path      string  true  "Provider type (e.g., github, slack, notion)"
-// @Success      200   {object}  StatusResponse
-// @Failure      400   {object}  ErrorResponse  "Missing provider type"
-// @Failure      401   {object}  ErrorResponse  "Unauthorized"
-// @Failure      403   {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      404   {object}  ErrorResponse  "Provider not configured"
-// @Failure      500   {object}  ErrorResponse  "Internal server error"
-// @Router       /providers/{type}/config [delete]
-func (s *Server) handleDeleteProviderConfig(w http.ResponseWriter, r *http.Request) {
-	if s.providerService == nil {
-		writeError(w, http.StatusServiceUnavailable, "provider service not configured - set MASTER_KEY to enable")
-		return
-	}
-
-	providerType := domain.ProviderType(r.PathValue("type"))
-	if providerType == "" {
-		writeError(w, http.StatusBadRequest, "missing provider type")
-		return
-	}
-
-	if err := s.providerService.DeleteConfig(r.Context(), providerType); err != nil {
-		switch err {
-		case domain.ErrNotFound:
-			writeError(w, http.StatusNotFound, "provider not configured")
-		default:
-			writeError(w, http.StatusInternalServerError, "failed to delete provider config")
-		}
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // OAuth flow endpoints

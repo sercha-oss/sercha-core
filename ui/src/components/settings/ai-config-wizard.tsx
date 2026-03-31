@@ -6,9 +6,6 @@ import {
   ChevronRight,
   ChevronLeft,
   Loader2,
-  Eye,
-  EyeOff,
-  ExternalLink,
   Check,
   AlertTriangle,
   RefreshCw,
@@ -22,7 +19,7 @@ import {
   triggerReindex,
 } from "@/lib/api";
 
-type WizardStep = "provider" | "model" | "apiKey" | "baseUrl" | "confirm";
+type WizardStep = "provider" | "model" | "confirm";
 
 interface AIConfigWizardProps {
   type: "embedding" | "llm";
@@ -48,9 +45,6 @@ export function AIConfigWizard({
   const [step, setStep] = useState<WizardStep>("provider");
   const [selectedProvider, setSelectedProvider] = useState<AIProviderMeta | null>(null);
   const [selectedModel, setSelectedModel] = useState<AIModelMeta | null>(null);
-  const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [showApiKey, setShowApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,8 +83,6 @@ export function AIConfigWizard({
       setStep("provider");
       setSelectedProvider(null);
       setSelectedModel(null);
-      setApiKey("");
-      setBaseUrl("");
       setError(null);
       setReindexAfterSave(true);
       setReindexTriggered(false);
@@ -118,16 +110,12 @@ export function AIConfigWizard({
 
   const getStepNumber = (): number => {
     const steps: WizardStep[] = ["provider", "model"];
-    if (selectedProvider?.requires_api_key) steps.push("apiKey");
-    if (selectedProvider?.requires_base_url) steps.push("baseUrl");
     if (needsConfirmation) steps.push("confirm");
     return steps.indexOf(step) + 1;
   };
 
   const getTotalSteps = (): number => {
     let count = 2; // provider + model
-    if (selectedProvider?.requires_api_key) count++;
-    if (selectedProvider?.requires_base_url) count++;
     if (needsConfirmation) count++;
     return count;
   };
@@ -135,17 +123,6 @@ export function AIConfigWizard({
   const getNextStep = (): WizardStep | null => {
     if (step === "provider") return "model";
     if (step === "model") {
-      if (selectedProvider?.requires_api_key) return "apiKey";
-      if (selectedProvider?.requires_base_url) return "baseUrl";
-      if (needsConfirmation) return "confirm";
-      return null;
-    }
-    if (step === "apiKey") {
-      if (selectedProvider?.requires_base_url) return "baseUrl";
-      if (needsConfirmation) return "confirm";
-      return null;
-    }
-    if (step === "baseUrl") {
       if (needsConfirmation) return "confirm";
       return null;
     }
@@ -154,21 +131,13 @@ export function AIConfigWizard({
 
   const getPrevStep = (): WizardStep | null => {
     if (step === "model") return "provider";
-    if (step === "apiKey") return "model";
-    if (step === "baseUrl") return selectedProvider?.requires_api_key ? "apiKey" : "model";
-    if (step === "confirm") {
-      if (selectedProvider?.requires_base_url) return "baseUrl";
-      if (selectedProvider?.requires_api_key) return "apiKey";
-      return "model";
-    }
+    if (step === "confirm") return "model";
     return null;
   };
 
   const canProceed = (): boolean => {
     if (step === "provider") return selectedProvider !== null;
     if (step === "model") return selectedModel !== null;
-    if (step === "apiKey") return apiKey.trim().length > 0 || (currentConfig?.hasApiKey ?? false);
-    if (step === "baseUrl") return baseUrl.trim().length > 0;
     if (step === "confirm") return true; // User has reviewed the confirmation
     return false;
   };
@@ -198,16 +167,6 @@ export function AIConfigWizard({
         provider: selectedProvider.id,
         model: selectedModel.id,
       };
-
-      // Only include api_key if user entered a new one
-      if (apiKey.trim()) {
-        config.api_key = apiKey.trim();
-      }
-
-      // Only include base_url if provider requires it and user entered one
-      if (selectedProvider.requires_base_url && baseUrl.trim()) {
-        config.base_url = baseUrl.trim();
-      }
 
       await onSave(config);
 
@@ -321,6 +280,14 @@ export function AIConfigWizard({
               <p className="mb-4 text-xs text-sercha-fog-grey">
                 Provider: {selectedProvider.name}
               </p>
+
+              {/* Info about env config */}
+              <div className="mb-4 rounded-lg border border-sercha-indigo/20 bg-sercha-indigo/5 p-3">
+                <p className="text-xs text-sercha-fog-grey">
+                  API keys are configured via environment variables on the server.
+                </p>
+              </div>
+
               <div className="space-y-2">
                 {selectedProvider.models.map((model) => (
                   <button
@@ -348,73 +315,6 @@ export function AIConfigWizard({
                   </button>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Step: API Key */}
-          {step === "apiKey" && selectedProvider && (
-            <div>
-              <h3 className="mb-1 text-sm font-medium text-sercha-ink-slate">
-                Enter API Key
-              </h3>
-              <p className="mb-4 text-xs text-sercha-fog-grey">
-                Provider: {selectedProvider.name} / Model: {selectedModel?.name}
-              </p>
-
-              <div className="relative">
-                <input
-                  type={showApiKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={currentConfig?.hasApiKey ? "Keep existing key or enter new one" : "Enter your API key"}
-                  className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-3 pr-10 text-sm text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-sercha-fog-grey hover:text-sercha-ink-slate"
-                >
-                  {showApiKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-
-              {selectedProvider.api_key_url && (
-                <a
-                  href={selectedProvider.api_key_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 inline-flex items-center gap-1 text-xs text-sercha-indigo hover:underline"
-                >
-                  Get your API key
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-
-              {currentConfig?.hasApiKey && !apiKey && (
-                <p className="mt-2 text-xs text-sercha-fog-grey">
-                  Leave empty to keep your existing API key
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Step: Base URL */}
-          {step === "baseUrl" && selectedProvider && (
-            <div>
-              <h3 className="mb-1 text-sm font-medium text-sercha-ink-slate">
-                Enter Base URL
-              </h3>
-              <p className="mb-4 text-xs text-sercha-fog-grey">
-                Provider: {selectedProvider.name} / Model: {selectedModel?.name}
-              </p>
-
-              <input
-                type="url"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="http://localhost:11434"
-                className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-3 text-sm text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
-              />
             </div>
           )}
 
