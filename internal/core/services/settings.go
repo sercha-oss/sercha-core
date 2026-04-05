@@ -247,3 +247,178 @@ func (s *settingsService) TestConnection(ctx context.Context) error {
 
 	return nil
 }
+
+// GetAIProviders returns static metadata about available AI providers
+func (s *settingsService) GetAIProviders(ctx context.Context) (*driving.AIProvidersResponse, error) {
+	return &driving.AIProvidersResponse{
+		Embedding: buildEmbeddingProviders(),
+		LLM:       buildLLMProviders(),
+	}, nil
+}
+
+// buildEmbeddingProviders returns static metadata for embedding providers
+func buildEmbeddingProviders() []domain.AIProviderInfo {
+	return []domain.AIProviderInfo{
+		{
+			ID:   string(domain.AIProviderOpenAI),
+			Name: "OpenAI",
+			Models: []domain.AIModelInfo{
+				{
+					ID:         "text-embedding-3-small",
+					Name:       "Text Embedding 3 Small",
+					Dimensions: 1536,
+				},
+				{
+					ID:         "text-embedding-3-large",
+					Name:       "Text Embedding 3 Large",
+					Dimensions: 3072,
+				},
+				{
+					ID:         "text-embedding-ada-002",
+					Name:       "Text Embedding Ada 002",
+					Dimensions: 1536,
+				},
+			},
+			RequiresAPIKey:  true,
+			RequiresBaseURL: false,
+			APIKeyURL:       "https://platform.openai.com/api-keys",
+		},
+		{
+			ID:   string(domain.AIProviderOllama),
+			Name: "Ollama",
+			Models: []domain.AIModelInfo{
+				{
+					ID:         "nomic-embed-text",
+					Name:       "Nomic Embed Text",
+					Dimensions: 768,
+				},
+				{
+					ID:         "mxbai-embed-large",
+					Name:       "MixedBread AI Embed Large",
+					Dimensions: 1024,
+				},
+			},
+			RequiresAPIKey:  false,
+			RequiresBaseURL: true,
+		},
+		{
+			ID:   string(domain.AIProviderCohere),
+			Name: "Cohere",
+			Models: []domain.AIModelInfo{
+				{
+					ID:         "embed-english-v3.0",
+					Name:       "Embed English v3.0",
+					Dimensions: 1024,
+				},
+				{
+					ID:         "embed-multilingual-v3.0",
+					Name:       "Embed Multilingual v3.0",
+					Dimensions: 1024,
+				},
+			},
+			RequiresAPIKey:  true,
+			RequiresBaseURL: false,
+			APIKeyURL:       "https://dashboard.cohere.com/api-keys",
+		},
+		{
+			ID:   string(domain.AIProviderVoyage),
+			Name: "Voyage AI",
+			Models: []domain.AIModelInfo{
+				{
+					ID:         "voyage-2",
+					Name:       "Voyage 2",
+					Dimensions: 1024,
+				},
+				{
+					ID:         "voyage-large-2",
+					Name:       "Voyage Large 2",
+					Dimensions: 1536,
+				},
+				{
+					ID:         "voyage-code-2",
+					Name:       "Voyage Code 2",
+					Dimensions: 1536,
+				},
+			},
+			RequiresAPIKey:  true,
+			RequiresBaseURL: false,
+			APIKeyURL:       "https://dash.voyageai.com/api-keys",
+		},
+	}
+}
+
+// buildLLMProviders returns static metadata for LLM providers
+func buildLLMProviders() []domain.AIProviderInfo {
+	return []domain.AIProviderInfo{
+		{
+			ID:   string(domain.AIProviderOpenAI),
+			Name: "OpenAI",
+			Models: []domain.AIModelInfo{
+				{
+					ID:   "gpt-4o",
+					Name: "GPT-4o",
+				},
+				{
+					ID:   "gpt-4o-mini",
+					Name: "GPT-4o Mini",
+				},
+				{
+					ID:   "gpt-4-turbo",
+					Name: "GPT-4 Turbo",
+				},
+				{
+					ID:   "gpt-3.5-turbo",
+					Name: "GPT-3.5 Turbo",
+				},
+			},
+			RequiresAPIKey:  true,
+			RequiresBaseURL: false,
+			APIKeyURL:       "https://platform.openai.com/api-keys",
+		},
+		{
+			ID:   string(domain.AIProviderAnthropic),
+			Name: "Anthropic",
+			Models: []domain.AIModelInfo{
+				{
+					ID:   "claude-3-5-sonnet-20241022",
+					Name: "Claude 3.5 Sonnet",
+				},
+				{
+					ID:   "claude-3-opus-20240229",
+					Name: "Claude 3 Opus",
+				},
+				{
+					ID:   "claude-3-haiku-20240307",
+					Name: "Claude 3 Haiku",
+				},
+			},
+			RequiresAPIKey:  true,
+			RequiresBaseURL: false,
+			APIKeyURL:       "https://console.anthropic.com/settings/keys",
+		},
+		{
+			ID:   string(domain.AIProviderOllama),
+			Name: "Ollama",
+			Models: []domain.AIModelInfo{
+				{
+					ID:   "llama3.2",
+					Name: "Llama 3.2",
+				},
+				{
+					ID:   "llama3.1",
+					Name: "Llama 3.1",
+				},
+				{
+					ID:   "mistral",
+					Name: "Mistral",
+				},
+				{
+					ID:   "qwen2.5",
+					Name: "Qwen 2.5",
+				},
+			},
+			RequiresAPIKey:  false,
+			RequiresBaseURL: true,
+		},
+	}
+}

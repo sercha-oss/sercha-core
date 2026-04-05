@@ -346,3 +346,54 @@ func TestAISettings(t *testing.T) {
 		t.Error("expected LLM to be configured")
 	}
 }
+
+func TestAIModelInfo(t *testing.T) {
+	model := AIModelInfo{
+		ID:         "text-embedding-3-small",
+		Name:       "Text Embedding 3 Small",
+		Dimensions: 1536,
+	}
+
+	if model.ID != "text-embedding-3-small" {
+		t.Errorf("expected ID text-embedding-3-small, got %s", model.ID)
+	}
+	if model.Name != "Text Embedding 3 Small" {
+		t.Errorf("expected Name 'Text Embedding 3 Small', got %s", model.Name)
+	}
+	if model.Dimensions != 1536 {
+		t.Errorf("expected Dimensions 1536, got %d", model.Dimensions)
+	}
+}
+
+func TestAIProviderInfo(t *testing.T) {
+	provider := AIProviderInfo{
+		ID:   "openai",
+		Name: "OpenAI",
+		Models: []AIModelInfo{
+			{ID: "text-embedding-3-small", Name: "Text Embedding 3 Small", Dimensions: 1536},
+			{ID: "text-embedding-3-large", Name: "Text Embedding 3 Large", Dimensions: 3072},
+		},
+		RequiresAPIKey:  true,
+		RequiresBaseURL: false,
+		APIKeyURL:       "https://platform.openai.com/api-keys",
+	}
+
+	if provider.ID != "openai" {
+		t.Errorf("expected ID openai, got %s", provider.ID)
+	}
+	if provider.Name != "OpenAI" {
+		t.Errorf("expected Name OpenAI, got %s", provider.Name)
+	}
+	if len(provider.Models) != 2 {
+		t.Errorf("expected 2 models, got %d", len(provider.Models))
+	}
+	if !provider.RequiresAPIKey {
+		t.Error("expected RequiresAPIKey to be true")
+	}
+	if provider.RequiresBaseURL {
+		t.Error("expected RequiresBaseURL to be false")
+	}
+	if provider.APIKeyURL != "https://platform.openai.com/api-keys" {
+		t.Errorf("unexpected APIKeyURL: %s", provider.APIKeyURL)
+	}
+}

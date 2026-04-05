@@ -1,5 +1,17 @@
 basePath: /api/v1
 definitions:
+  github_com_custodia-labs_sercha-core_internal_core_domain.AIModelInfo:
+    properties:
+      dimensions:
+        description: For embedding models only
+        type: integer
+      id:
+        description: Model identifier (e.g., "text-embedding-3-small")
+        type: string
+      name:
+        description: Display name
+        type: string
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider:
     enum:
     - openai
@@ -14,6 +26,29 @@ definitions:
     - AIProviderOllama
     - AIProviderCohere
     - AIProviderVoyage
+  github_com_custodia-labs_sercha-core_internal_core_domain.AIProviderInfo:
+    properties:
+      api_key_url:
+        description: URL to get API key
+        type: string
+      id:
+        description: Provider identifier (matches AIProvider)
+        type: string
+      models:
+        description: Available models
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIModelInfo'
+        type: array
+      name:
+        description: Display name
+        type: string
+      requires_api_key:
+        description: Whether API key is needed
+        type: boolean
+      requires_base_url:
+        description: Whether base URL is needed (e.g., Ollama)
+        type: boolean
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod:
     enum:
     - oauth2
@@ -60,6 +95,38 @@ definitions:
       start_char:
         type: integer
     type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary:
+    properties:
+      account_id:
+        type: string
+      auth_method:
+        $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod'
+      created_at:
+        type: string
+      id:
+        type: string
+      last_used_at:
+        type: string
+      name:
+        type: string
+      oauth_expiry:
+        type: string
+      provider_type:
+        $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType'
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.Container:
+    properties:
+      id:
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      type:
+        type: string
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.Document:
     properties:
       created_at:
@@ -95,25 +162,6 @@ definitions:
         type: array
       document:
         $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Document'
-    type: object
-  github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary:
-    properties:
-      account_id:
-        type: string
-      auth_method:
-        $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod'
-      created_at:
-        type: string
-      id:
-        type: string
-      last_used_at:
-        type: string
-      name:
-        type: string
-      oauth_expiry:
-        type: string
-      provider_type:
-        $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType'
     type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.LoginRequest:
     properties:
@@ -277,6 +325,17 @@ definitions:
     properties:
       config:
         $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig'
+      connection_id:
+        description: ConnectionID references the connector connection for authentication
+        type: string
+      containers:
+        description: |-
+          Containers lists the containers to index (typed)
+          Empty means index all accessible containers
+          Examples: repos for GitHub, channels for Slack, folders for Drive
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Container'
+        type: array
       created_at:
         type: string
       created_by:
@@ -286,21 +345,10 @@ definitions:
         type: boolean
       id:
         type: string
-      installation_id:
-        description: InstallationID references the connector installation for authentication
-        type: string
       name:
         type: string
       provider_type:
         $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType'
-      selected_containers:
-        description: |-
-          SelectedContainers lists the container IDs to index
-          Empty means index all accessible containers
-          Examples: ["owner/repo1", "owner/repo2"] for GitHub
-        items:
-          type: string
-        type: array
       updated_at:
         type: string
     type: object
@@ -572,6 +620,17 @@ definitions:
           $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider'
         type: array
     type: object
+  github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIProvidersResponse:
+    properties:
+      embedding:
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProviderInfo'
+        type: array
+      llm:
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProviderInfo'
+        type: array
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIServiceStatus:
     properties:
       available:
@@ -634,7 +693,7 @@ definitions:
     properties:
       installation:
         allOf:
-        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary'
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary'
         description: Installation is the created installation summary.
       message:
         description: Message provides a human-readable status message.
@@ -676,15 +735,15 @@ definitions:
           if empty)
         type: string
     type: object
-  github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateInstallationRequest:
-    description: Request to create an installation for API key or path-based connectors
+  github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateConnectionRequest:
+    description: Request to create a connection for API key or path-based connectors
     properties:
       api_key:
         description: APIKey is the authentication credential (or path for localfs).
         example: /data/test-docs
         type: string
       name:
-        description: Name is a human-readable name for the installation.
+        description: Name is a human-readable name for the connection.
         example: Local Test Docs
         type: string
       provider_type:
@@ -697,16 +756,16 @@ definitions:
     properties:
       config:
         $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig'
-      installation_id:
+      connection_id:
         type: string
+      containers:
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Container'
+        type: array
       name:
         type: string
       provider_type:
         $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType'
-      selected_containers:
-        items:
-          type: string
-        type: array
     type: object
   github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateUserRequest:
     properties:
@@ -811,6 +870,17 @@ definitions:
       user:
         $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.User'
     type: object
+  github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupStatusResponse:
+    properties:
+      has_sources:
+        type: boolean
+      has_users:
+        type: boolean
+      setup_complete:
+        type: boolean
+      vespa_connected:
+        type: boolean
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateAISettingsRequest:
     properties:
       embedding:
@@ -912,7 +982,7 @@ definitions:
       documents:
         $ref: '#/definitions/internal_adapters_driving_http.DocumentStats'
       installations:
-        $ref: '#/definitions/internal_adapters_driving_http.InstallationStats'
+        $ref: '#/definitions/internal_adapters_driving_http.ConnectionStats'
       sources:
         $ref: '#/definitions/internal_adapters_driving_http.SourceStats'
       users:
@@ -931,6 +1001,11 @@ definitions:
       status:
         description: '"healthy" or "unhealthy"'
         type: string
+    type: object
+  internal_adapters_driving_http.ConnectionStats:
+    properties:
+      total:
+        type: integer
     type: object
   internal_adapters_driving_http.DocumentStats:
     properties:
@@ -954,11 +1029,6 @@ definitions:
       status:
         description: 'overall status: "healthy" or "degraded"'
         type: string
-    type: object
-  internal_adapters_driving_http.InstallationStats:
-    properties:
-      total:
-        type: integer
     type: object
   internal_adapters_driving_http.SourceDocumentsResponse:
     description: Paginated list of documents belonging to a source
@@ -998,18 +1068,15 @@ definitions:
         example: accepted
         type: string
     type: object
-  internal_adapters_driving_http.UpdateSelectionRequest:
+  internal_adapters_driving_http.UpdateContainersRequest:
     description: Request to update which containers a source should index
     properties:
-      selected_containers:
+      containers:
         description: |-
-          SelectedContainers is the list of container IDs to index.
+          Containers is the list of containers to index.
           Empty list means index all available containers.
-        example:
-        - '["octocat/hello-world"'
-        - '"octocat/spoon-knife"]'
         items:
-          type: string
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Container'
         type: array
     type: object
   internal_adapters_driving_http.UserStats:
@@ -1310,6 +1377,252 @@ paths:
       summary: Get capabilities
       tags:
       - Capabilities
+  /connections:
+    get:
+      description: Get all connector connections. Connections represent authenticated
+        connections to external data sources (OAuth tokens, API keys, etc.).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List connections
+      tags:
+      - Connections
+    post:
+      consumes:
+      - application/json
+      description: Create a new installation for non-OAuth connectors (API key, path-based).
+        Used for connectors like localfs.
+      parameters:
+      - description: Installation configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create connection
+      tags:
+      - Connections
+  /connections/{id}:
+    delete:
+      description: Delete a connector installation. Cannot delete installations that
+        are in use by sources.
+      parameters:
+      - description: Installation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.StatusResponse'
+        "400":
+          description: Missing installation ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Connection not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "409":
+          description: Connection in use by sources
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete connection
+      tags:
+      - Connections
+    get:
+      description: Get a connector installation by ID. Returns installation metadata
+        without secrets.
+      parameters:
+      - description: Installation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary'
+        "400":
+          description: Missing installation ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Connection not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get connection
+      tags:
+      - Connections
+  /connections/{id}/containers:
+    get:
+      description: List available containers (repositories, drives, spaces, etc.)
+        for an installation. Use this to populate a resource picker UI for selecting
+        which containers to index.
+      parameters:
+      - description: Installation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pagination cursor from previous response
+        in: query
+        name: cursor
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ListContainersResponse'
+        "400":
+          description: Missing installation ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Connection not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List containers
+      tags:
+      - Connections
+  /connections/{id}/test:
+    post:
+      description: Test if an installation's credentials are still valid. This attempts
+        to authenticate with the external service.
+      parameters:
+      - description: Installation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.StatusResponse'
+        "400":
+          description: Missing installation ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Connection not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "503":
+          description: Credentials invalid or service unavailable
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Test connection
+      tags:
+      - Connections
   /documents/{id}:
     get:
       description: Get a document by ID with all its chunks
@@ -1399,252 +1712,6 @@ paths:
       summary: Health check
       tags:
       - Health
-  /installations:
-    get:
-      description: Get all connector installations. Installations represent authenticated
-        connections to external data sources (OAuth tokens, API keys, etc.).
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary'
-            type: array
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "403":
-          description: Forbidden - admin only
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: List installations
-      tags:
-      - Installations
-    post:
-      consumes:
-      - application/json
-      description: Create a new installation for non-OAuth connectors (API key, path-based).
-        Used for connectors like localfs.
-      parameters:
-      - description: Installation configuration
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateInstallationRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary'
-        "400":
-          description: Invalid request
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "403":
-          description: Forbidden - admin only
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Create installation
-      tags:
-      - Installations
-  /installations/{id}:
-    delete:
-      description: Delete a connector installation. Cannot delete installations that
-        are in use by sources.
-      parameters:
-      - description: Installation ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.StatusResponse'
-        "400":
-          description: Missing installation ID
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "403":
-          description: Forbidden - admin only
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "404":
-          description: Installation not found
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "409":
-          description: Installation in use by sources
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Delete installation
-      tags:
-      - Installations
-    get:
-      description: Get a connector installation by ID. Returns installation metadata
-        without secrets.
-      parameters:
-      - description: Installation ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary'
-        "400":
-          description: Missing installation ID
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "403":
-          description: Forbidden - admin only
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "404":
-          description: Installation not found
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Get installation
-      tags:
-      - Installations
-  /installations/{id}/containers:
-    get:
-      description: List available containers (repositories, drives, spaces, etc.)
-        for an installation. Use this to populate a resource picker UI for selecting
-        which containers to index.
-      parameters:
-      - description: Installation ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Pagination cursor from previous response
-        in: query
-        name: cursor
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ListContainersResponse'
-        "400":
-          description: Missing installation ID
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "403":
-          description: Forbidden - admin only
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "404":
-          description: Installation not found
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: List containers
-      tags:
-      - Installations
-  /installations/{id}/test:
-    post:
-      description: Test if an installation's credentials are still valid. This attempts
-        to authenticate with the external service.
-      parameters:
-      - description: Installation ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.StatusResponse'
-        "400":
-          description: Missing installation ID
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "403":
-          description: Forbidden - admin only
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "404":
-          description: Installation not found
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "503":
-          description: Credentials invalid or service unavailable
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Test installation
-      tags:
-      - Installations
   /me:
     get:
       description: Get the currently authenticated user's profile
@@ -1976,6 +2043,30 @@ paths:
       summary: Update AI settings
       tags:
       - AI Settings
+  /settings/ai/providers:
+    get:
+      description: Returns metadata about available AI providers and their models.
+        Used for populating provider/model selection dropdowns in the UI.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIProvidersResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get AI providers
+      tags:
+      - AI Settings
   /settings/ai/status:
     get:
       description: Get the current status of AI services including embedding, LLM,
@@ -2060,6 +2151,24 @@ paths:
           schema:
             $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
       summary: Initial setup
+      tags:
+      - Setup
+  /setup/status:
+    get:
+      description: Returns the current setup state for FTUE (First-Time User Experience)
+        flow. This endpoint is public and does not require authentication.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupStatusResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      summary: Get setup status
       tags:
       - Setup
   /sources:
@@ -2257,6 +2366,56 @@ paths:
       summary: Update source
       tags:
       - Sources
+  /sources/{id}/containers:
+    put:
+      consumes:
+      - application/json
+      description: Update which containers (repos, drives, spaces) a source should
+        index. Pass an empty array to index all available containers.
+      parameters:
+      - description: Source ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Container containers
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_driving_http.UpdateContainersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.StatusResponse'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Source not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update source containers
+      tags:
+      - Sources
   /sources/{id}/disable:
     post:
       description: Disable a source from syncing. Disabled sources will not be included
@@ -2385,56 +2544,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Enable source
-      tags:
-      - Sources
-  /sources/{id}/selection:
-    put:
-      consumes:
-      - application/json
-      description: Update which containers (repos, drives, spaces) a source should
-        index. Pass an empty array to index all available containers.
-      parameters:
-      - description: Source ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Container selection
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/internal_adapters_driving_http.UpdateSelectionRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.StatusResponse'
-        "400":
-          description: Invalid request
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "403":
-          description: Forbidden - admin only
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "404":
-          description: Source not found
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Update source selection
       tags:
       - Sources
   /sources/{id}/sync:

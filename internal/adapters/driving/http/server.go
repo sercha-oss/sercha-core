@@ -38,6 +38,7 @@ type Server struct {
 	connectionService   driving.ConnectionService
 	syncOrchestrator    driving.SyncOrchestrator
 	capabilitiesService driving.CapabilitiesService
+	setupService        driving.SetupService
 
 	// Infrastructure
 	taskQueue   driven.TaskQueue
@@ -76,28 +77,30 @@ func NewServer(
 	connectionService driving.ConnectionService,
 	syncOrchestrator driving.SyncOrchestrator,
 	capabilitiesService driving.CapabilitiesService,
+	setupService driving.SetupService,
 	taskQueue driven.TaskQueue,
 	db Pinger,
 	redisClient Pinger, // can be nil
 ) *Server {
 	s := &Server{
-		router:            http.NewServeMux(),
-		version:           cfg.Version,
-		authService:       authService,
-		userService:       userService,
-		searchService:     searchService,
-		sourceService:     sourceService,
-		docService:        docService,
-		settingsService:   settingsService,
-		vespaAdminService: vespaAdminService,
-		providerService:   providerService,
-		oauthService:      oauthService,
-		connectionService: connectionService,
-		syncOrchestrator:  syncOrchestrator,
+		router:              http.NewServeMux(),
+		version:             cfg.Version,
+		authService:         authService,
+		userService:         userService,
+		searchService:       searchService,
+		sourceService:       sourceService,
+		docService:          docService,
+		settingsService:     settingsService,
+		vespaAdminService:   vespaAdminService,
+		providerService:     providerService,
+		oauthService:        oauthService,
+		connectionService:   connectionService,
+		syncOrchestrator:    syncOrchestrator,
 		capabilitiesService: capabilitiesService,
-		taskQueue:         taskQueue,
-		db:                db,
-		redisClient:       redisClient,
+		setupService:        setupService,
+		taskQueue:           taskQueue,
+		db:                  db,
+		redisClient:         redisClient,
 	}
 
 	s.httpServer = &http.Server{
@@ -127,8 +130,9 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	s.router.HandleFunc("POST /api/v1/auth/refresh", s.handleRefresh)
 
-	// Setup endpoint (public, one-time use)
+	// Setup endpoints (public, no auth required)
 	s.router.HandleFunc("POST /api/v1/setup", s.handleSetup)
+	s.router.HandleFunc("GET /api/v1/setup/status", s.handleSetupStatus)
 
 	// Auth endpoints (authenticated)
 	s.router.Handle("POST /api/v1/auth/logout",
@@ -213,6 +217,8 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("POST /api/v1/settings/ai/test",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleTestAIConnection))))
+	s.router.Handle("GET /api/v1/settings/ai/providers",
+		authMiddleware.Authenticate(http.HandlerFunc(s.handleGetAIProviders)))
 
 	// Admin endpoints (admin-only)
 	s.router.Handle("GET /api/v1/admin/stats",

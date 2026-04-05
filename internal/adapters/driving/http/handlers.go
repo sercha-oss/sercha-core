@@ -274,6 +274,29 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// handleSetupStatus godoc
+// @Summary      Get setup status
+// @Description  Returns the current setup state for FTUE (First-Time User Experience) flow. This endpoint is public and does not require authentication.
+// @Tags         Setup
+// @Produce      json
+// @Success      200  {object}  driving.SetupStatusResponse
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /setup/status [get]
+func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
+	if s.setupService == nil {
+		writeError(w, http.StatusServiceUnavailable, "setup service not available")
+		return
+	}
+
+	status, err := s.setupService.GetStatus(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get setup status")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, status)
+}
+
 // User endpoints
 
 // handleGetMe godoc
@@ -904,6 +927,26 @@ func (s *Server) handleTestAIConnection(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "connected"})
+}
+
+// handleGetAIProviders godoc
+// @Summary      Get AI providers
+// @Description  Returns metadata about available AI providers and their models. Used for populating provider/model selection dropdowns in the UI.
+// @Tags         AI Settings
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  driving.AIProvidersResponse
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /settings/ai/providers [get]
+func (s *Server) handleGetAIProviders(w http.ResponseWriter, r *http.Request) {
+	providers, err := s.settingsService.GetAIProviders(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get AI providers")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, providers)
 }
 
 // Vespa admin endpoints

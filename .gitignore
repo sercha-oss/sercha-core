@@ -54,3 +54,5 @@ dist/
 .claude/
 CLAUDE.md
 tasks/
+examples/dev/src
+tests/integration/TEST_RESULTS.md

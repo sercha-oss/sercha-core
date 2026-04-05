@@ -13,11 +13,9 @@ Feature: Provider List API
     And I should see a list of providers
     And each provider should have a configured status
 
-  Scenario: LocalFS provider is always available
-    When I list all providers
-    Then the response status should be 200
-    And I should see localfs in the provider list
-    And localfs should be marked as configured
+  # Note: LocalFS is not listed in /api/v1/providers as it's not an OAuth provider.
+  # LocalFS connections are created directly via /api/v1/connections without OAuth flow.
+  # The LocalFS connector is tested in localfs.feature.
 
   Scenario: OAuth providers reflect environment configuration
     When I list all providers

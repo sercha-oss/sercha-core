@@ -37,6 +37,9 @@ type SettingsService interface {
 
 	// TestConnection tests the AI provider connection
 	TestConnection(ctx context.Context) error
+
+	// GetAIProviders returns static metadata about available AI providers
+	GetAIProviders(ctx context.Context) (*AIProvidersResponse, error)
 }
 
 // UpdateAISettingsRequest represents a request to update AI settings
@@ -83,4 +86,10 @@ type AIServiceStatus struct {
 	Provider     domain.AIProvider `json:"provider,omitempty"`
 	Model        string            `json:"model,omitempty"`
 	EmbeddingDim int               `json:"embedding_dim,omitempty"` // Only for embedding service
+}
+
+// AIProvidersResponse represents the list of available AI providers with their metadata
+type AIProvidersResponse struct {
+	Embedding []domain.AIProviderInfo `json:"embedding"`
+	LLM       []domain.AIProviderInfo `json:"llm"`
 }

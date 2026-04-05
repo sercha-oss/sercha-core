@@ -7,6 +7,7 @@ Feature: LocalFS Source Indexing
     Given I am logged in as admin
     And Vespa is fully ready
 
+  @isolated
   Scenario: Index local directory and search
     When I create a localfs installation with path "/data/test-docs"
     Then the response status should be 201

@@ -535,9 +535,12 @@ func (o *SyncOrchestrator) processWithLegacy(
 	}
 
 	// Step 6f & 6g: Index chunks in SearchEngine (Vespa)
+	chunksIndexed := 0
 	if o.searchEngine != nil {
 		if err := o.searchEngine.Index(ctx, domainChunks); err != nil {
 			o.logger.Warn("failed to index chunks", "doc_id", doc.ID, "error", err)
+		} else {
+			chunksIndexed = len(domainChunks)
 		}
 	}
 
@@ -547,7 +550,7 @@ func (o *SyncOrchestrator) processWithLegacy(
 	} else {
 		stats.DocumentsAdded++
 	}
-	stats.ChunksIndexed += len(domainChunks)
+	stats.ChunksIndexed += chunksIndexed
 
 	return nil
 }

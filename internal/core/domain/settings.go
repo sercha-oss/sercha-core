@@ -136,3 +136,20 @@ func (s *AISettings) Validate() error {
 	}
 	return nil
 }
+
+// AIModelInfo describes a specific model offered by a provider
+type AIModelInfo struct {
+	ID         string `json:"id"`           // Model identifier (e.g., "text-embedding-3-small")
+	Name       string `json:"name"`         // Display name
+	Dimensions int    `json:"dimensions,omitempty"` // For embedding models only
+}
+
+// AIProviderInfo provides metadata about an AI provider
+type AIProviderInfo struct {
+	ID               string        `json:"id"`                  // Provider identifier (matches AIProvider)
+	Name             string        `json:"name"`                // Display name
+	Models           []AIModelInfo `json:"models"`              // Available models
+	RequiresAPIKey   bool          `json:"requires_api_key"`    // Whether API key is needed
+	RequiresBaseURL  bool          `json:"requires_base_url"`   // Whether base URL is needed (e.g., Ollama)
+	APIKeyURL        string        `json:"api_key_url,omitempty"` // URL to get API key
+}

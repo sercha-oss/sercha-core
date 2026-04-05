@@ -512,3 +512,201 @@ func TestSettingsService_Update_ExistingSettings(t *testing.T) {
 		t.Errorf("expected 25, got %d", settings.ResultsPerPage)
 	}
 }
+
+func TestSettingsService_GetAIProviders(t *testing.T) {
+	store := &mockSettingsStore{}
+	config := domain.NewRuntimeConfig("postgres")
+	services := runtime.NewServices(config)
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+
+	resp, err := svc.GetAIProviders(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if resp == nil {
+		t.Fatal("expected response to be returned")
+	}
+
+	// Verify embedding providers
+	if len(resp.Embedding) == 0 {
+		t.Error("expected at least one embedding provider")
+	}
+
+	// Verify LLM providers
+	if len(resp.LLM) == 0 {
+		t.Error("expected at least one LLM provider")
+	}
+
+	// Verify OpenAI is in both
+	foundOpenAIEmbedding := false
+	for _, p := range resp.Embedding {
+		if p.ID == string(domain.AIProviderOpenAI) {
+			foundOpenAIEmbedding = true
+			if p.Name != "OpenAI" {
+				t.Errorf("expected name 'OpenAI', got %s", p.Name)
+			}
+			if !p.RequiresAPIKey {
+				t.Error("expected OpenAI to require API key")
+			}
+			if p.RequiresBaseURL {
+				t.Error("expected OpenAI to not require base URL")
+			}
+			if len(p.Models) == 0 {
+				t.Error("expected OpenAI to have models")
+			}
+			if p.APIKeyURL == "" {
+				t.Error("expected OpenAI to have API key URL")
+			}
+		}
+	}
+	if !foundOpenAIEmbedding {
+		t.Error("expected OpenAI in embedding providers")
+	}
+
+	foundOpenAILLM := false
+	for _, p := range resp.LLM {
+		if p.ID == string(domain.AIProviderOpenAI) {
+			foundOpenAILLM = true
+			if len(p.Models) == 0 {
+				t.Error("expected OpenAI LLM to have models")
+			}
+		}
+	}
+	if !foundOpenAILLM {
+		t.Error("expected OpenAI in LLM providers")
+	}
+}
+
+func TestSettingsService_GetAIProviders_IncludesAllExpectedProviders(t *testing.T) {
+	store := &mockSettingsStore{}
+	config := domain.NewRuntimeConfig("postgres")
+	services := runtime.NewServices(config)
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+
+	resp, err := svc.GetAIProviders(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Expected embedding providers: OpenAI, Ollama, Cohere, Voyage
+	expectedEmbedding := map[string]bool{
+		string(domain.AIProviderOpenAI): false,
+		string(domain.AIProviderOllama): false,
+		string(domain.AIProviderCohere): false,
+		string(domain.AIProviderVoyage): false,
+	}
+
+	for _, p := range resp.Embedding {
+		if _, ok := expectedEmbedding[p.ID]; ok {
+			expectedEmbedding[p.ID] = true
+		}
+	}
+
+	for provider, found := range expectedEmbedding {
+		if !found {
+			t.Errorf("expected embedding provider %s not found", provider)
+		}
+	}
+
+	// Expected LLM providers: OpenAI, Anthropic, Ollama
+	expectedLLM := map[string]bool{
+		string(domain.AIProviderOpenAI):    false,
+		string(domain.AIProviderAnthropic): false,
+		string(domain.AIProviderOllama):    false,
+	}
+
+	for _, p := range resp.LLM {
+		if _, ok := expectedLLM[p.ID]; ok {
+			expectedLLM[p.ID] = true
+		}
+	}
+
+	for provider, found := range expectedLLM {
+		if !found {
+			t.Errorf("expected LLM provider %s not found", provider)
+		}
+	}
+}
+
+func TestSettingsService_GetAIProviders_OllamaConfiguration(t *testing.T) {
+	store := &mockSettingsStore{}
+	config := domain.NewRuntimeConfig("postgres")
+	services := runtime.NewServices(config)
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+
+	resp, err := svc.GetAIProviders(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Find Ollama in embedding providers
+	for _, p := range resp.Embedding {
+		if p.ID == string(domain.AIProviderOllama) {
+			if p.RequiresAPIKey {
+				t.Error("expected Ollama to not require API key")
+			}
+			if !p.RequiresBaseURL {
+				t.Error("expected Ollama to require base URL")
+			}
+			if p.APIKeyURL != "" {
+				t.Error("expected Ollama to not have API key URL")
+			}
+		}
+	}
+
+	// Find Ollama in LLM providers
+	for _, p := range resp.LLM {
+		if p.ID == string(domain.AIProviderOllama) {
+			if p.RequiresAPIKey {
+				t.Error("expected Ollama to not require API key")
+			}
+			if !p.RequiresBaseURL {
+				t.Error("expected Ollama to require base URL")
+			}
+		}
+	}
+}
+
+func TestSettingsService_GetAIProviders_ModelsHaveMetadata(t *testing.T) {
+	store := &mockSettingsStore{}
+	config := domain.NewRuntimeConfig("postgres")
+	services := runtime.NewServices(config)
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+
+	resp, err := svc.GetAIProviders(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Check that embedding models have dimensions
+	for _, p := range resp.Embedding {
+		for _, m := range p.Models {
+			if m.ID == "" {
+				t.Errorf("provider %s has model with empty ID", p.ID)
+			}
+			if m.Name == "" {
+				t.Errorf("provider %s has model with empty name", p.ID)
+			}
+			if m.Dimensions == 0 {
+				t.Errorf("provider %s model %s has zero dimensions", p.ID, m.ID)
+			}
+		}
+	}
+
+	// Check that LLM models have basic metadata
+	for _, p := range resp.LLM {
+		for _, m := range p.Models {
+			if m.ID == "" {
+				t.Errorf("provider %s has model with empty ID", p.ID)
+			}
+			if m.Name == "" {
+				t.Errorf("provider %s has model with empty name", p.ID)
+			}
+		}
+	}
+}

@@ -415,6 +415,7 @@ func main() {
 	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, nil)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)
 	vespaAdminService := services.NewVespaAdminService(vespaDeployer, vespaConfigStore, settingsStore, searchEngine, runtimeServices, teamID, cfg.VespaConfigURL)
+	setupService := services.NewSetupService(userStore, sourceStore, vespaConfigStore, teamID)
 
 	// Provider service (shows configuration status based on env vars)
 	providerService := services.NewProviderService(cfg)
@@ -486,7 +487,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, taskQueue, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, taskQueue, db, redisPing)
 
 	case "worker":
 		// Worker-only mode: Task processing, scheduler, no HTTP server
@@ -501,7 +502,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, taskQueue, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, taskQueue, db, redisPing)
 
 	default:
 		log.Fatalf("Unknown mode: %s (use: api, worker, or all)", mode)
@@ -522,6 +523,7 @@ func runAPI(
 	connectionService driving.ConnectionService,
 	syncOrchestrator driving.SyncOrchestrator,
 	capabilitiesService driving.CapabilitiesService,
+	setupService driving.SetupService,
 	taskQueue driven.TaskQueue,
 	db http.Pinger,
 	redisClient http.Pinger, // can be nil
@@ -546,6 +548,7 @@ func runAPI(
 		connectionService,
 		syncOrchestrator,
 		capabilitiesService,
+		setupService,
 		taskQueue,
 		db,
 		redisClient,

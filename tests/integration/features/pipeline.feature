@@ -7,6 +7,7 @@ Feature: Pipeline Ingestion and Search
     Given I am logged in as admin
     And Vespa is fully ready
 
+  @requires_vespa_indexing
   Scenario: Index documents through pipeline and verify search results
     # Setup: Create a LocalFS source and sync (handles existing resources)
     When I ensure a localfs installation exists with path "/data/test-docs"

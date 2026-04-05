@@ -227,6 +227,7 @@ type mockSettingsService struct {
 	updateAISettingsFn func(ctx context.Context, req driving.UpdateAISettingsRequest) (*driving.AISettingsStatus, error)
 	getAIStatusFn      func(ctx context.Context) (*driving.AISettingsStatus, error)
 	testConnectionFn   func(ctx context.Context) error
+	getAIProvidersFn   func(ctx context.Context) (*driving.AIProvidersResponse, error)
 }
 
 func (m *mockSettingsService) Get(ctx context.Context) (*domain.Settings, error) {
@@ -271,6 +272,13 @@ func (m *mockSettingsService) TestConnection(ctx context.Context) error {
 	return errors.New("not implemented")
 }
 
+func (m *mockSettingsService) GetAIProviders(ctx context.Context) (*driving.AIProvidersResponse, error) {
+	if m.getAIProvidersFn != nil {
+		return m.getAIProvidersFn(ctx)
+	}
+	return nil, errors.New("not implemented")
+}
+
 type mockCapabilitiesService struct {
 	getCapabilitiesFn func(ctx context.Context) (*driving.CapabilitiesResponse, error)
 }
@@ -312,6 +320,17 @@ func (m *mockVespaAdminService) HealthCheck(ctx context.Context) error {
 		return m.healthCheckFn(ctx)
 	}
 	return errors.New("not implemented")
+}
+
+type mockSetupService struct {
+	getStatusFn func(ctx context.Context) (*driving.SetupStatusResponse, error)
+}
+
+func (m *mockSetupService) GetStatus(ctx context.Context) (*driving.SetupStatusResponse, error) {
+	if m.getStatusFn != nil {
+		return m.getStatusFn(ctx)
+	}
+	return nil, errors.New("not implemented")
 }
 
 func TestHealthHandler(t *testing.T) {
@@ -2393,5 +2412,238 @@ func TestHandleVespaHealth_Unhealthy(t *testing.T) {
 
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected status 503, got %d", rr.Code)
+	}
+}
+
+// Setup Handler Tests
+
+func TestHandleSetupStatus_Success(t *testing.T) {
+	mockSetup := &mockSetupService{
+		getStatusFn: func(ctx context.Context) (*driving.SetupStatusResponse, error) {
+			return &driving.SetupStatusResponse{
+				SetupComplete:  true,
+				HasUsers:       true,
+				HasSources:     true,
+				VespaConnected: true,
+			}, nil
+		},
+	}
+
+	server := &Server{setupService: mockSetup}
+
+	req := httptest.NewRequest("GET", "/api/v1/setup/status", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleSetupStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response driving.SetupStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !response.SetupComplete {
+		t.Error("expected setup to be complete")
+	}
+	if !response.HasUsers {
+		t.Error("expected HasUsers to be true")
+	}
+	if !response.HasSources {
+		t.Error("expected HasSources to be true")
+	}
+	if !response.VespaConnected {
+		t.Error("expected VespaConnected to be true")
+	}
+}
+
+func TestHandleSetupStatus_SetupIncomplete(t *testing.T) {
+	mockSetup := &mockSetupService{
+		getStatusFn: func(ctx context.Context) (*driving.SetupStatusResponse, error) {
+			return &driving.SetupStatusResponse{
+				SetupComplete:  false,
+				HasUsers:       false,
+				HasSources:     false,
+				VespaConnected: false,
+			}, nil
+		},
+	}
+
+	server := &Server{setupService: mockSetup}
+
+	req := httptest.NewRequest("GET", "/api/v1/setup/status", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleSetupStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response driving.SetupStatusResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if response.SetupComplete {
+		t.Error("expected setup to be incomplete")
+	}
+	if response.HasUsers {
+		t.Error("expected HasUsers to be false")
+	}
+	if response.HasSources {
+		t.Error("expected HasSources to be false")
+	}
+	if response.VespaConnected {
+		t.Error("expected VespaConnected to be false")
+	}
+}
+
+func TestHandleSetupStatus_ServiceUnavailable(t *testing.T) {
+	server := &Server{setupService: nil}
+
+	req := httptest.NewRequest("GET", "/api/v1/setup/status", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleSetupStatus(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", rr.Code)
+	}
+}
+
+func TestHandleSetupStatus_Error(t *testing.T) {
+	mockSetup := &mockSetupService{
+		getStatusFn: func(ctx context.Context) (*driving.SetupStatusResponse, error) {
+			return nil, errors.New("database connection failed")
+		},
+	}
+
+	server := &Server{setupService: mockSetup}
+
+	req := httptest.NewRequest("GET", "/api/v1/setup/status", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleSetupStatus(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rr.Code)
+	}
+}
+
+// AI Providers Handler Tests
+
+func TestHandleGetAIProviders_Success(t *testing.T) {
+	mockSettings := &mockSettingsService{
+		getAIProvidersFn: func(ctx context.Context) (*driving.AIProvidersResponse, error) {
+			return &driving.AIProvidersResponse{
+				Embedding: []domain.AIProviderInfo{
+					{
+						ID:   string(domain.AIProviderOpenAI),
+						Name: "OpenAI",
+						Models: []domain.AIModelInfo{
+							{
+								ID:         "text-embedding-3-small",
+								Name:       "Text Embedding 3 Small",
+								Dimensions: 1536,
+							},
+						},
+						RequiresAPIKey:  true,
+						RequiresBaseURL: false,
+						APIKeyURL:       "https://platform.openai.com/api-keys",
+					},
+				},
+				LLM: []domain.AIProviderInfo{
+					{
+						ID:   string(domain.AIProviderOpenAI),
+						Name: "OpenAI",
+						Models: []domain.AIModelInfo{
+							{
+								ID:   "gpt-4o",
+								Name: "GPT-4o",
+							},
+						},
+						RequiresAPIKey:  true,
+						RequiresBaseURL: false,
+						APIKeyURL:       "https://platform.openai.com/api-keys",
+					},
+				},
+			}, nil
+		},
+	}
+
+	server := &Server{settingsService: mockSettings}
+
+	req := httptest.NewRequest("GET", "/api/v1/settings/ai/providers", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleGetAIProviders(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response driving.AIProvidersResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(response.Embedding) == 0 {
+		t.Error("expected at least one embedding provider")
+	}
+	if len(response.LLM) == 0 {
+		t.Error("expected at least one LLM provider")
+	}
+
+	// Verify OpenAI embedding provider
+	if response.Embedding[0].ID != string(domain.AIProviderOpenAI) {
+		t.Errorf("expected provider ID 'openai', got %s", response.Embedding[0].ID)
+	}
+	if response.Embedding[0].Name != "OpenAI" {
+		t.Errorf("expected provider name 'OpenAI', got %s", response.Embedding[0].Name)
+	}
+	if !response.Embedding[0].RequiresAPIKey {
+		t.Error("expected RequiresAPIKey to be true")
+	}
+	if response.Embedding[0].RequiresBaseURL {
+		t.Error("expected RequiresBaseURL to be false")
+	}
+	if response.Embedding[0].APIKeyURL == "" {
+		t.Error("expected APIKeyURL to be set")
+	}
+	if len(response.Embedding[0].Models) == 0 {
+		t.Error("expected at least one model")
+	}
+	if response.Embedding[0].Models[0].Dimensions == 0 {
+		t.Error("expected model to have dimensions")
+	}
+
+	// Verify OpenAI LLM provider
+	if response.LLM[0].ID != string(domain.AIProviderOpenAI) {
+		t.Errorf("expected provider ID 'openai', got %s", response.LLM[0].ID)
+	}
+	if len(response.LLM[0].Models) == 0 {
+		t.Error("expected at least one model")
+	}
+}
+
+func TestHandleGetAIProviders_Error(t *testing.T) {
+	mockSettings := &mockSettingsService{
+		getAIProvidersFn: func(ctx context.Context) (*driving.AIProvidersResponse, error) {
+			return nil, errors.New("internal error")
+		},
+	}
+
+	server := &Server{settingsService: mockSettings}
+
+	req := httptest.NewRequest("GET", "/api/v1/settings/ai/providers", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleGetAIProviders(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rr.Code)
 	}
 }

@@ -20,6 +20,18 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 
 	sc.Before(func(ctx context.Context, sc *godog.Scenario) (context.Context, error) {
 		testCtx.Reset()
+
+		// Check for @isolated tag - cleanup sources and connections before the scenario
+		for _, tag := range sc.Tags {
+			if tag.Name == "@isolated" {
+				if err := cleanupSourcesAndConnections(); err != nil {
+					// Log but don't fail - cleanup is best effort
+					fmt.Printf("Warning: cleanup failed: %v\n", err)
+				}
+				break
+			}
+		}
+
 		return ctx, nil
 	})
 
@@ -110,6 +122,28 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I update AI embedding to "([^"]*)" with model "([^"]*)"$`, iUpdateAIEmbeddingToWithModel)
 	sc.Step(`^embedding should use OpenAI provider$`, embeddingShouldUseOpenAIProvider)
 	sc.Step(`^AI settings providers should match capability providers$`, aiSettingsProvidersShouldMatchCapabilityProviders)
+
+	// FTUE setup status steps
+	sc.Step(`^I check setup status$`, iCheckSetupStatus)
+	sc.Step(`^setup should be incomplete$`, setupShouldBeIncomplete)
+	sc.Step(`^has_users should be false$`, hasUsersShouldBeFalse)
+	sc.Step(`^has_users should be true$`, hasUsersShouldBeTrue)
+	sc.Step(`^has_sources should be false$`, hasSourcesShouldBeFalse)
+	sc.Step(`^has_sources should be true$`, hasSourcesShouldBeTrue)
+	sc.Step(`^vespa_connected should reflect Vespa status$`, vespaConnectedShouldReflectVespaStatus)
+
+	// AI provider metadata steps
+	sc.Step(`^I get AI provider metadata$`, iGetAIProviderMetadata)
+	sc.Step(`^I request AI providers without authentication$`, iRequestAIProvidersWithoutAuthentication)
+	sc.Step(`^I should see embedding providers$`, iShouldSeeEmbeddingProviders)
+	sc.Step(`^I should see LLM providers$`, iShouldSeeLLMProviders)
+	sc.Step(`^providers should include OpenAI$`, providersShouldIncludeOpenAI)
+	sc.Step(`^providers should include Anthropic$`, providersShouldIncludeAnthropic)
+	sc.Step(`^providers should include Ollama$`, providersShouldIncludeOllama)
+	sc.Step(`^each provider should have an id$`, eachProviderShouldHaveAnID)
+	sc.Step(`^each provider should have a name$`, eachProviderShouldHaveAName)
+	sc.Step(`^each provider should have models$`, eachProviderShouldHaveModels)
+	sc.Step(`^each provider should indicate API key requirement$`, eachProviderShouldIndicateAPIKeyRequirement)
 }
 
 // Common steps
@@ -232,7 +266,7 @@ func vespaIsFullyReady() error {
 // Installation steps
 
 func iCreateLocalFSInstallation(path string) error {
-	return testCtx.Request(http.MethodPost, "/api/v1/installations", map[string]string{
+	return testCtx.Request(http.MethodPost, "/api/v1/connections", map[string]string{
 		"name":          "Test LocalFS",
 		"provider_type": "localfs",
 		"api_key":       path,
@@ -254,7 +288,7 @@ func iShouldHaveAnInstallationID() error {
 }
 
 func iListContainers() error {
-	return testCtx.Request(http.MethodGet, fmt.Sprintf("/api/v1/installations/%s/containers", testCtx.InstallationID), nil)
+	return testCtx.Request(http.MethodGet, fmt.Sprintf("/api/v1/connections/%s/containers", testCtx.InstallationID), nil)
 }
 
 func iShouldSeeContainers() error {
@@ -276,9 +310,9 @@ func iShouldSeeContainers() error {
 
 func iCreateSourceFromContainer(containerName string) error {
 	return testCtx.Request(http.MethodPost, "/api/v1/sources", map[string]any{
-		"name":                "Test Source",
+		"name":                fmt.Sprintf("Source-%s", containerName),
 		"provider_type":       "localfs",
-		"installation_id":     testCtx.InstallationID,
+		"connection_id":       testCtx.InstallationID,
 		"selected_containers": []string{containerName},
 	})
 }
@@ -651,7 +685,7 @@ func equalFold(s, t string) bool {
 
 func iEnsureLocalFSInstallationExists(path string) error {
 	// First check if installation already exists
-	if err := testCtx.Request(http.MethodGet, "/api/v1/installations", nil); err != nil {
+	if err := testCtx.Request(http.MethodGet, "/api/v1/connections", nil); err != nil {
 		return err
 	}
 
@@ -686,15 +720,16 @@ func iEnsureLocalFSInstallationExists(path string) error {
 }
 
 func iEnsureSourceExistsFromContainer(containerName string) error {
-	// First check if source already exists
+	// First check if source already exists for this container
 	if err := testCtx.Request(http.MethodGet, "/api/v1/sources", nil); err != nil {
 		return err
 	}
 
 	var sources []struct {
 		Source struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID                 string   `json:"id"`
+			Name               string   `json:"name"`
+			SelectedContainers []string `json:"selected_containers"`
 		} `json:"source"`
 		SyncStatus string `json:"sync_status"`
 	}
@@ -702,10 +737,20 @@ func iEnsureSourceExistsFromContainer(containerName string) error {
 		return err
 	}
 
-	// Look for existing source
+	// Look for existing source that includes this container
+	expectedName := fmt.Sprintf("Source-%s", containerName)
 	for _, s := range sources {
-		testCtx.SourceID = s.Source.ID
-		return nil
+		// Match by name or by container
+		if s.Source.Name == expectedName {
+			testCtx.SourceID = s.Source.ID
+			return nil
+		}
+		for _, c := range s.Source.SelectedContainers {
+			if c == containerName {
+				testCtx.SourceID = s.Source.ID
+				return nil
+			}
+		}
 	}
 
 	// Need installation ID to create source
@@ -1158,7 +1203,7 @@ func openAIIsConfiguredInEnvironment() error {
 		}
 	}
 
-	return fmt.Errorf("OpenAI is not configured in environment - skipping test")
+	return godog.ErrPending
 }
 
 func iUpdateAISettingsToUseOpenAI() error {
@@ -1314,4 +1359,390 @@ func aiSettingsProvidersShouldMatchCapabilityProviders() error {
 // Helper function to check if JSON contains a field
 func jsonContainsField(jsonStr, field string) bool {
 	return stringContains(jsonStr, `"`+field+`"`)
+}
+
+// FTUE setup status steps
+
+var lastSetupStatus map[string]any
+
+func iCheckSetupStatus() error {
+	// Save current token and clear it (endpoint is public)
+	savedToken := testCtx.Token
+	testCtx.Token = ""
+
+	err := testCtx.Request(http.MethodGet, "/api/v1/setup/status", nil)
+
+	// Restore token
+	testCtx.Token = savedToken
+
+	if err != nil {
+		return err
+	}
+	if testCtx.LastStatusCode != http.StatusOK {
+		return fmt.Errorf("expected status 200, got %d: %s", testCtx.LastStatusCode, string(testCtx.LastBody))
+	}
+	if err := testCtx.ParseResponse(&lastSetupStatus); err != nil {
+		return err
+	}
+	return nil
+}
+
+func setupShouldBeIncomplete() error {
+	if lastSetupStatus == nil {
+		return fmt.Errorf("no setup status response available")
+	}
+	setupComplete, ok := lastSetupStatus["setup_complete"].(bool)
+	if !ok {
+		return fmt.Errorf("setup_complete field missing or not a boolean")
+	}
+	if setupComplete {
+		return fmt.Errorf("expected setup_complete to be false, got true")
+	}
+	return nil
+}
+
+func hasUsersShouldBeFalse() error {
+	if lastSetupStatus == nil {
+		return fmt.Errorf("no setup status response available")
+	}
+	hasUsers, ok := lastSetupStatus["has_users"].(bool)
+	if !ok {
+		return fmt.Errorf("has_users field missing or not a boolean")
+	}
+	if hasUsers {
+		return fmt.Errorf("expected has_users to be false, got true")
+	}
+	return nil
+}
+
+func hasUsersShouldBeTrue() error {
+	if lastSetupStatus == nil {
+		return fmt.Errorf("no setup status response available")
+	}
+	hasUsers, ok := lastSetupStatus["has_users"].(bool)
+	if !ok {
+		return fmt.Errorf("has_users field missing or not a boolean")
+	}
+	if !hasUsers {
+		return fmt.Errorf("expected has_users to be true, got false")
+	}
+	return nil
+}
+
+func hasSourcesShouldBeFalse() error {
+	if lastSetupStatus == nil {
+		return fmt.Errorf("no setup status response available")
+	}
+	hasSources, ok := lastSetupStatus["has_sources"].(bool)
+	if !ok {
+		return fmt.Errorf("has_sources field missing or not a boolean")
+	}
+	if hasSources {
+		return fmt.Errorf("expected has_sources to be false, got true")
+	}
+	return nil
+}
+
+func hasSourcesShouldBeTrue() error {
+	if lastSetupStatus == nil {
+		return fmt.Errorf("no setup status response available")
+	}
+	hasSources, ok := lastSetupStatus["has_sources"].(bool)
+	if !ok {
+		return fmt.Errorf("has_sources field missing or not a boolean")
+	}
+	if !hasSources {
+		return fmt.Errorf("expected has_sources to be true, got false")
+	}
+	return nil
+}
+
+func vespaConnectedShouldReflectVespaStatus() error {
+	if lastSetupStatus == nil {
+		return fmt.Errorf("no setup status response available")
+	}
+	// Just verify the field exists and is a boolean - actual value depends on Vespa state
+	_, ok := lastSetupStatus["vespa_connected"].(bool)
+	if !ok {
+		return fmt.Errorf("vespa_connected field missing or not a boolean")
+	}
+	return nil
+}
+
+// AI provider metadata steps
+
+var lastAIProviderMetadata map[string]any
+
+func iGetAIProviderMetadata() error {
+	if err := testCtx.Request(http.MethodGet, "/api/v1/settings/ai/providers", nil); err != nil {
+		return err
+	}
+	if testCtx.LastStatusCode != http.StatusOK {
+		return fmt.Errorf("expected status 200, got %d: %s", testCtx.LastStatusCode, string(testCtx.LastBody))
+	}
+	if err := testCtx.ParseResponse(&lastAIProviderMetadata); err != nil {
+		return err
+	}
+	return nil
+}
+
+func iRequestAIProvidersWithoutAuthentication() error {
+	// Save current token and clear it
+	savedToken := testCtx.Token
+	testCtx.Token = ""
+
+	err := testCtx.Request(http.MethodGet, "/api/v1/settings/ai/providers", nil)
+
+	// Restore token
+	testCtx.Token = savedToken
+
+	return err
+}
+
+func iShouldSeeEmbeddingProviders() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	embedding, ok := lastAIProviderMetadata["embedding"]
+	if !ok {
+		return fmt.Errorf("embedding field missing from AI provider metadata")
+	}
+	embeddingList, ok := embedding.([]any)
+	if !ok {
+		return fmt.Errorf("embedding is not an array")
+	}
+	if len(embeddingList) == 0 {
+		return fmt.Errorf("embedding providers list is empty")
+	}
+	return nil
+}
+
+func iShouldSeeLLMProviders() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	llm, ok := lastAIProviderMetadata["llm"]
+	if !ok {
+		return fmt.Errorf("llm field missing from AI provider metadata")
+	}
+	llmList, ok := llm.([]any)
+	if !ok {
+		return fmt.Errorf("llm is not an array")
+	}
+	if len(llmList) == 0 {
+		return fmt.Errorf("llm providers list is empty")
+	}
+	return nil
+}
+
+func providersShouldIncludeOpenAI() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	// Check both embedding and LLM providers for OpenAI
+	embedding := lastAIProviderMetadata["embedding"].([]any)
+	for _, p := range embedding {
+		provider := p.(map[string]any)
+		if provider["id"] == "openai" {
+			return nil
+		}
+	}
+	return fmt.Errorf("OpenAI not found in embedding providers")
+}
+
+func providersShouldIncludeAnthropic() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	llm := lastAIProviderMetadata["llm"].([]any)
+	for _, p := range llm {
+		provider := p.(map[string]any)
+		if provider["id"] == "anthropic" {
+			return nil
+		}
+	}
+	return fmt.Errorf("Anthropic not found in LLM providers")
+}
+
+func providersShouldIncludeOllama() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	// Ollama should be in both embedding and LLM
+	embedding := lastAIProviderMetadata["embedding"].([]any)
+	ollamaInEmbedding := false
+	for _, p := range embedding {
+		provider := p.(map[string]any)
+		if provider["id"] == "ollama" {
+			ollamaInEmbedding = true
+			break
+		}
+	}
+	if !ollamaInEmbedding {
+		return fmt.Errorf("Ollama not found in embedding providers")
+	}
+	return nil
+}
+
+func eachProviderShouldHaveAnID() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	// Check embedding providers
+	embedding := lastAIProviderMetadata["embedding"].([]any)
+	for i, p := range embedding {
+		provider := p.(map[string]any)
+		if _, ok := provider["id"]; !ok {
+			return fmt.Errorf("embedding provider %d missing id field", i)
+		}
+	}
+	// Check LLM providers
+	llm := lastAIProviderMetadata["llm"].([]any)
+	for i, p := range llm {
+		provider := p.(map[string]any)
+		if _, ok := provider["id"]; !ok {
+			return fmt.Errorf("llm provider %d missing id field", i)
+		}
+	}
+	return nil
+}
+
+func eachProviderShouldHaveAName() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	// Check embedding providers
+	embedding := lastAIProviderMetadata["embedding"].([]any)
+	for i, p := range embedding {
+		provider := p.(map[string]any)
+		if _, ok := provider["name"]; !ok {
+			return fmt.Errorf("embedding provider %d missing name field", i)
+		}
+	}
+	// Check LLM providers
+	llm := lastAIProviderMetadata["llm"].([]any)
+	for i, p := range llm {
+		provider := p.(map[string]any)
+		if _, ok := provider["name"]; !ok {
+			return fmt.Errorf("llm provider %d missing name field", i)
+		}
+	}
+	return nil
+}
+
+func eachProviderShouldHaveModels() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	// Check embedding providers
+	embedding := lastAIProviderMetadata["embedding"].([]any)
+	for i, p := range embedding {
+		provider := p.(map[string]any)
+		models, ok := provider["models"]
+		if !ok {
+			return fmt.Errorf("embedding provider %d missing models field", i)
+		}
+		modelsList, ok := models.([]any)
+		if !ok {
+			return fmt.Errorf("embedding provider %d models is not an array", i)
+		}
+		if len(modelsList) == 0 {
+			return fmt.Errorf("embedding provider %d has empty models list", i)
+		}
+	}
+	// Check LLM providers
+	llm := lastAIProviderMetadata["llm"].([]any)
+	for i, p := range llm {
+		provider := p.(map[string]any)
+		models, ok := provider["models"]
+		if !ok {
+			return fmt.Errorf("llm provider %d missing models field", i)
+		}
+		modelsList, ok := models.([]any)
+		if !ok {
+			return fmt.Errorf("llm provider %d models is not an array", i)
+		}
+		if len(modelsList) == 0 {
+			return fmt.Errorf("llm provider %d has empty models list", i)
+		}
+	}
+	return nil
+}
+
+func eachProviderShouldIndicateAPIKeyRequirement() error {
+	if lastAIProviderMetadata == nil {
+		return fmt.Errorf("no AI provider metadata response available")
+	}
+	// Check embedding providers
+	embedding := lastAIProviderMetadata["embedding"].([]any)
+	for i, p := range embedding {
+		provider := p.(map[string]any)
+		if _, ok := provider["requires_api_key"]; !ok {
+			return fmt.Errorf("embedding provider %d missing requires_api_key field", i)
+		}
+		// Also check for requires_base_url
+		if _, ok := provider["requires_base_url"]; !ok {
+			return fmt.Errorf("embedding provider %d missing requires_base_url field", i)
+		}
+	}
+	// Check LLM providers
+	llm := lastAIProviderMetadata["llm"].([]any)
+	for i, p := range llm {
+		provider := p.(map[string]any)
+		if _, ok := provider["requires_api_key"]; !ok {
+			return fmt.Errorf("llm provider %d missing requires_api_key field", i)
+		}
+		// Also check for requires_base_url
+		if _, ok := provider["requires_base_url"]; !ok {
+			return fmt.Errorf("llm provider %d missing requires_base_url field", i)
+		}
+	}
+	return nil
+}
+
+// cleanupSourcesAndConnections deletes all sources and connections for test isolation.
+// This is called before @isolated scenarios to ensure a clean state.
+func cleanupSourcesAndConnections() error {
+	// Need to be logged in to cleanup
+	if testCtx.Token == "" {
+		if err := iAmLoggedInAsAdmin(); err != nil {
+			return fmt.Errorf("failed to login for cleanup: %w", err)
+		}
+	}
+
+	// First delete all sources
+	if err := testCtx.Request(http.MethodGet, "/api/v1/sources", nil); err != nil {
+		return fmt.Errorf("failed to list sources: %w", err)
+	}
+
+	var sources []struct {
+		Source struct {
+			ID string `json:"id"`
+		} `json:"source"`
+	}
+	if err := testCtx.ParseResponse(&sources); err == nil {
+		for _, s := range sources {
+			_ = testCtx.Request(http.MethodDelete, fmt.Sprintf("/api/v1/sources/%s", s.Source.ID), nil)
+		}
+	}
+
+	// Then delete all connections
+	if err := testCtx.Request(http.MethodGet, "/api/v1/connections", nil); err != nil {
+		return fmt.Errorf("failed to list connections: %w", err)
+	}
+
+	var connections []struct {
+		ID string `json:"id"`
+	}
+	if err := testCtx.ParseResponse(&connections); err == nil {
+		for _, c := range connections {
+			_ = testCtx.Request(http.MethodDelete, fmt.Sprintf("/api/v1/connections/%s", c.ID), nil)
+		}
+	}
+
+	// Reset context state
+	testCtx.InstallationID = ""
+	testCtx.SourceID = ""
+
+	return nil
 }

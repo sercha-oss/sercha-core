@@ -363,6 +363,379 @@ const docTemplate = `{
                 }
             }
         },
+        "/connections": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get all connector connections. Connections represent authenticated connections to external data sources (OAuth tokens, API keys, etc.).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "List connections",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create a new installation for non-OAuth connectors (API key, path-based). Used for connectors like localfs.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Create connection",
+                "parameters": [
+                    {
+                        "description": "Installation configuration",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/connections/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a connector installation by ID. Returns installation metadata without secrets.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing installation ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Connection not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delete a connector installation. Cannot delete installations that are in use by sources.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Delete connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing installation ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Connection not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Connection in use by sources",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/connections/{id}/containers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List available containers (repositories, drives, spaces, etc.) for an installation. Use this to populate a resource picker UI for selecting which containers to index.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "List containers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Pagination cursor from previous response",
+                        "name": "cursor",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ListContainersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing installation ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Connection not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/connections/{id}/test": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Test if an installation's credentials are still valid. This attempts to authenticate with the external service.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Test connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Installation ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing installation ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Connection not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Credentials invalid or service unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/documents/{id}": {
             "get": {
                 "security": [
@@ -494,379 +867,6 @@ const docTemplate = `{
                         "description": "Service is up with dependency status",
                         "schema": {
                             "$ref": "#/definitions/internal_adapters_driving_http.HealthResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/installations": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get all connector installations. Installations represent authenticated connections to external data sources (OAuth tokens, API keys, etc.).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Installations"
-                ],
-                "summary": "List installations",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden - admin only",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a new installation for non-OAuth connectors (API key, path-based). Used for connectors like localfs.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Installations"
-                ],
-                "summary": "Create installation",
-                "parameters": [
-                    {
-                        "description": "Installation configuration",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateInstallationRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden - admin only",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/installations/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get a connector installation by ID. Returns installation metadata without secrets.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Installations"
-                ],
-                "summary": "Get installation",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Installation ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary"
-                        }
-                    },
-                    "400": {
-                        "description": "Missing installation ID",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden - admin only",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Installation not found",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Delete a connector installation. Cannot delete installations that are in use by sources.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Installations"
-                ],
-                "summary": "Delete installation",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Installation ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Missing installation ID",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden - admin only",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Installation not found",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Installation in use by sources",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/installations/{id}/containers": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List available containers (repositories, drives, spaces, etc.) for an installation. Use this to populate a resource picker UI for selecting which containers to index.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Installations"
-                ],
-                "summary": "List containers",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Installation ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Pagination cursor from previous response",
-                        "name": "cursor",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.ListContainersResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Missing installation ID",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden - admin only",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Installation not found",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/installations/{id}/test": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Test if an installation's credentials are still valid. This attempts to authenticate with the external service.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Installations"
-                ],
-                "summary": "Test installation",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Installation ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Missing installation ID",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden - admin only",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Installation not found",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "Credentials invalid or service unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
                         }
                     }
                 }
@@ -1375,6 +1375,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/settings/ai/providers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns metadata about available AI providers and their models. Used for populating provider/model selection dropdowns in the UI.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI Settings"
+                ],
+                "summary": "Get AI providers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIProvidersResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/settings/ai/status": {
             "get": {
                 "security": [
@@ -1500,6 +1537,32 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Setup failed",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/setup/status": {
+            "get": {
+                "description": "Returns the current setup state for FTUE (First-Time User Experience) flow. This endpoint is public and does not require authentication.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Setup"
+                ],
+                "summary": "Get setup status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupStatusResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
                         "schema": {
                             "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
                         }
@@ -1854,6 +1917,82 @@ const docTemplate = `{
                 }
             }
         },
+        "/sources/{id}/containers": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update which containers (repos, drives, spaces) a source should index. Pass an empty array to index all available containers.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sources"
+                ],
+                "summary": "Update source containers",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Container containers",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.UpdateContainersRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Source not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/sources/{id}/disable": {
             "post": {
                 "security": [
@@ -2021,82 +2160,6 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Missing source ID",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden - admin only",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Source not found",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/sources/{id}/selection": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update which containers (repos, drives, spaces) a source should index. Pass an empty array to index all available containers.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Sources"
-                ],
-                "summary": "Update source selection",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Source ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Container selection",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.UpdateSelectionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request",
                         "schema": {
                             "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
                         }
@@ -2441,6 +2504,23 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_custodia-labs_sercha-core_internal_core_domain.AIModelInfo": {
+            "type": "object",
+            "properties": {
+                "dimensions": {
+                    "description": "For embedding models only",
+                    "type": "integer"
+                },
+                "id": {
+                    "description": "Model identifier (e.g., \"text-embedding-3-small\")",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Display name",
+                    "type": "string"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_domain.AIProvider": {
             "type": "string",
             "enum": [
@@ -2457,6 +2537,38 @@ const docTemplate = `{
                 "AIProviderCohere",
                 "AIProviderVoyage"
             ]
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.AIProviderInfo": {
+            "type": "object",
+            "properties": {
+                "api_key_url": {
+                    "description": "URL to get API key",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "Provider identifier (matches AIProvider)",
+                    "type": "string"
+                },
+                "models": {
+                    "description": "Available models",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIModelInfo"
+                    }
+                },
+                "name": {
+                    "description": "Display name",
+                    "type": "string"
+                },
+                "requires_api_key": {
+                    "description": "Whether API key is needed",
+                    "type": "boolean"
+                },
+                "requires_base_url": {
+                    "description": "Whether base URL is needed (e.g., Ollama)",
+                    "type": "boolean"
+                }
+            }
         },
         "github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod": {
             "type": "string",
@@ -2521,6 +2633,55 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "string"
+                },
+                "auth_method": {
+                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_used_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oauth_expiry": {
+                    "type": "string"
+                },
+                "provider_type": {
+                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.Container": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_domain.Document": {
             "type": "object",
             "properties": {
@@ -2572,35 +2733,6 @@ const docTemplate = `{
                 },
                 "document": {
                     "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Document"
-                }
-            }
-        },
-        "github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary": {
-            "type": "object",
-            "properties": {
-                "account_id": {
-                    "type": "string"
-                },
-                "auth_method": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "last_used_at": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "oauth_expiry": {
-                    "type": "string"
-                },
-                "provider_type": {
-                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
                 }
             }
         },
@@ -2824,6 +2956,17 @@ const docTemplate = `{
                 "config": {
                     "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig"
                 },
+                "connection_id": {
+                    "description": "ConnectionID references the connector connection for authentication",
+                    "type": "string"
+                },
+                "containers": {
+                    "description": "Containers lists the containers to index (typed)\nEmpty means index all accessible containers\nExamples: repos for GitHub, channels for Slack, folders for Drive",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Container"
+                    }
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -2837,22 +2980,11 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "installation_id": {
-                    "description": "InstallationID references the connector installation for authentication",
-                    "type": "string"
-                },
                 "name": {
                     "type": "string"
                 },
                 "provider_type": {
                     "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
-                },
-                "selected_containers": {
-                    "description": "SelectedContainers lists the container IDs to index\nEmpty means index all accessible containers\nExamples: [\"owner/repo1\", \"owner/repo2\"] for GitHub",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 },
                 "updated_at": {
                     "type": "string"
@@ -3236,6 +3368,23 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIProvidersResponse": {
+            "type": "object",
+            "properties": {
+                "embedding": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProviderInfo"
+                    }
+                },
+                "llm": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AIProviderInfo"
+                    }
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_ports_driving.AIServiceStatus": {
             "type": "object",
             "properties": {
@@ -3320,7 +3469,7 @@ const docTemplate = `{
                     "description": "Installation is the created installation summary.",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.InstallationSummary"
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary"
                         }
                     ]
                 },
@@ -3381,8 +3530,8 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateInstallationRequest": {
-            "description": "Request to create an installation for API key or path-based connectors",
+        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.CreateConnectionRequest": {
+            "description": "Request to create a connection for API key or path-based connectors",
             "type": "object",
             "properties": {
                 "api_key": {
@@ -3391,7 +3540,7 @@ const docTemplate = `{
                     "example": "/data/test-docs"
                 },
                 "name": {
-                    "description": "Name is a human-readable name for the installation.",
+                    "description": "Name is a human-readable name for the connection.",
                     "type": "string",
                     "example": "Local Test Docs"
                 },
@@ -3412,20 +3561,20 @@ const docTemplate = `{
                 "config": {
                     "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SourceConfig"
                 },
-                "installation_id": {
+                "connection_id": {
                     "type": "string"
+                },
+                "containers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Container"
+                    }
                 },
                 "name": {
                     "type": "string"
                 },
                 "provider_type": {
                     "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType"
-                },
-                "selected_containers": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
                 }
             }
         },
@@ -3574,6 +3723,23 @@ const docTemplate = `{
                 },
                 "user": {
                     "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.User"
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.SetupStatusResponse": {
+            "type": "object",
+            "properties": {
+                "has_sources": {
+                    "type": "boolean"
+                },
+                "has_users": {
+                    "type": "boolean"
+                },
+                "setup_complete": {
+                    "type": "boolean"
+                },
+                "vespa_connected": {
+                    "type": "boolean"
                 }
             }
         },
@@ -3728,7 +3894,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/internal_adapters_driving_http.DocumentStats"
                 },
                 "installations": {
-                    "$ref": "#/definitions/internal_adapters_driving_http.InstallationStats"
+                    "$ref": "#/definitions/internal_adapters_driving_http.ConnectionStats"
                 },
                 "sources": {
                     "$ref": "#/definitions/internal_adapters_driving_http.SourceStats"
@@ -3756,6 +3922,14 @@ const docTemplate = `{
                 "status": {
                     "description": "\"healthy\" or \"unhealthy\"",
                     "type": "string"
+                }
+            }
+        },
+        "internal_adapters_driving_http.ConnectionStats": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -3790,14 +3964,6 @@ const docTemplate = `{
                 "status": {
                     "description": "overall status: \"healthy\" or \"degraded\"",
                     "type": "string"
-                }
-            }
-        },
-        "internal_adapters_driving_http.InstallationStats": {
-            "type": "object",
-            "properties": {
-                "total": {
-                    "type": "integer"
                 }
             }
         },
@@ -3857,20 +4023,16 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_adapters_driving_http.UpdateSelectionRequest": {
+        "internal_adapters_driving_http.UpdateContainersRequest": {
             "description": "Request to update which containers a source should index",
             "type": "object",
             "properties": {
-                "selected_containers": {
-                    "description": "SelectedContainers is the list of container IDs to index.\nEmpty list means index all available containers.",
+                "containers": {
+                    "description": "Containers is the list of containers to index.\nEmpty list means index all available containers.",
                     "type": "array",
                     "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "[\"octocat/hello-world\"",
-                        "\"octocat/spoon-knife\"]"
-                    ]
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Container"
+                    }
                 }
             }
         },

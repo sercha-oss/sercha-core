@@ -217,15 +217,27 @@ CREATE TABLE IF NOT EXISTS oauth_states (
 
 CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
 
--- Add installation_id and selected_containers to sources table
+-- Add connection_id and selected_containers to sources table
 -- Using DO block to handle idempotent column additions
 DO $$
 BEGIN
-    IF NOT EXISTS (
+    -- Handle legacy installation_id -> connection_id rename
+    IF EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'sources' AND column_name = 'installation_id'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'sources' AND column_name = 'connection_id'
     ) THEN
-        ALTER TABLE sources ADD COLUMN installation_id TEXT
+        ALTER TABLE sources RENAME COLUMN installation_id TO connection_id;
+    END IF;
+
+    -- Add connection_id if it doesn't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'sources' AND column_name = 'connection_id'
+    ) THEN
+        ALTER TABLE sources ADD COLUMN connection_id TEXT
             REFERENCES connector_installations(id) ON DELETE SET NULL;
     END IF;
 
@@ -233,11 +245,13 @@ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'sources' AND column_name = 'selected_containers'
     ) THEN
-        ALTER TABLE sources ADD COLUMN selected_containers TEXT[] DEFAULT '{}';
+        ALTER TABLE sources ADD COLUMN selected_containers JSONB DEFAULT '[]';
     END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_sources_installation_id ON sources(installation_id);
+-- Drop legacy index if it exists and create new one
+DROP INDEX IF EXISTS idx_sources_installation_id;
+CREATE INDEX IF NOT EXISTS idx_sources_connection_id ON sources(connection_id);
 
 -- Provider configurations (OAuth app credentials, API endpoints)
 -- One config per provider type. Multiple installations can use the same config.
