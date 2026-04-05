@@ -389,6 +389,141 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, user.ToSummary())
 }
 
+// handleGetUser godoc
+// @Summary      Get user
+// @Description  Get a user by ID (admin only)
+// @Tags         Users
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "User ID"
+// @Success      200  {object}  domain.UserSummary
+// @Failure      400  {object}  ErrorResponse  "Missing user ID"
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      404  {object}  ErrorResponse  "User not found"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /users/{id} [get]
+func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	user, err := s.userService.Get(r.Context(), id)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "user not found")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to get user")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user.ToSummary())
+}
+
+// handleUpdateUser godoc
+// @Summary      Update user
+// @Description  Update a user's details (admin only)
+// @Tags         Users
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path      string                      true  "User ID"
+// @Param        request  body      driving.UpdateUserRequest   true  "User update request"
+// @Success      200      {object}  domain.UserSummary
+// @Failure      400      {object}  ErrorResponse  "Invalid request body"
+// @Failure      401      {object}  ErrorResponse  "Unauthorized"
+// @Failure      403      {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      404      {object}  ErrorResponse  "User not found"
+// @Failure      500      {object}  ErrorResponse  "Internal server error"
+// @Router       /users/{id} [put]
+func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	var req driving.UpdateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	user, err := s.userService.Update(r.Context(), id, req)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "user not found")
+		case domain.ErrInvalidInput:
+			writeError(w, http.StatusBadRequest, "invalid input")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to update user")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, user.ToSummary())
+}
+
+// ResetPasswordRequest represents a password reset request
+// @Description Password reset request
+type ResetPasswordRequest struct {
+	Password string `json:"password" binding:"required"`
+}
+
+// handleResetUserPassword godoc
+// @Summary      Reset user password
+// @Description  Reset a user's password (admin only). This invalidates all existing sessions for the user.
+// @Tags         Users
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path      string                  true  "User ID"
+// @Param        request  body      ResetPasswordRequest    true  "New password"
+// @Success      200      {object}  StatusResponse
+// @Failure      400      {object}  ErrorResponse  "Invalid request or missing password"
+// @Failure      401      {object}  ErrorResponse  "Unauthorized"
+// @Failure      403      {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      404      {object}  ErrorResponse  "User not found"
+// @Failure      500      {object}  ErrorResponse  "Internal server error"
+// @Router       /users/{id}/reset-password [post]
+func (s *Server) handleResetUserPassword(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing user id")
+		return
+	}
+
+	var req ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Password == "" {
+		writeError(w, http.StatusBadRequest, "password is required")
+		return
+	}
+
+	if err := s.userService.SetPassword(r.Context(), id, req.Password); err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "user not found")
+		case domain.ErrInvalidInput:
+			writeError(w, http.StatusBadRequest, "invalid password")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to reset password")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password reset successfully"})
+}
+
 // handleDeleteUser godoc
 // @Summary      Delete user
 // @Description  Delete a user by ID (admin only)
@@ -510,6 +645,46 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, doc)
+}
+
+// DocumentURLResponse represents the response containing a document's external URL
+// @Description Document URL response
+type DocumentURLResponse struct {
+	URL string `json:"url" example:"https://github.com/owner/repo/blob/main/README.md"`
+}
+
+// handleOpenDocument godoc
+// @Summary      Open document
+// @Description  Get the external URL for a document. This returns the original URL in the source system (e.g., GitHub, Notion, etc.).
+// @Tags         Documents
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Document ID"
+// @Success      200  {object}  DocumentURLResponse
+// @Failure      400  {object}  ErrorResponse  "Missing document ID"
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      404  {object}  ErrorResponse  "Document not found"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /documents/{id}/open [get]
+func (s *Server) handleOpenDocument(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing document id")
+		return
+	}
+
+	doc, err := s.docService.Get(r.Context(), id)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "document not found")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to get document")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, DocumentURLResponse{URL: doc.Path})
 }
 
 // Source endpoints
@@ -1360,6 +1535,54 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, containers)
+}
+
+// handleGetConnectionSources godoc
+// @Summary      Get connection sources
+// @Description  List all sources using a specific connection. This shows which sources depend on this connection.
+// @Tags         Connections
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Connection ID"
+// @Success      200  {array}   domain.Source
+// @Failure      400  {object}  ErrorResponse  "Missing connection ID"
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      404  {object}  ErrorResponse  "Connection not found"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /connections/{id}/sources [get]
+func (s *Server) handleGetConnectionSources(w http.ResponseWriter, r *http.Request) {
+	if s.connectionService == nil {
+		writeError(w, http.StatusServiceUnavailable, "connection service not configured")
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing connection id")
+		return
+	}
+
+	// Verify connection exists
+	_, err := s.connectionService.Get(r.Context(), id)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "connection not found")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to get connection")
+		}
+		return
+	}
+
+	// Get sources for this connection
+	sources, err := s.sourceService.ListByConnection(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list sources")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sources)
 }
 
 // handleTestConnection godoc

@@ -912,6 +912,15 @@ definitions:
       name:
         type: string
     type: object
+  github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateUserRequest:
+    properties:
+      active:
+        type: boolean
+      name:
+        type: string
+      role:
+        $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Role'
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_ports_driving.VespaServiceStatus:
     properties:
       can_upgrade:
@@ -1012,6 +1021,13 @@ definitions:
       total:
         type: integer
     type: object
+  internal_adapters_driving_http.DocumentURLResponse:
+    description: Document URL response
+    properties:
+      url:
+        example: https://github.com/owner/repo/blob/main/README.md
+        type: string
+    type: object
   internal_adapters_driving_http.ErrorResponse:
     description: API error response
     properties:
@@ -1029,6 +1045,14 @@ definitions:
       status:
         description: 'overall status: "healthy" or "degraded"'
         type: string
+    type: object
+  internal_adapters_driving_http.ResetPasswordRequest:
+    description: Password reset request
+    properties:
+      password:
+        type: string
+    required:
+    - password
     type: object
   internal_adapters_driving_http.SourceDocumentsResponse:
     description: Paginated list of documents belonging to a source
@@ -1581,6 +1605,50 @@ paths:
       summary: List containers
       tags:
       - Connections
+  /connections/{id}/sources:
+    get:
+      description: List all sources using a specific connection. This shows which
+        sources depend on this connection.
+      parameters:
+      - description: Connection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Source'
+            type: array
+        "400":
+          description: Missing connection ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Connection not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get connection sources
+      tags:
+      - Connections
   /connections/{id}/test:
     post:
       description: Test if an installation's credentials are still valid. This attempts
@@ -1696,6 +1764,44 @@ paths:
       security:
       - BearerAuth: []
       summary: Get document chunks
+      tags:
+      - Documents
+  /documents/{id}/open:
+    get:
+      description: Get the external URL for a document. This returns the original
+        URL in the source system (e.g., GitHub, Notion, etc.).
+      parameters:
+      - description: Document ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.DocumentURLResponse'
+        "400":
+          description: Missing document ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Document not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Open document
       tags:
       - Documents
   /health:
@@ -2762,6 +2868,144 @@ paths:
       security:
       - BearerAuth: []
       summary: Delete user
+      tags:
+      - Users
+    get:
+      description: Get a user by ID (admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary'
+        "400":
+          description: Missing user ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get user
+      tags:
+      - Users
+    put:
+      consumes:
+      - application/json
+      description: Update a user's details (admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: User update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update user
+      tags:
+      - Users
+  /users/{id}/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: Reset a user's password (admin only). This invalidates all existing
+        sessions for the user.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New password
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_adapters_driving_http.ResetPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.StatusResponse'
+        "400":
+          description: Invalid request or missing password
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: User not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reset user password
       tags:
       - Users
   /version:

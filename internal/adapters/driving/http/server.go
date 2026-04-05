@@ -149,6 +149,15 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("POST /api/v1/users",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleCreateUser))))
+	s.router.Handle("GET /api/v1/users/{id}",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetUser))))
+	s.router.Handle("PUT /api/v1/users/{id}",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleUpdateUser))))
+	s.router.Handle("POST /api/v1/users/{id}/reset-password",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleResetUserPassword))))
 	s.router.Handle("DELETE /api/v1/users/{id}",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleDeleteUser))))
@@ -162,6 +171,8 @@ func (s *Server) setupRoutes() {
 		authMiddleware.Authenticate(http.HandlerFunc(s.handleGetDocument)))
 	s.router.Handle("GET /api/v1/documents/{id}/chunks",
 		authMiddleware.Authenticate(http.HandlerFunc(s.handleGetDocumentChunks)))
+	s.router.Handle("GET /api/v1/documents/{id}/open",
+		authMiddleware.Authenticate(http.HandlerFunc(s.handleOpenDocument)))
 
 	// Source endpoints (admin-only for mutations)
 	s.router.Handle("GET /api/v1/sources",
@@ -265,6 +276,9 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("GET /api/v1/connections/{id}/containers",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListContainers))))
+	s.router.Handle("GET /api/v1/connections/{id}/sources",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetConnectionSources))))
 	s.router.Handle("POST /api/v1/connections/{id}/test",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleTestConnection))))

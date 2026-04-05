@@ -61,11 +61,13 @@ func (m *mockAuthService) ChangePassword(ctx context.Context, userID string, req
 }
 
 type mockUserService struct {
-	setupFn  func(ctx context.Context, req driving.SetupRequest) (*driving.SetupResponse, error)
-	createFn func(ctx context.Context, req driving.CreateUserRequest) (*domain.User, error)
-	getFn    func(ctx context.Context, id string) (*domain.User, error)
-	listFn   func(ctx context.Context) ([]*domain.User, error)
-	deleteFn func(ctx context.Context, id string) error
+	setupFn       func(ctx context.Context, req driving.SetupRequest) (*driving.SetupResponse, error)
+	createFn      func(ctx context.Context, req driving.CreateUserRequest) (*domain.User, error)
+	getFn         func(ctx context.Context, id string) (*domain.User, error)
+	listFn        func(ctx context.Context) ([]*domain.User, error)
+	updateFn      func(ctx context.Context, id string, req driving.UpdateUserRequest) (*domain.User, error)
+	deleteFn      func(ctx context.Context, id string) error
+	setPasswordFn func(ctx context.Context, id string, password string) error
 }
 
 func (m *mockUserService) Setup(ctx context.Context, req driving.SetupRequest) (*driving.SetupResponse, error) {
@@ -101,6 +103,9 @@ func (m *mockUserService) List(ctx context.Context) ([]*domain.User, error) {
 }
 
 func (m *mockUserService) Update(ctx context.Context, id string, req driving.UpdateUserRequest) (*domain.User, error) {
+	if m.updateFn != nil {
+		return m.updateFn(ctx, id, req)
+	}
 	return nil, errors.New("not implemented")
 }
 
@@ -112,6 +117,9 @@ func (m *mockUserService) Delete(ctx context.Context, id string) error {
 }
 
 func (m *mockUserService) SetPassword(ctx context.Context, id string, password string) error {
+	if m.setPasswordFn != nil {
+		return m.setPasswordFn(ctx, id, password)
+	}
 	return nil
 }
 
@@ -135,10 +143,11 @@ func (m *mockSearchService) Suggest(ctx context.Context, prefix string, limit in
 }
 
 type mockSourceService struct {
-	createFn          func(ctx context.Context, creatorID string, req driving.CreateSourceRequest) (*domain.Source, error)
-	getFn             func(ctx context.Context, id string) (*domain.Source, error)
-	listWithSummaryFn func(ctx context.Context) ([]*domain.SourceSummary, error)
-	deleteFn          func(ctx context.Context, id string) error
+	createFn           func(ctx context.Context, creatorID string, req driving.CreateSourceRequest) (*domain.Source, error)
+	getFn              func(ctx context.Context, id string) (*domain.Source, error)
+	listWithSummaryFn  func(ctx context.Context) ([]*domain.SourceSummary, error)
+	listByConnectionFn func(ctx context.Context, connectionID string) ([]*domain.Source, error)
+	deleteFn           func(ctx context.Context, id string) error
 }
 
 func (m *mockSourceService) Create(ctx context.Context, creatorID string, req driving.CreateSourceRequest) (*domain.Source, error) {
@@ -156,6 +165,13 @@ func (m *mockSourceService) Get(ctx context.Context, id string) (*domain.Source,
 }
 
 func (m *mockSourceService) List(ctx context.Context) ([]*domain.Source, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSourceService) ListByConnection(ctx context.Context, connectionID string) ([]*domain.Source, error) {
+	if m.listByConnectionFn != nil {
+		return m.listByConnectionFn(ctx, connectionID)
+	}
 	return nil, errors.New("not implemented")
 }
 
@@ -189,11 +205,70 @@ func (m *mockSourceService) UpdateContainers(ctx context.Context, id string, con
 	return nil
 }
 
+type mockConnectionService struct {
+	getFn             func(ctx context.Context, id string) (*domain.ConnectionSummary, error)
+	listFn            func(ctx context.Context) ([]*domain.ConnectionSummary, error)
+	createFn          func(ctx context.Context, req driving.CreateConnectionRequest) (*domain.ConnectionSummary, error)
+	deleteFn          func(ctx context.Context, id string) error
+	listContainersFn  func(ctx context.Context, id string, cursor string) (*driving.ListContainersResponse, error)
+	testConnectionFn  func(ctx context.Context, id string) error
+}
+
+func (m *mockConnectionService) Create(ctx context.Context, req driving.CreateConnectionRequest) (*domain.ConnectionSummary, error) {
+	if m.createFn != nil {
+		return m.createFn(ctx, req)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockConnectionService) Get(ctx context.Context, id string) (*domain.ConnectionSummary, error) {
+	if m.getFn != nil {
+		return m.getFn(ctx, id)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockConnectionService) List(ctx context.Context) ([]*domain.ConnectionSummary, error) {
+	if m.listFn != nil {
+		return m.listFn(ctx)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockConnectionService) Delete(ctx context.Context, id string) error {
+	if m.deleteFn != nil {
+		return m.deleteFn(ctx, id)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockConnectionService) ListContainers(ctx context.Context, id string, cursor string) (*driving.ListContainersResponse, error) {
+	if m.listContainersFn != nil {
+		return m.listContainersFn(ctx, id, cursor)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockConnectionService) TestConnection(ctx context.Context, id string) error {
+	if m.testConnectionFn != nil {
+		return m.testConnectionFn(ctx, id)
+	}
+	return errors.New("not implemented")
+}
+
+func (m *mockConnectionService) ListByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.ConnectionSummary, error) {
+	return nil, errors.New("not implemented")
+}
+
 type mockDocumentService struct {
+	getFn           func(ctx context.Context, id string) (*domain.Document, error)
 	getWithChunksFn func(ctx context.Context, id string) (*domain.DocumentWithChunks, error)
 }
 
 func (m *mockDocumentService) Get(ctx context.Context, id string) (*domain.Document, error) {
+	if m.getFn != nil {
+		return m.getFn(ctx, id)
+	}
 	return nil, errors.New("not implemented")
 }
 
@@ -2642,6 +2717,613 @@ func TestHandleGetAIProviders_Error(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	server.handleGetAIProviders(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rr.Code)
+	}
+}
+
+// Tests for new endpoints added in Issue #16
+
+// GET /api/v1/users/{id} handler tests
+
+func TestHandleGetUser_Success(t *testing.T) {
+	mockUser := &mockUserService{
+		getFn: func(ctx context.Context, id string) (*domain.User, error) {
+			if id == "user-1" {
+				return &domain.User{
+					ID:    id,
+					Name:  "John Doe",
+					Email: "john@example.com",
+					Role:  domain.RoleAdmin,
+				}, nil
+			}
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	req := httptest.NewRequest("GET", "/api/v1/users/user-1", nil)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleGetUser(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response domain.UserSummary
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Name != "John Doe" {
+		t.Errorf("expected name 'John Doe', got %s", response.Name)
+	}
+	if response.Email != "john@example.com" {
+		t.Errorf("expected email 'john@example.com', got %s", response.Email)
+	}
+}
+
+func TestHandleGetUser_NotFound(t *testing.T) {
+	mockUser := &mockUserService{
+		getFn: func(ctx context.Context, id string) (*domain.User, error) {
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	req := httptest.NewRequest("GET", "/api/v1/users/user-999", nil)
+	req.SetPathValue("id", "user-999")
+	rr := httptest.NewRecorder()
+
+	server.handleGetUser(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rr.Code)
+	}
+}
+
+func TestHandleGetUser_MissingID(t *testing.T) {
+	server := &Server{userService: &mockUserService{}}
+
+	req := httptest.NewRequest("GET", "/api/v1/users/", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleGetUser(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleGetUser_InternalError(t *testing.T) {
+	mockUser := &mockUserService{
+		getFn: func(ctx context.Context, id string) (*domain.User, error) {
+			return nil, errors.New("database error")
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	req := httptest.NewRequest("GET", "/api/v1/users/user-1", nil)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleGetUser(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rr.Code)
+	}
+}
+
+// PUT /api/v1/users/{id} handler tests
+
+func TestHandleUpdateUser_Success(t *testing.T) {
+	newName := "Jane Doe"
+	mockUser := &mockUserService{
+		updateFn: func(ctx context.Context, id string, req driving.UpdateUserRequest) (*domain.User, error) {
+			if id == "user-1" {
+				return &domain.User{
+					ID:    id,
+					Name:  newName,
+					Email: "john@example.com",
+					Role:  domain.RoleAdmin,
+				}, nil
+			}
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	body := bytes.NewBufferString(`{"name": "Jane Doe"}`)
+	req := httptest.NewRequest("PUT", "/api/v1/users/user-1", body)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateUser(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response domain.UserSummary
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Name != newName {
+		t.Errorf("expected name '%s', got %s", newName, response.Name)
+	}
+}
+
+func TestHandleUpdateUser_NotFound(t *testing.T) {
+	mockUser := &mockUserService{
+		updateFn: func(ctx context.Context, id string, req driving.UpdateUserRequest) (*domain.User, error) {
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	body := bytes.NewBufferString(`{"name": "Jane Doe"}`)
+	req := httptest.NewRequest("PUT", "/api/v1/users/user-999", body)
+	req.SetPathValue("id", "user-999")
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateUser(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rr.Code)
+	}
+}
+
+func TestHandleUpdateUser_InvalidInput(t *testing.T) {
+	mockUser := &mockUserService{
+		updateFn: func(ctx context.Context, id string, req driving.UpdateUserRequest) (*domain.User, error) {
+			return nil, domain.ErrInvalidInput
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	body := bytes.NewBufferString(`{"name": ""}`)
+	req := httptest.NewRequest("PUT", "/api/v1/users/user-1", body)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateUser(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleUpdateUser_InvalidJSON(t *testing.T) {
+	server := &Server{userService: &mockUserService{}}
+
+	body := bytes.NewBufferString(`{invalid json}`)
+	req := httptest.NewRequest("PUT", "/api/v1/users/user-1", body)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateUser(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleUpdateUser_MissingID(t *testing.T) {
+	server := &Server{userService: &mockUserService{}}
+
+	body := bytes.NewBufferString(`{"name": "Jane Doe"}`)
+	req := httptest.NewRequest("PUT", "/api/v1/users/", body)
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateUser(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+// POST /api/v1/users/{id}/reset-password handler tests
+
+func TestHandleResetUserPassword_Success(t *testing.T) {
+	mockUser := &mockUserService{
+		setPasswordFn: func(ctx context.Context, id string, password string) error {
+			if id == "user-1" && password == "newpassword123" {
+				return nil
+			}
+			return domain.ErrNotFound
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	body := bytes.NewBufferString(`{"password": "newpassword123"}`)
+	req := httptest.NewRequest("POST", "/api/v1/users/user-1/reset-password", body)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleResetUserPassword(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response["status"] != "password reset successfully" {
+		t.Errorf("expected success status, got %s", response["status"])
+	}
+}
+
+func TestHandleResetUserPassword_NotFound(t *testing.T) {
+	mockUser := &mockUserService{
+		setPasswordFn: func(ctx context.Context, id string, password string) error {
+			return domain.ErrNotFound
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	body := bytes.NewBufferString(`{"password": "newpassword123"}`)
+	req := httptest.NewRequest("POST", "/api/v1/users/user-999/reset-password", body)
+	req.SetPathValue("id", "user-999")
+	rr := httptest.NewRecorder()
+
+	server.handleResetUserPassword(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rr.Code)
+	}
+}
+
+func TestHandleResetUserPassword_EmptyPassword(t *testing.T) {
+	server := &Server{userService: &mockUserService{}}
+
+	body := bytes.NewBufferString(`{"password": ""}`)
+	req := httptest.NewRequest("POST", "/api/v1/users/user-1/reset-password", body)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleResetUserPassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleResetUserPassword_InvalidJSON(t *testing.T) {
+	server := &Server{userService: &mockUserService{}}
+
+	body := bytes.NewBufferString(`{invalid json}`)
+	req := httptest.NewRequest("POST", "/api/v1/users/user-1/reset-password", body)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleResetUserPassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleResetUserPassword_MissingID(t *testing.T) {
+	server := &Server{userService: &mockUserService{}}
+
+	body := bytes.NewBufferString(`{"password": "newpassword123"}`)
+	req := httptest.NewRequest("POST", "/api/v1/users//reset-password", body)
+	rr := httptest.NewRecorder()
+
+	server.handleResetUserPassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleResetUserPassword_InvalidPassword(t *testing.T) {
+	mockUser := &mockUserService{
+		setPasswordFn: func(ctx context.Context, id string, password string) error {
+			return domain.ErrInvalidInput
+		},
+	}
+
+	server := &Server{userService: mockUser}
+
+	body := bytes.NewBufferString(`{"password": "weak"}`)
+	req := httptest.NewRequest("POST", "/api/v1/users/user-1/reset-password", body)
+	req.SetPathValue("id", "user-1")
+	rr := httptest.NewRecorder()
+
+	server.handleResetUserPassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+// GET /api/v1/documents/{id}/open handler tests
+
+func TestHandleOpenDocument_Success(t *testing.T) {
+	mockDoc := &mockDocumentService{
+		getFn: func(ctx context.Context, id string) (*domain.Document, error) {
+			if id == "doc-1" {
+				return &domain.Document{
+					ID:    id,
+					Title: "Test Document",
+					Path:  "https://github.com/owner/repo/blob/main/README.md",
+				}, nil
+			}
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	server := &Server{docService: mockDoc}
+
+	req := httptest.NewRequest("GET", "/api/v1/documents/doc-1/open", nil)
+	req.SetPathValue("id", "doc-1")
+	rr := httptest.NewRecorder()
+
+	server.handleOpenDocument(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response DocumentURLResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.URL != "https://github.com/owner/repo/blob/main/README.md" {
+		t.Errorf("expected URL 'https://github.com/owner/repo/blob/main/README.md', got %s", response.URL)
+	}
+}
+
+func TestHandleOpenDocument_NotFound(t *testing.T) {
+	mockDoc := &mockDocumentService{
+		getFn: func(ctx context.Context, id string) (*domain.Document, error) {
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	server := &Server{docService: mockDoc}
+
+	req := httptest.NewRequest("GET", "/api/v1/documents/doc-999/open", nil)
+	req.SetPathValue("id", "doc-999")
+	rr := httptest.NewRecorder()
+
+	server.handleOpenDocument(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rr.Code)
+	}
+}
+
+func TestHandleOpenDocument_MissingID(t *testing.T) {
+	server := &Server{docService: &mockDocumentService{}}
+
+	req := httptest.NewRequest("GET", "/api/v1/documents//open", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleOpenDocument(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleOpenDocument_InternalError(t *testing.T) {
+	mockDoc := &mockDocumentService{
+		getFn: func(ctx context.Context, id string) (*domain.Document, error) {
+			return nil, errors.New("database error")
+		},
+	}
+
+	server := &Server{docService: mockDoc}
+
+	req := httptest.NewRequest("GET", "/api/v1/documents/doc-1/open", nil)
+	req.SetPathValue("id", "doc-1")
+	rr := httptest.NewRecorder()
+
+	server.handleOpenDocument(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rr.Code)
+	}
+}
+
+// GET /api/v1/connections/{id}/sources handler tests
+
+func TestHandleGetConnectionSources_Success(t *testing.T) {
+	mockConnection := &mockConnectionService{
+		getFn: func(ctx context.Context, id string) (*domain.ConnectionSummary, error) {
+			if id == "conn-1" {
+				return &domain.ConnectionSummary{
+					ID:           id,
+					ProviderType: domain.ProviderTypeGitHub,
+				}, nil
+			}
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	mockSource := &mockSourceService{
+		listByConnectionFn: func(ctx context.Context, connectionID string) ([]*domain.Source, error) {
+			if connectionID == "conn-1" {
+				return []*domain.Source{
+					{
+						ID:           "src-1",
+						Name:         "Test Source",
+						ProviderType: domain.ProviderTypeGitHub,
+						ConnectionID: connectionID,
+						Enabled:      true,
+					},
+				}, nil
+			}
+			return []*domain.Source{}, nil
+		},
+	}
+
+	server := &Server{
+		connectionService: mockConnection,
+		sourceService:     mockSource,
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/connections/conn-1/sources", nil)
+	req.SetPathValue("id", "conn-1")
+	rr := httptest.NewRecorder()
+
+	server.handleGetConnectionSources(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response []*domain.Source
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(response) != 1 {
+		t.Errorf("expected 1 source, got %d", len(response))
+	}
+	if response[0].Name != "Test Source" {
+		t.Errorf("expected source name 'Test Source', got %s", response[0].Name)
+	}
+}
+
+func TestHandleGetConnectionSources_EmptyList(t *testing.T) {
+	mockConnection := &mockConnectionService{
+		getFn: func(ctx context.Context, id string) (*domain.ConnectionSummary, error) {
+			if id == "conn-2" {
+				return &domain.ConnectionSummary{
+					ID:           id,
+					ProviderType: domain.ProviderTypeGitHub,
+				}, nil
+			}
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	mockSource := &mockSourceService{
+		listByConnectionFn: func(ctx context.Context, connectionID string) ([]*domain.Source, error) {
+			return []*domain.Source{}, nil
+		},
+	}
+
+	server := &Server{
+		connectionService: mockConnection,
+		sourceService:     mockSource,
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/connections/conn-2/sources", nil)
+	req.SetPathValue("id", "conn-2")
+	rr := httptest.NewRecorder()
+
+	server.handleGetConnectionSources(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response []*domain.Source
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(response) != 0 {
+		t.Errorf("expected 0 sources, got %d", len(response))
+	}
+}
+
+func TestHandleGetConnectionSources_ConnectionNotFound(t *testing.T) {
+	mockConnection := &mockConnectionService{
+		getFn: func(ctx context.Context, id string) (*domain.ConnectionSummary, error) {
+			return nil, domain.ErrNotFound
+		},
+	}
+
+	server := &Server{
+		connectionService: mockConnection,
+		sourceService:     &mockSourceService{},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/connections/conn-999/sources", nil)
+	req.SetPathValue("id", "conn-999")
+	rr := httptest.NewRecorder()
+
+	server.handleGetConnectionSources(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rr.Code)
+	}
+}
+
+func TestHandleGetConnectionSources_MissingID(t *testing.T) {
+	server := &Server{
+		connectionService: &mockConnectionService{},
+		sourceService:     &mockSourceService{},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/connections//sources", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleGetConnectionSources(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+}
+
+func TestHandleGetConnectionSources_ServiceUnavailable(t *testing.T) {
+	server := &Server{
+		connectionService: nil,
+		sourceService:     &mockSourceService{},
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/connections/conn-1/sources", nil)
+	req.SetPathValue("id", "conn-1")
+	rr := httptest.NewRecorder()
+
+	server.handleGetConnectionSources(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", rr.Code)
+	}
+}
+
+func TestHandleGetConnectionSources_SourceListError(t *testing.T) {
+	mockConnection := &mockConnectionService{
+		getFn: func(ctx context.Context, id string) (*domain.ConnectionSummary, error) {
+			return &domain.ConnectionSummary{
+				ID:           id,
+				ProviderType: domain.ProviderTypeGitHub,
+			}, nil
+		},
+	}
+
+	mockSource := &mockSourceService{
+		listByConnectionFn: func(ctx context.Context, connectionID string) ([]*domain.Source, error) {
+			return nil, errors.New("database error")
+		},
+	}
+
+	server := &Server{
+		connectionService: mockConnection,
+		sourceService:     mockSource,
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/connections/conn-1/sources", nil)
+	req.SetPathValue("id", "conn-1")
+	rr := httptest.NewRecorder()
+
+	server.handleGetConnectionSources(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("expected status 500, got %d", rr.Code)

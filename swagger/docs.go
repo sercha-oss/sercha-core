@@ -672,6 +672,73 @@ const docTemplate = `{
                 }
             }
         },
+        "/connections/{id}/sources": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "List all sources using a specific connection. This shows which sources depend on this connection.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get connection sources",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Connection ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Source"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Missing connection ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Connection not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/connections/{id}/test": {
             "post": {
                 "security": [
@@ -823,6 +890,64 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.DocumentWithChunks"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing document ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Document not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/documents/{id}/open": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get the external URL for a document. This returns the original URL in the source system (e.g., GitHub, Notion, etc.).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Documents"
+                ],
+                "summary": "Open document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.DocumentURLResponse"
                         }
                     },
                     "400": {
@@ -2419,6 +2544,142 @@ const docTemplate = `{
             }
         },
         "/users/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get a user by ID (admin only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing user ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "User not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Update a user's details (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Update user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "User update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateUserRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UserSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "User not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            },
             "delete": {
                 "security": [
                     {
@@ -2451,6 +2712,82 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Missing user ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "User not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{id}/reset-password": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reset a user's password (admin only). This invalidates all existing sessions for the user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Reset user password",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New password",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ResetPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.StatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request or missing password",
                         "schema": {
                             "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
                         }
@@ -3791,6 +4128,20 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateUserRequest": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Role"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_ports_driving.VespaServiceStatus": {
             "type": "object",
             "properties": {
@@ -3941,6 +4292,16 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_adapters_driving_http.DocumentURLResponse": {
+            "description": "Document URL response",
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "example": "https://github.com/owner/repo/blob/main/README.md"
+                }
+            }
+        },
         "internal_adapters_driving_http.ErrorResponse": {
             "description": "API error response",
             "type": "object",
@@ -3963,6 +4324,18 @@ const docTemplate = `{
                 },
                 "status": {
                     "description": "overall status: \"healthy\" or \"degraded\"",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_adapters_driving_http.ResetPasswordRequest": {
+            "description": "Password reset request",
+            "type": "object",
+            "required": [
+                "password"
+            ],
+            "properties": {
+                "password": {
                     "type": "string"
                 }
             }

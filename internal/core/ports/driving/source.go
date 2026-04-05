@@ -33,6 +33,9 @@ type SourceService interface {
 	// List retrieves all sources
 	List(ctx context.Context) ([]*domain.Source, error)
 
+	// ListByConnection retrieves all sources using a specific connection
+	ListByConnection(ctx context.Context, connectionID string) ([]*domain.Source, error)
+
 	// ListWithSummary retrieves all sources with document counts
 	ListWithSummary(ctx context.Context) ([]*domain.SourceSummary, error)
 

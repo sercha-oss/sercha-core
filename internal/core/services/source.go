@@ -88,6 +88,11 @@ func (s *sourceService) List(ctx context.Context) ([]*domain.Source, error) {
 	return s.sourceStore.List(ctx)
 }
 
+// ListByConnection retrieves all sources using a specific connection
+func (s *sourceService) ListByConnection(ctx context.Context, connectionID string) ([]*domain.Source, error) {
+	return s.sourceStore.ListByConnection(ctx, connectionID)
+}
+
 // ListWithSummary retrieves all sources with document counts
 func (s *sourceService) ListWithSummary(ctx context.Context) ([]*domain.SourceSummary, error) {
 	sources, err := s.sourceStore.List(ctx)
