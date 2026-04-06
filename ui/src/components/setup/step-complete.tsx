@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { CheckCircle2, ArrowRight, Database, Sparkles, Link2, FileText, Loader2 } from "lucide-react";
 import { getVespaStatus, getAISettings, listProviders, listSources } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 interface StepCompleteProps {
   completedSteps: number[];
@@ -17,6 +18,7 @@ interface ActualStatus {
 }
 
 export function StepComplete({ completedSteps }: StepCompleteProps) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<ActualStatus>({
     vespaConnected: false,
@@ -86,13 +88,17 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
 
   const configuredCount = features.filter((f) => f.completed).length;
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-sercha-indigo" />
       </div>
     );
   }
+
+  // Determine the destination and button text based on auth state
+  const ctaHref = isAuthenticated ? "/admin" : "/login";
+  const ctaText = isAuthenticated ? "Go to Dashboard" : "Login to Continue";
 
   return (
     <div className="mx-auto max-w-lg text-center">
@@ -177,10 +183,10 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
 
       {/* CTA Button */}
       <Link
-        href="/admin"
+        href={ctaHref}
         className="mt-8 inline-flex items-center justify-center gap-2 rounded-lg bg-sercha-indigo px-8 py-3 text-sm font-medium text-white transition-colors hover:bg-sercha-indigo/90"
       >
-        Go to Dashboard
+        {ctaText}
         <ArrowRight size={16} />
       </Link>
     </div>

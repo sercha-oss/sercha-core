@@ -112,3 +112,70 @@ type VespaHost struct {
 	Alias    string `json:"alias"`
 	Hostname string `json:"hostname"`
 }
+
+// VespaMetrics represents aggregated metrics from the Vespa cluster
+type VespaMetrics struct {
+	// Document metrics
+	Documents VespaDocumentMetrics `json:"documents"`
+
+	// Storage metrics
+	Storage VespaStorageMetrics `json:"storage"`
+
+	// Query performance metrics
+	QueryPerformance VespaQueryMetrics `json:"query_performance"`
+
+	// Feed metrics
+	Feed VespaFeedMetrics `json:"feed"`
+
+	// Per-service metrics
+	Services []VespaServiceMetrics `json:"services"`
+
+	// Timestamp of metrics collection
+	Timestamp int64 `json:"timestamp"`
+}
+
+// VespaDocumentMetrics contains document count metrics
+type VespaDocumentMetrics struct {
+	Total   int64 `json:"total"`
+	Ready   int64 `json:"ready"`
+	Active  int64 `json:"active"`
+	Removed int64 `json:"removed"`
+}
+
+// VespaStorageMetrics contains storage utilization metrics
+type VespaStorageMetrics struct {
+	// Host disk metrics (filesystem where Vespa stores data)
+	DiskUsedBytes     int64   `json:"disk_used_bytes"`
+	DiskUsedPercent   float64 `json:"disk_used_percent"`
+	// Actual Vespa data size (documentdb + transaction log)
+	DataSizeBytes int64 `json:"data_size_bytes"`
+	// Memory metrics
+	MemoryUsedBytes   int64   `json:"memory_used_bytes"`
+	MemoryUsedPercent float64 `json:"memory_used_percent"`
+}
+
+// VespaQueryMetrics contains query performance metrics
+type VespaQueryMetrics struct {
+	TotalQueries     int64   `json:"total_queries"`
+	QueriesPerSecond float64 `json:"queries_per_second"`
+	AvgLatencyMs     float64 `json:"avg_latency_ms"`
+	MaxLatencyMs     float64 `json:"max_latency_ms"`
+	HitsPerQuery     float64 `json:"hits_per_query"`
+}
+
+// VespaFeedMetrics contains document feed metrics
+type VespaFeedMetrics struct {
+	PutOperations    int64   `json:"put_operations"`
+	UpdateOperations int64   `json:"update_operations"`
+	RemoveOperations int64   `json:"remove_operations"`
+	AvgLatencyMs     float64 `json:"avg_latency_ms"`
+}
+
+// VespaServiceMetrics contains metrics for a single Vespa service
+type VespaServiceMetrics struct {
+	Name      string  `json:"name"`
+	Status    string  `json:"status"`
+	MemoryMB  int64   `json:"memory_mb"`
+	CPUUtil   float64 `json:"cpu_util"`
+	Timestamp int64   `json:"timestamp"`
+}

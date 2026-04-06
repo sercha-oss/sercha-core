@@ -22,6 +22,455 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/admin/jobs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve job execution history with filtering and pagination",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "List job history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status (pending, processing, completed, failed)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by task type (sync_source, sync_all)",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum number of jobs to return (default: 50, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of jobs to skip for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.JobHistory"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/jobs/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Compute aggregated job statistics for a time period",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get job statistics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "24h",
+                        "description": "Time period (24h, 7d, 30d)",
+                        "name": "period",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.JobStats"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/jobs/upcoming": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve pending tasks and scheduled task configurations",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get upcoming jobs",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UpcomingJobs"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/jobs/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve detailed information about a specific job",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get job details",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.JobDetail"
+                        }
+                    },
+                    "400": {
+                        "description": "Missing job ID",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Job not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/reindex": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Create tasks to reindex sources. If no source IDs are provided, all enabled sources are reindexed.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Trigger reindex",
+                "parameters": [
+                    {
+                        "description": "Reindex options",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.TriggerReindexRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.TriggerReindexResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/search/analytics": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Compute search usage analytics for a time period",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get search analytics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "24h",
+                        "description": "Time period (24h, 7d, 30d)",
+                        "name": "period",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchAnalytics"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/search/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieve recent search queries",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get search history",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Maximum number of searches to return (default: 50, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchQuery"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/search/metrics": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Compute search performance metrics for a time period",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get search metrics",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "24h",
+                        "description": "Time period (24h, 7d, 30d)",
+                        "name": "period",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMetrics"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/stats": {
             "get": {
                 "security": [
@@ -164,6 +613,49 @@ const docTemplate = `{
                     },
                     "503": {
                         "description": "Vespa unhealthy",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/vespa/metrics": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Get detailed Vespa cluster metrics including document counts, storage, query performance, and feed stats (admin only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Vespa Admin"
+                ],
+                "summary": "Get Vespa metrics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.VespaMetricsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
                         "schema": {
                             "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
                         }
@@ -1036,10 +1528,7 @@ const docTemplate = `{
         },
         "/oauth/callback": {
             "get": {
-                "description": "Handle the OAuth callback from an external provider. This endpoint is called by the provider after the user authorizes the application. It exchanges the authorization code for tokens and creates a connector installation.",
-                "produces": [
-                    "application/json"
-                ],
+                "description": "Handle the OAuth callback from an external provider. This endpoint is called by the provider after the user authorizes the application. It exchanges the authorization code for tokens and creates a connector installation, then redirects to the UI.",
                 "tags": [
                     "OAuth"
                 ],
@@ -1072,23 +1561,8 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CallbackResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid state or missing code",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Token exchange failed",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
+                    "302": {
+                        "description": "Redirect to UI oauth/complete page with error"
                     }
                 }
             }
@@ -2907,6 +3381,17 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod": {
+            "type": "object",
+            "properties": {
+                "end": {
+                    "type": "string"
+                },
+                "start": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod": {
             "type": "string",
             "enum": [
@@ -3073,6 +3558,110 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.JobDetail": {
+            "type": "object",
+            "properties": {
+                "execution_logs": {
+                    "description": "ExecutionLogs contains log entries for this job (future enhancement)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "retry_history": {
+                    "description": "RetryHistory shows previous retry attempts",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.RetryAttempt"
+                    }
+                },
+                "source_name": {
+                    "description": "SourceName is the name of the source (if applicable)",
+                    "type": "string"
+                },
+                "task": {
+                    "description": "Task is the main task information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Task"
+                        }
+                    ]
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.JobHistory": {
+            "type": "object",
+            "properties": {
+                "has_more": {
+                    "description": "HasMore indicates if there are more jobs beyond the current page",
+                    "type": "boolean"
+                },
+                "jobs": {
+                    "description": "Jobs is the list of historical job executions",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Task"
+                    }
+                },
+                "total_count": {
+                    "description": "TotalCount is the total number of jobs matching the query",
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.JobStats": {
+            "type": "object",
+            "properties": {
+                "average_duration_ms": {
+                    "description": "AverageDuration is the average job duration in milliseconds",
+                    "type": "number"
+                },
+                "completed_jobs": {
+                    "description": "CompletedJobs is the number of successfully completed jobs",
+                    "type": "integer"
+                },
+                "failed_jobs": {
+                    "description": "FailedJobs is the number of failed jobs",
+                    "type": "integer"
+                },
+                "jobs_by_type": {
+                    "description": "JobsByType shows the breakdown by task type",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "pending_jobs": {
+                    "description": "PendingJobs is the number of jobs waiting to be processed",
+                    "type": "integer"
+                },
+                "period": {
+                    "description": "Period is the time range for these statistics",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod"
+                        }
+                    ]
+                },
+                "processing_jobs": {
+                    "description": "ProcessingJobs is the number of jobs currently being processed",
+                    "type": "integer"
+                },
+                "success_rate": {
+                    "description": "SuccessRate is the percentage of successful jobs (0-100)",
+                    "type": "number"
+                },
+                "total_jobs": {
+                    "description": "Total jobs across all statuses",
+                    "type": "integer"
+                },
+                "total_retries": {
+                    "description": "TotalRetries is the total number of retry attempts",
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_domain.LoginRequest": {
             "type": "object",
             "properties": {
@@ -3144,6 +3733,17 @@ const docTemplate = `{
                 "ProviderTypeIntercom"
             ]
         },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.QueryFrequency": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_domain.RankedChunk": {
             "type": "object",
             "properties": {
@@ -3173,6 +3773,23 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.RetryAttempt": {
+            "type": "object",
+            "properties": {
+                "attempt": {
+                    "description": "Attempt is the attempt number (1-indexed)",
+                    "type": "integer"
+                },
+                "error": {
+                    "description": "Error is the error message from this attempt",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Timestamp is when this attempt occurred",
+                    "type": "string"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_domain.Role": {
             "type": "string",
             "enum": [
@@ -3196,6 +3813,140 @@ const docTemplate = `{
                 "RoleViewer"
             ]
         },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.ScheduledTask": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "description": "Enabled indicates if the schedule is active",
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "ID is the unique identifier for this scheduled task",
+                    "type": "string"
+                },
+                "interval": {
+                    "description": "Interval is how often to run the task",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/time.Duration"
+                        }
+                    ]
+                },
+                "last_error": {
+                    "description": "LastError contains the last error if the scheduled task failed",
+                    "type": "string"
+                },
+                "last_run": {
+                    "description": "LastRun is when the task was last triggered",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Name is a human-readable name for the task",
+                    "type": "string"
+                },
+                "next_run": {
+                    "description": "NextRun is when the task should next be triggered",
+                    "type": "string"
+                },
+                "team_id": {
+                    "description": "TeamID is the team this schedule belongs to",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Type is the task type to create when triggered",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.TaskType"
+                        }
+                    ]
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.SearchAnalytics": {
+            "type": "object",
+            "properties": {
+                "average_duration_ms": {
+                    "description": "AverageDuration is the average search duration in milliseconds",
+                    "type": "number"
+                },
+                "average_results": {
+                    "description": "AverageResults is the average number of results per search",
+                    "type": "number"
+                },
+                "period": {
+                    "description": "Period is the time range for these analytics",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod"
+                        }
+                    ]
+                },
+                "searches_by_mode": {
+                    "description": "SearchesByMode shows the breakdown by search mode",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "top_queries": {
+                    "description": "TopQueries are the most common search queries",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.QueryFrequency"
+                    }
+                },
+                "total_searches": {
+                    "description": "TotalSearches is the total number of searches in the period",
+                    "type": "integer"
+                },
+                "unique_users": {
+                    "description": "UniqueUsers is the number of unique users who searched",
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.SearchMetrics": {
+            "type": "object",
+            "properties": {
+                "fast_searches": {
+                    "description": "FastSearches is the number of searches under 100ms",
+                    "type": "integer"
+                },
+                "medium_searches": {
+                    "description": "MediumSearches is the number of searches 100ms-500ms",
+                    "type": "integer"
+                },
+                "p50_duration_ms": {
+                    "description": "P50Duration is the 50th percentile search duration in milliseconds",
+                    "type": "number"
+                },
+                "p95_duration_ms": {
+                    "description": "P95Duration is the 95th percentile search duration in milliseconds",
+                    "type": "number"
+                },
+                "p99_duration_ms": {
+                    "description": "P99Duration is the 99th percentile search duration in milliseconds",
+                    "type": "number"
+                },
+                "period": {
+                    "description": "Period is the time range for these metrics",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod"
+                        }
+                    ]
+                },
+                "slow_searches": {
+                    "description": "SlowSearches is the number of searches over 500ms",
+                    "type": "integer"
+                },
+                "zero_result_searches": {
+                    "description": "ZeroResultSearches is the number of searches that returned no results",
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode": {
             "type": "string",
             "enum": [
@@ -3218,6 +3969,58 @@ const docTemplate = `{
                 "SearchModeTextOnly",
                 "SearchModeSemanticOnly"
             ]
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.SearchQuery": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "description": "CreatedAt is when the search was performed",
+                    "type": "string"
+                },
+                "duration": {
+                    "description": "Duration is how long the search took to execute (in nanoseconds)",
+                    "type": "integer"
+                },
+                "has_filters": {
+                    "description": "Filters are the additional filters applied",
+                    "type": "boolean"
+                },
+                "id": {
+                    "description": "ID is the unique identifier for this search query log entry",
+                    "type": "string"
+                },
+                "mode": {
+                    "description": "Mode is the search mode used (hybrid, text, semantic)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode"
+                        }
+                    ]
+                },
+                "query": {
+                    "description": "Query is the search text that was submitted",
+                    "type": "string"
+                },
+                "result_count": {
+                    "description": "ResultCount is the number of results returned",
+                    "type": "integer"
+                },
+                "source_ids": {
+                    "description": "SourceIDs are the source IDs that were filtered (if any)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "team_id": {
+                    "description": "TeamID is the team that performed the search",
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "UserID is the user who performed the search",
+                    "type": "string"
+                }
+            }
         },
         "github_com_custodia-labs_sercha-core_internal_core_domain.SearchResult": {
             "type": "object",
@@ -3491,6 +4294,127 @@ const docTemplate = `{
                 "SyncStatusCompleted",
                 "SyncStatusFailed"
             ]
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.Task": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "description": "Attempts is how many times this task has been attempted",
+                    "type": "integer"
+                },
+                "completed_at": {
+                    "description": "CompletedAt is when processing finished (nil if not complete)",
+                    "type": "string"
+                },
+                "created_at": {
+                    "description": "CreatedAt is when the task was enqueued",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Error contains the last error message if failed",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID is the unique identifier for this task",
+                    "type": "string"
+                },
+                "max_attempts": {
+                    "description": "MaxAttempts is the maximum retry count before giving up",
+                    "type": "integer"
+                },
+                "payload": {
+                    "description": "Payload contains task-specific data\nFor sync_source: {\"source_id\": \"src-123\"}\nFor sync_all: {} (empty)",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "priority": {
+                    "description": "Priority determines processing order (higher = more urgent)\nDefault is 0, range is -100 to 100",
+                    "type": "integer"
+                },
+                "scheduled_for": {
+                    "description": "ScheduledFor is when the task should be processed (for delayed tasks)",
+                    "type": "string"
+                },
+                "started_at": {
+                    "description": "StartedAt is when processing began (nil if not started)",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Status is the current state of the task",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.TaskStatus"
+                        }
+                    ]
+                },
+                "team_id": {
+                    "description": "TeamID is the team this task belongs to",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Type identifies what kind of task this is",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.TaskType"
+                        }
+                    ]
+                },
+                "updated_at": {
+                    "description": "UpdatedAt is when the task was last modified",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.TaskStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "processing",
+                "completed",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "TaskStatusPending",
+                "TaskStatusProcessing",
+                "TaskStatusCompleted",
+                "TaskStatusFailed"
+            ]
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.TaskType": {
+            "type": "string",
+            "enum": [
+                "sync_source",
+                "sync_all"
+            ],
+            "x-enum-varnames": [
+                "TaskTypeSyncSource",
+                "TaskTypeSyncAll"
+            ]
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_domain.UpcomingJobs": {
+            "type": "object",
+            "properties": {
+                "next_scheduled_run": {
+                    "description": "NextScheduledRun is when the next scheduled task will run",
+                    "type": "string"
+                },
+                "pending_tasks": {
+                    "description": "PendingTasks are tasks ready to be processed now",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Task"
+                    }
+                },
+                "scheduled_tasks": {
+                    "description": "ScheduledTasks are recurring task schedules",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ScheduledTask"
+                    }
+                }
+            }
         },
         "github_com_custodia-labs_sercha-core_internal_core_domain.User": {
             "type": "object",
@@ -3774,6 +4698,11 @@ const docTemplate = `{
                         }
                     ],
                     "example": "github"
+                },
+                "return_context": {
+                    "description": "ReturnContext indicates where to redirect after OAuth completes.\nValues: \"setup\" (FTUE), \"admin-sources\" (add source wizard), or empty for default.",
+                    "type": "string",
+                    "example": "admin-sources"
                 }
             }
         },
@@ -3795,25 +4724,6 @@ const docTemplate = `{
                     "description": "State is the CSRF token that will be returned in the callback.\nThis is provided for reference - the frontend should not need to track it.",
                     "type": "string",
                     "example": "abc123xyz"
-                }
-            }
-        },
-        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.CallbackResponse": {
-            "description": "Response after successful OAuth authorization",
-            "type": "object",
-            "properties": {
-                "installation": {
-                    "description": "Installation is the created installation summary.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary"
-                        }
-                    ]
-                },
-                "message": {
-                    "description": "Message provides a human-readable status message.",
-                    "type": "string",
-                    "example": "Successfully connected to GitHub as octocat"
                 }
             }
         },
@@ -4077,6 +4987,22 @@ const docTemplate = `{
                 },
                 "vespa_connected": {
                     "type": "boolean"
+                }
+            }
+        },
+        "github_com_custodia-labs_sercha-core_internal_core_ports_driving.TriggerReindexRequest": {
+            "type": "object",
+            "properties": {
+                "priority": {
+                    "description": "Priority sets the task priority (-100 to 100)",
+                    "type": "integer"
+                },
+                "source_ids": {
+                    "description": "SourceIDs optionally specifies which sources to reindex\nIf empty, all enabled sources are reindexed",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -4396,6 +5322,21 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_adapters_driving_http.TriggerReindexResponse": {
+            "description": "Response containing task IDs created for reindex operation",
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "task_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "internal_adapters_driving_http.UpdateContainersRequest": {
             "description": "Request to update which containers a source should index",
             "type": "object",
@@ -4424,6 +5365,126 @@ const docTemplate = `{
                 "version": {
                     "type": "string",
                     "example": "1.0.0"
+                }
+            }
+        },
+        "internal_adapters_driving_http.VespaMetricsResponse": {
+            "type": "object",
+            "properties": {
+                "documents": {
+                    "type": "object",
+                    "properties": {
+                        "active": {
+                            "type": "integer"
+                        },
+                        "ready": {
+                            "type": "integer"
+                        },
+                        "removed": {
+                            "type": "integer"
+                        },
+                        "total": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "feed": {
+                    "type": "object",
+                    "properties": {
+                        "avg_latency_ms": {
+                            "type": "number"
+                        },
+                        "failed_operations": {
+                            "type": "integer"
+                        },
+                        "pending_operations": {
+                            "type": "integer"
+                        },
+                        "succeeded_operations": {
+                            "type": "integer"
+                        },
+                        "total_operations": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_adapters_driving_http.VespaNodeMetricsResponse"
+                    }
+                },
+                "query_performance": {
+                    "type": "object",
+                    "properties": {
+                        "avg_latency_ms": {
+                            "type": "number"
+                        },
+                        "degraded_queries": {
+                            "type": "integer"
+                        },
+                        "empty_results": {
+                            "type": "integer"
+                        },
+                        "failed_queries": {
+                            "type": "integer"
+                        },
+                        "queries_per_second": {
+                            "type": "number"
+                        },
+                        "total_queries": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "storage": {
+                    "type": "object",
+                    "properties": {
+                        "data_size_bytes": {
+                            "type": "integer"
+                        },
+                        "disk_used_bytes": {
+                            "type": "integer"
+                        },
+                        "disk_used_percent": {
+                            "type": "number"
+                        },
+                        "memory_used_bytes": {
+                            "type": "integer"
+                        },
+                        "memory_used_percent": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "timestamp": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_adapters_driving_http.VespaNodeMetricsResponse": {
+            "type": "object",
+            "properties": {
+                "disk_used_bytes": {
+                    "type": "integer"
+                },
+                "disk_used_percent": {
+                    "type": "number"
+                },
+                "document_count": {
+                    "type": "integer"
+                },
+                "hostname": {
+                    "type": "string"
+                },
+                "memory_used_bytes": {
+                    "type": "integer"
+                },
+                "memory_used_percent": {
+                    "type": "number"
+                },
+                "role": {
+                    "type": "string"
                 }
             }
         },
@@ -4502,6 +5563,46 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "time.Duration": {
+            "type": "integer",
+            "format": "int64",
+            "enum": [
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000,
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000
+            ],
+            "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour",
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour"
+            ]
         }
     },
     "securityDefinitions": {

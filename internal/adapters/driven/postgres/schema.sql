@@ -268,3 +268,21 @@ CREATE TABLE IF NOT EXISTS provider_configs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Search queries table (for analytics and tracking)
+CREATE TABLE IF NOT EXISTS search_queries (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    query TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    result_count INT NOT NULL DEFAULT 0,
+    duration_ns BIGINT NOT NULL,
+    source_ids JSONB DEFAULT '[]',
+    has_filters BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_queries_team_id ON search_queries(team_id);
+CREATE INDEX IF NOT EXISTS idx_search_queries_created_at ON search_queries(created_at);
+CREATE INDEX IF NOT EXISTS idx_search_queries_team_created ON search_queries(team_id, created_at DESC);

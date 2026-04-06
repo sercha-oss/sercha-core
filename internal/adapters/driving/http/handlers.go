@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -611,6 +612,28 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track search query for analytics (best effort, don't fail request if tracking fails)
+	if s.searchQueryRepo != nil {
+		authCtx := GetAuthContext(r.Context())
+		if authCtx != nil {
+			searchQuery := domain.NewSearchQuery(
+				authCtx.TeamID,
+				authCtx.UserID,
+				req.Query,
+				result.Mode,
+				result.TotalCount,
+				result.Took,
+			)
+			if len(req.SourceIDs) > 0 {
+				searchQuery.WithSourceFilters(req.SourceIDs)
+			}
+			// Log asynchronously to not slow down the search response
+			go func() {
+				_ = s.searchQueryRepo.Save(context.Background(), searchQuery)
+			}()
+		}
+	}
+
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -1198,6 +1221,135 @@ func (s *Server) handleVespaHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
+}
+
+// VespaMetricsResponse represents Vespa cluster metrics
+type VespaMetricsResponse struct {
+	Documents struct {
+		Total   int64 `json:"total"`
+		Ready   int64 `json:"ready"`
+		Active  int64 `json:"active"`
+		Removed int64 `json:"removed"`
+	} `json:"documents"`
+	Storage struct {
+		DiskUsedBytes     int64   `json:"disk_used_bytes"`
+		DiskUsedPercent   float64 `json:"disk_used_percent"`
+		DataSizeBytes     int64   `json:"data_size_bytes"`
+		MemoryUsedBytes   int64   `json:"memory_used_bytes"`
+		MemoryUsedPercent float64 `json:"memory_used_percent"`
+	} `json:"storage"`
+	QueryPerformance struct {
+		TotalQueries     int64   `json:"total_queries"`
+		QueriesPerSecond float64 `json:"queries_per_second"`
+		AvgLatencyMs     float64 `json:"avg_latency_ms"`
+		FailedQueries    int64   `json:"failed_queries"`
+		DegradedQueries  int64   `json:"degraded_queries"`
+		EmptyResults     int64   `json:"empty_results"`
+	} `json:"query_performance"`
+	Feed struct {
+		TotalOperations     int64   `json:"total_operations"`
+		SucceededOperations int64   `json:"succeeded_operations"`
+		FailedOperations    int64   `json:"failed_operations"`
+		PendingOperations   int64   `json:"pending_operations"`
+		AvgLatencyMs        float64 `json:"avg_latency_ms"`
+	} `json:"feed"`
+	Nodes     []VespaNodeMetricsResponse `json:"nodes"`
+	Timestamp int64                      `json:"timestamp"`
+}
+
+// VespaNodeMetricsResponse represents metrics for a single Vespa node
+type VespaNodeMetricsResponse struct {
+	Hostname         string  `json:"hostname"`
+	Role             string  `json:"role"`
+	DocumentCount    int64   `json:"document_count"`
+	DiskUsedBytes    int64   `json:"disk_used_bytes"`
+	DiskUsedPercent  float64 `json:"disk_used_percent"`
+	MemoryUsedBytes  int64   `json:"memory_used_bytes"`
+	MemoryUsedPercent float64 `json:"memory_used_percent"`
+}
+
+// handleVespaMetrics godoc
+// @Summary      Get Vespa metrics
+// @Description  Get detailed Vespa cluster metrics including document counts, storage, query performance, and feed stats (admin only)
+// @Tags         Vespa Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  VespaMetricsResponse
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/vespa/metrics [get]
+func (s *Server) handleVespaMetrics(w http.ResponseWriter, r *http.Request) {
+	// Get real metrics from Vespa cluster
+	metrics, err := s.vespaAdminService.GetMetrics(r.Context())
+	if err != nil {
+		// Log the error but return partial data if possible
+		// Fall back to status-based metrics
+		status, statusErr := s.vespaAdminService.Status(r.Context())
+		if statusErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get vespa metrics")
+			return
+		}
+
+		// Return basic metrics from status
+		response := VespaMetricsResponse{
+			Timestamp: status.IndexedChunks,
+		}
+		response.Documents.Total = status.IndexedChunks
+		response.Documents.Ready = status.IndexedChunks
+		response.Documents.Active = status.IndexedChunks
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+
+	// Transform domain metrics to API response
+	response := VespaMetricsResponse{
+		Timestamp: metrics.Timestamp,
+	}
+
+	// Document metrics
+	response.Documents.Total = metrics.Documents.Total
+	response.Documents.Ready = metrics.Documents.Ready
+	response.Documents.Active = metrics.Documents.Active
+	response.Documents.Removed = metrics.Documents.Removed
+
+	// Storage metrics
+	response.Storage.DiskUsedBytes = metrics.Storage.DiskUsedBytes
+	response.Storage.DiskUsedPercent = metrics.Storage.DiskUsedPercent
+	response.Storage.DataSizeBytes = metrics.Storage.DataSizeBytes
+	response.Storage.MemoryUsedBytes = metrics.Storage.MemoryUsedBytes
+	response.Storage.MemoryUsedPercent = metrics.Storage.MemoryUsedPercent
+
+	// Query performance metrics
+	response.QueryPerformance.TotalQueries = metrics.QueryPerformance.TotalQueries
+	response.QueryPerformance.QueriesPerSecond = metrics.QueryPerformance.QueriesPerSecond
+	response.QueryPerformance.AvgLatencyMs = metrics.QueryPerformance.AvgLatencyMs
+
+	// Feed metrics
+	response.Feed.TotalOperations = metrics.Feed.PutOperations + metrics.Feed.UpdateOperations + metrics.Feed.RemoveOperations
+	response.Feed.AvgLatencyMs = metrics.Feed.AvgLatencyMs
+
+	// Build node metrics from services
+	response.Nodes = make([]VespaNodeMetricsResponse, 0)
+	for _, svc := range metrics.Services {
+		if svc.Status == "up" {
+			node := VespaNodeMetricsResponse{
+				Hostname:  svc.Name,
+				Role:      svc.Name,
+				MemoryUsedBytes: svc.MemoryMB * 1024 * 1024,
+			}
+			// Add document count for searchnode
+			if svc.Name == "vespa.searchnode" {
+				node.DocumentCount = metrics.Documents.Active
+				node.DiskUsedBytes = metrics.Storage.DiskUsedBytes
+				node.DiskUsedPercent = metrics.Storage.DiskUsedPercent
+				node.MemoryUsedPercent = metrics.Storage.MemoryUsedPercent
+			}
+			response.Nodes = append(response.Nodes, node)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 // Provider configuration endpoints
@@ -2106,9 +2258,371 @@ func (s *Server) handleGetAdminStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Admin dashboard endpoints
+
+// handleListJobs godoc
+// @Summary      List job history
+// @Description  Retrieve job execution history with filtering and pagination
+// @Tags         Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        status  query     string  false  "Filter by status (pending, processing, completed, failed)"
+// @Param        type    query     string  false  "Filter by task type (sync_source, sync_all)"
+// @Param        limit   query     int     false  "Maximum number of jobs to return (default: 50, max: 100)"
+// @Param        offset  query     int     false  "Number of jobs to skip for pagination"
+// @Success      200     {object}  domain.JobHistory
+// @Failure      401     {object}  ErrorResponse  "Unauthorized"
+// @Failure      403     {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500     {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/jobs [get]
+func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	req := driving.ListJobsRequest{
+		Limit:  50,
+		Offset: 0,
+	}
+
+	if statusStr := r.URL.Query().Get("status"); statusStr != "" {
+		req.Status = domain.TaskStatus(statusStr)
+	}
+	if typeStr := r.URL.Query().Get("type"); typeStr != "" {
+		req.Type = domain.TaskType(typeStr)
+	}
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if limit, err := parseInt(limitStr); err == nil {
+			req.Limit = limit
+		}
+	}
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if offset, err := parseInt(offsetStr); err == nil {
+			req.Offset = offset
+		}
+	}
+
+	history, err := s.adminService.ListJobs(r.Context(), teamID, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list jobs: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, history)
+}
+
+// handleGetUpcomingJobs godoc
+// @Summary      Get upcoming jobs
+// @Description  Retrieve pending tasks and scheduled task configurations
+// @Tags         Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  domain.UpcomingJobs
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/jobs/upcoming [get]
+func (s *Server) handleGetUpcomingJobs(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	upcoming, err := s.adminService.GetUpcomingJobs(r.Context(), teamID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get upcoming jobs: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, upcoming)
+}
+
+// handleGetJob godoc
+// @Summary      Get job details
+// @Description  Retrieve detailed information about a specific job
+// @Tags         Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "Job ID"
+// @Success      200  {object}  domain.JobDetail
+// @Failure      400  {object}  ErrorResponse  "Missing job ID"
+// @Failure      401  {object}  ErrorResponse  "Unauthorized"
+// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      404  {object}  ErrorResponse  "Job not found"
+// @Failure      500  {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/jobs/{id} [get]
+func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	jobID := r.PathValue("id")
+	if jobID == "" {
+		writeError(w, http.StatusBadRequest, "missing job id")
+		return
+	}
+
+	job, err := s.adminService.GetJob(r.Context(), teamID, jobID)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "job not found")
+		case domain.ErrUnauthorized:
+			writeError(w, http.StatusForbidden, "job belongs to different team")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to get job: "+err.Error())
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, job)
+}
+
+// handleGetJobStats godoc
+// @Summary      Get job statistics
+// @Description  Compute aggregated job statistics for a time period
+// @Tags         Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        period  query     string  false  "Time period (24h, 7d, 30d)" default(24h)
+// @Success      200     {object}  domain.JobStats
+// @Failure      401     {object}  ErrorResponse  "Unauthorized"
+// @Failure      403     {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500     {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/jobs/stats [get]
+func (s *Server) handleGetJobStats(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	period := driving.JobStatsPeriod24Hours
+	if periodStr := r.URL.Query().Get("period"); periodStr != "" {
+		period = driving.JobStatsPeriod(periodStr)
+	}
+
+	stats, err := s.adminService.GetJobStats(r.Context(), teamID, period)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get job stats: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// handleGetSearchAnalytics godoc
+// @Summary      Get search analytics
+// @Description  Compute search usage analytics for a time period
+// @Tags         Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        period  query     string  false  "Time period (24h, 7d, 30d)" default(24h)
+// @Success      200     {object}  domain.SearchAnalytics
+// @Failure      401     {object}  ErrorResponse  "Unauthorized"
+// @Failure      403     {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500     {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/search/analytics [get]
+func (s *Server) handleGetSearchAnalytics(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	period := driving.SearchAnalyticsPeriod24Hours
+	if periodStr := r.URL.Query().Get("period"); periodStr != "" {
+		period = driving.SearchAnalyticsPeriod(periodStr)
+	}
+
+	analytics, err := s.adminService.GetSearchAnalytics(r.Context(), teamID, period)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get search analytics: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, analytics)
+}
+
+// handleGetSearchHistory godoc
+// @Summary      Get search history
+// @Description  Retrieve recent search queries
+// @Tags         Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        limit   query     int     false  "Maximum number of searches to return (default: 50, max: 100)"
+// @Success      200     {array}   domain.SearchQuery
+// @Failure      401     {object}  ErrorResponse  "Unauthorized"
+// @Failure      403     {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500     {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/search/history [get]
+func (s *Server) handleGetSearchHistory(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := parseInt(limitStr); err == nil {
+			limit = l
+		}
+	}
+
+	history, err := s.adminService.GetSearchHistory(r.Context(), teamID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get search history: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, history)
+}
+
+// handleGetSearchMetrics godoc
+// @Summary      Get search metrics
+// @Description  Compute search performance metrics for a time period
+// @Tags         Admin
+// @Produce      json
+// @Security     BearerAuth
+// @Param        period  query     string  false  "Time period (24h, 7d, 30d)" default(24h)
+// @Success      200     {object}  domain.SearchMetrics
+// @Failure      401     {object}  ErrorResponse  "Unauthorized"
+// @Failure      403     {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500     {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/search/metrics [get]
+func (s *Server) handleGetSearchMetrics(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	period := driving.SearchAnalyticsPeriod24Hours
+	if periodStr := r.URL.Query().Get("period"); periodStr != "" {
+		period = driving.SearchAnalyticsPeriod(periodStr)
+	}
+
+	metrics, err := s.adminService.GetSearchMetrics(r.Context(), teamID, period)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get search metrics: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, metrics)
+}
+
+// TriggerReindexResponse represents the response from triggering a reindex
+// @Description Response containing task IDs created for reindex operation
+type TriggerReindexResponse struct {
+	TaskIDs []string `json:"task_ids"`
+	Message string   `json:"message"`
+}
+
+// handleTriggerReindex godoc
+// @Summary      Trigger reindex
+// @Description  Create tasks to reindex sources. If no source IDs are provided, all enabled sources are reindexed.
+// @Tags         Admin
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        request  body      driving.TriggerReindexRequest  true  "Reindex options"
+// @Success      202      {object}  TriggerReindexResponse
+// @Failure      400      {object}  ErrorResponse  "Invalid request body"
+// @Failure      401      {object}  ErrorResponse  "Unauthorized"
+// @Failure      403      {object}  ErrorResponse  "Forbidden - admin only"
+// @Failure      500      {object}  ErrorResponse  "Internal server error"
+// @Router       /admin/reindex [post]
+func (s *Server) handleTriggerReindex(w http.ResponseWriter, r *http.Request) {
+	if s.adminService == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin service not available")
+		return
+	}
+
+	teamID := getTeamID(r.Context())
+	if teamID == "" {
+		writeError(w, http.StatusUnauthorized, "missing team context")
+		return
+	}
+
+	var req driving.TriggerReindexRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	taskIDs, err := s.adminService.TriggerReindex(r.Context(), teamID, req)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "one or more sources not found")
+		case domain.ErrInvalidInput:
+			writeError(w, http.StatusBadRequest, "invalid reindex request")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to trigger reindex: "+err.Error())
+		}
+		return
+	}
+
+	message := fmt.Sprintf("Reindex triggered for %d source(s)", len(taskIDs))
+	writeJSON(w, http.StatusAccepted, TriggerReindexResponse{
+		TaskIDs: taskIDs,
+		Message: message,
+	})
+}
+
 // parseInt is a helper to parse integer query parameters
 func parseInt(s string) (int, error) {
 	return strconv.Atoi(s)
+}
+
+// getTeamID retrieves the team ID from the auth context
+func getTeamID(ctx context.Context) string {
+	authCtx := GetAuthContext(ctx)
+	if authCtx == nil {
+		return ""
+	}
+	return authCtx.TeamID
 }
 
 // Helper functions

@@ -611,3 +611,190 @@ func safeDeref(ptr *int) int {
 	}
 	return *ptr
 }
+
+// vespaMetricsResponse represents the raw response from Vespa metrics API
+type vespaMetricsResponse struct {
+	Services []vespaServiceResponse `json:"services"`
+}
+
+type vespaServiceResponse struct {
+	Name      string                   `json:"name"`
+	Timestamp int64                    `json:"timestamp"`
+	Status    vespaServiceStatus       `json:"status"`
+	Metrics   []vespaMetricsEntry      `json:"metrics"`
+}
+
+type vespaServiceStatus struct {
+	Code        string `json:"code"`
+	Description string `json:"description"`
+}
+
+type vespaMetricsEntry struct {
+	Values     map[string]interface{} `json:"values"`
+	Dimensions map[string]string      `json:"dimensions"`
+}
+
+// GetMetrics fetches cluster metrics from the Vespa metrics API
+func (d *Deployer) GetMetrics(ctx context.Context, metricsEndpoint string) (*domain.VespaMetrics, error) {
+	metricsEndpoint, err := validateEndpoint(metricsEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	metricsURL := fmt.Sprintf("%s/metrics/v1/values", metricsEndpoint)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, metricsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metrics request: %w", err)
+	}
+
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("metrics request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("metrics request failed with status %s: %s", resp.Status, string(body))
+	}
+
+	var raw vespaMetricsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("failed to decode metrics response: %w", err)
+	}
+
+	return d.parseVespaMetrics(&raw), nil
+}
+
+// parseVespaMetrics transforms raw Vespa metrics into our domain model
+func (d *Deployer) parseVespaMetrics(raw *vespaMetricsResponse) *domain.VespaMetrics {
+	metrics := &domain.VespaMetrics{
+		Timestamp: time.Now().Unix(),
+		Services:  make([]domain.VespaServiceMetrics, 0),
+	}
+
+	for _, svc := range raw.Services {
+		// Build service-level metrics
+		svcMetric := domain.VespaServiceMetrics{
+			Name:      svc.Name,
+			Status:    svc.Status.Code,
+			Timestamp: svc.Timestamp,
+		}
+
+		// Extract metrics based on service type
+		for _, entry := range svc.Metrics {
+			d.extractServiceMetrics(&svcMetric, entry.Values, entry.Dimensions)
+			d.extractDocumentMetrics(&metrics.Documents, svc.Name, entry.Values, entry.Dimensions)
+			d.extractStorageMetrics(&metrics.Storage, svc.Name, entry.Values, entry.Dimensions)
+			d.extractQueryMetrics(&metrics.QueryPerformance, svc.Name, entry.Values, entry.Dimensions)
+			d.extractFeedMetrics(&metrics.Feed, svc.Name, entry.Values, entry.Dimensions)
+		}
+
+		metrics.Services = append(metrics.Services, svcMetric)
+	}
+
+	return metrics
+}
+
+// extractServiceMetrics extracts service-level metrics (memory, CPU)
+func (d *Deployer) extractServiceMetrics(svc *domain.VespaServiceMetrics, values map[string]interface{}, dims map[string]string) {
+	if dims["metrictype"] != "system" {
+		return
+	}
+	if v, ok := values["memory_rss"].(float64); ok {
+		svc.MemoryMB = int64(v / (1024 * 1024))
+	}
+	if v, ok := values["cpu_util"].(float64); ok {
+		svc.CPUUtil = v
+	}
+}
+
+// extractDocumentMetrics extracts document count metrics from searchnode
+func (d *Deployer) extractDocumentMetrics(docs *domain.VespaDocumentMetrics, svcName string, values map[string]interface{}, dims map[string]string) {
+	if svcName != "vespa.searchnode" {
+		return
+	}
+	if dims["documenttype"] != "chunk" {
+		return
+	}
+
+	if v, ok := values["content.proton.documentdb.documents.active.last"].(float64); ok {
+		docs.Active = int64(v)
+	}
+	if v, ok := values["content.proton.documentdb.documents.ready.last"].(float64); ok {
+		docs.Ready = int64(v)
+	}
+	if v, ok := values["content.proton.documentdb.documents.total.last"].(float64); ok {
+		docs.Total = int64(v)
+	}
+}
+
+// extractStorageMetrics extracts disk/memory utilization from searchnode
+func (d *Deployer) extractStorageMetrics(storage *domain.VespaStorageMetrics, svcName string, values map[string]interface{}, dims map[string]string) {
+	if svcName != "vespa.searchnode" {
+		return
+	}
+
+	// Actual Vespa data size from documentdb (accumulate across document types)
+	if dims["documenttype"] == "chunk" {
+		if v, ok := values["content.proton.documentdb.disk_usage.last"].(float64); ok {
+			storage.DataSizeBytes += int64(v)
+		}
+		if v, ok := values["content.proton.documentdb.memory_usage.allocated_bytes.last"].(float64); ok {
+			storage.MemoryUsedBytes = int64(v)
+		}
+	}
+
+	// Add transaction log to data size
+	if v, ok := values["content.proton.transactionlog.disk_usage.last"].(float64); ok {
+		storage.DataSizeBytes += int64(v)
+	}
+
+	// Host disk utilization (filesystem where Vespa stores data)
+	if v, ok := values["content.proton.resource_usage.disk.average"].(float64); ok {
+		storage.DiskUsedPercent = v * 100 // Convert from ratio to percentage
+	}
+	if v, ok := values["content.proton.resource_usage.memory.average"].(float64); ok {
+		storage.MemoryUsedPercent = v * 100
+	}
+}
+
+// extractQueryMetrics extracts query performance from container
+func (d *Deployer) extractQueryMetrics(query *domain.VespaQueryMetrics, svcName string, values map[string]interface{}, dims map[string]string) {
+	if svcName != "vespa.container" {
+		return
+	}
+
+	if v, ok := values["queries.rate"].(float64); ok {
+		query.QueriesPerSecond = v
+	}
+	if v, ok := values["query_latency.average"].(float64); ok {
+		query.AvgLatencyMs = v
+	}
+	if v, ok := values["query_latency.max"].(float64); ok {
+		query.MaxLatencyMs = v
+	}
+	if v, ok := values["hits_per_query.average"].(float64); ok {
+		query.HitsPerQuery = v
+	}
+	if v, ok := values["query_latency.count"].(float64); ok {
+		query.TotalQueries = int64(v)
+	}
+}
+
+// extractFeedMetrics extracts feed operation metrics from searchnode
+func (d *Deployer) extractFeedMetrics(feed *domain.VespaFeedMetrics, svcName string, values map[string]interface{}, dims map[string]string) {
+	if svcName != "vespa.searchnode" {
+		return
+	}
+
+	if v, ok := values["vds.filestor.allthreads.put.count.rate"].(float64); ok {
+		feed.PutOperations = int64(v)
+	}
+	if v, ok := values["vds.filestor.allthreads.update.count.rate"].(float64); ok {
+		feed.UpdateOperations = int64(v)
+	}
+	if v, ok := values["vds.filestor.allthreads.remove.count.rate"].(float64); ok {
+		feed.RemoveOperations = int64(v)
+	}
+}

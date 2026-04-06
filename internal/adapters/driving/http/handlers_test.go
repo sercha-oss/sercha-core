@@ -374,6 +374,7 @@ type mockVespaAdminService struct {
 	connectFn     func(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error)
 	statusFn      func(ctx context.Context) (*driving.VespaStatus, error)
 	healthCheckFn func(ctx context.Context) error
+	getMetricsFn  func(ctx context.Context) (*domain.VespaMetrics, error)
 }
 
 func (m *mockVespaAdminService) Connect(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error) {
@@ -395,6 +396,13 @@ func (m *mockVespaAdminService) HealthCheck(ctx context.Context) error {
 		return m.healthCheckFn(ctx)
 	}
 	return errors.New("not implemented")
+}
+
+func (m *mockVespaAdminService) GetMetrics(ctx context.Context) (*domain.VespaMetrics, error) {
+	if m.getMetricsFn != nil {
+		return m.getMetricsFn(ctx)
+	}
+	return nil, errors.New("not implemented")
 }
 
 type mockSetupService struct {
@@ -1762,6 +1770,14 @@ func (m *mockTaskQueue) Ping(ctx context.Context) error {
 
 func (m *mockTaskQueue) Close() error {
 	return nil
+}
+
+func (m *mockTaskQueue) GetJobStats(ctx context.Context, teamID string, period domain.AnalyticsPeriod) (*domain.JobStats, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockTaskQueue) CountTasks(ctx context.Context, filter driven.TaskFilter) (int64, error) {
+	return 0, nil
 }
 
 func TestHandleTriggerSync_Success(t *testing.T) {

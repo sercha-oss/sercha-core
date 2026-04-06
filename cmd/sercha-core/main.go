@@ -189,6 +189,7 @@ func main() {
 	settingsStore := postgres.NewSettingsStore(db)
 	schedulerStore := postgres.NewSchedulerStore(db)
 	vespaConfigStore := postgres.NewVespaConfigStore(db)
+	searchQueryRepo := postgres.NewSearchQueryRepository(db)
 
 	// ===== Vespa Deployer =====
 	vespaDeployer := vespa.NewDeployer()
@@ -414,7 +415,7 @@ func main() {
 	documentService := services.NewDocumentService(documentStore, chunkStore)
 	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, nil)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)
-	vespaAdminService := services.NewVespaAdminService(vespaDeployer, vespaConfigStore, settingsStore, searchEngine, runtimeServices, teamID, cfg.VespaConfigURL)
+	vespaAdminService := services.NewVespaAdminService(vespaDeployer, vespaConfigStore, settingsStore, searchEngine, cfg, runtimeServices, teamID, cfg.VespaConfigURL)
 	setupService := services.NewSetupService(userStore, sourceStore, vespaConfigStore, teamID)
 
 	// Provider service (shows configuration status based on env vars)
@@ -438,6 +439,14 @@ func main() {
 		ContainerListerFactory: containerListerFactory,
 		TokenProviderFactory:   tokenProviderFactory,
 	})
+
+	// Admin service (admin dashboard operations)
+	adminService := services.NewAdminService(
+		taskQueue,
+		schedulerStore,
+		searchQueryRepo,
+		sourceStore,
+	)
 
 	// Log startup configuration
 	log.Printf("Runtime config: session_backend=%s, embedding=%t, llm=%t, search_mode=%s",
@@ -487,7 +496,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, taskQueue, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
 
 	case "worker":
 		// Worker-only mode: Task processing, scheduler, no HTTP server
@@ -502,7 +511,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, taskQueue, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
 
 	default:
 		log.Fatalf("Unknown mode: %s (use: api, worker, or all)", mode)
@@ -524,7 +533,9 @@ func runAPI(
 	syncOrchestrator driving.SyncOrchestrator,
 	capabilitiesService driving.CapabilitiesService,
 	setupService driving.SetupService,
+	adminService driving.AdminService,
 	taskQueue driven.TaskQueue,
+	searchQueryRepo driven.SearchQueryRepository,
 	db http.Pinger,
 	redisClient http.Pinger, // can be nil
 ) {
@@ -549,7 +560,9 @@ func runAPI(
 		syncOrchestrator,
 		capabilitiesService,
 		setupService,
+		adminService,
 		taskQueue,
+		searchQueryRepo,
 		db,
 		redisClient,
 	)

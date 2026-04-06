@@ -7,7 +7,7 @@ import {
   getHealth,
   getAdminStats,
   listSources,
-  getJobHistory,
+  getJobs,
   getUpcomingJobs,
   getJobStats,
   getSearchAnalytics,
@@ -17,12 +17,12 @@ import {
   HealthResponse,
   AdminStatsResponse,
   SourceSummary,
-  JobHistoryResponse,
-  UpcomingJobsResponse,
+  JobHistory,
+  UpcomingJobs,
   JobStats,
   SearchAnalytics,
   SearchMetrics,
-  SearchQueryRecord,
+  SearchQuery,
   AISettingsStatus,
 } from "@/lib/api";
 import {
@@ -162,30 +162,30 @@ function JobQueueSummary({ stats }: { stats: JobStats | null }) {
     );
   }
 
-  const total = stats.completed + stats.failed + stats.pending + stats.processing;
+  const total = stats.total_jobs;
 
   return (
     <div className="flex items-center gap-6">
       <div className="flex items-center gap-2">
         <div className="h-2 w-2 rounded-full bg-emerald-500" />
-        <span className="text-sm text-sercha-fog-grey">{stats.completed} completed</span>
+        <span className="text-sm text-sercha-fog-grey">{stats.completed_jobs} completed</span>
       </div>
-      {stats.processing > 0 && (
+      {stats.processing_jobs > 0 && (
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 animate-pulse rounded-full bg-indigo-500" />
-          <span className="text-sm text-sercha-fog-grey">{stats.processing} running</span>
+          <span className="text-sm text-sercha-fog-grey">{stats.processing_jobs} running</span>
         </div>
       )}
-      {stats.pending > 0 && (
+      {stats.pending_jobs > 0 && (
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 rounded-full bg-amber-500" />
-          <span className="text-sm text-sercha-fog-grey">{stats.pending} pending</span>
+          <span className="text-sm text-sercha-fog-grey">{stats.pending_jobs} pending</span>
         </div>
       )}
-      {stats.failed > 0 && (
+      {stats.failed_jobs > 0 && (
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 rounded-full bg-red-500" />
-          <span className="text-sm text-sercha-fog-grey">{stats.failed} failed</span>
+          <span className="text-sm text-sercha-fog-grey">{stats.failed_jobs} failed</span>
         </div>
       )}
       {total === 0 && (
@@ -195,29 +195,9 @@ function JobQueueSummary({ stats }: { stats: JobStats | null }) {
   );
 }
 
-// Search metrics chart component
+// Search metrics chart component - displays performance metrics visually
 function SearchMetricsChart({ metrics }: { metrics: SearchMetrics | null }) {
-  const chartData = useMemo(() => {
-    if (!metrics?.points?.length) return null;
-
-    const points = metrics.points;
-    const maxCount = Math.max(...points.map((p) => p.search_count), 1);
-    const width = 300;
-    const height = 80;
-    const paddingTop = 20; // Extra space for labels above bars
-    const paddingBottom = 10;
-    const paddingX = 10;
-
-    const pathPoints = points.map((point, i) => {
-      const x = paddingX + (i / Math.max(points.length - 1, 1)) * (width - 2 * paddingX);
-      const y = paddingTop + (1 - point.search_count / maxCount) * (height - paddingTop - paddingBottom);
-      return { x, y, count: point.search_count, timestamp: point.timestamp };
-    });
-
-    return { pathPoints, width, height, paddingTop, paddingBottom, paddingX };
-  }, [metrics]);
-
-  if (!chartData) {
+  if (!metrics) {
     return (
       <div className="flex h-20 items-center justify-center text-sm text-sercha-fog-grey">
         No search data yet
@@ -225,68 +205,73 @@ function SearchMetricsChart({ metrics }: { metrics: SearchMetrics | null }) {
     );
   }
 
-  // For single point, show a bar instead of a line
-  if (chartData.pathPoints.length === 1) {
-    const p = chartData.pathPoints[0];
-    const barWidth = 40;
-    const barHeight = chartData.height - chartData.paddingBottom - p.y;
-    const textY = Math.max(14, p.y - 6); // Ensure text is never cut off at top
+  // Display search speed distribution as a horizontal bar chart
+  const total = metrics.fast_searches + metrics.medium_searches + metrics.slow_searches;
+  if (total === 0) {
     return (
-      <svg viewBox={`0 0 ${chartData.width} ${chartData.height}`} className="h-20 w-full">
-        <defs>
-          <linearGradient id="searchGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="rgb(147, 51, 234)" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="rgb(147, 51, 234)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <rect
-          x={(chartData.width - barWidth) / 2}
-          y={p.y}
-          width={barWidth}
-          height={barHeight}
-          fill="url(#searchGradient)"
-          rx="4"
-        />
-        <rect
-          x={(chartData.width - barWidth) / 2}
-          y={p.y}
-          width={barWidth}
-          height={4}
-          fill="rgb(147, 51, 234)"
-          rx="2"
-        />
-        <text
-          x={chartData.width / 2}
-          y={textY}
-          textAnchor="middle"
-          className="fill-purple-600 text-xs font-medium"
-          fontSize="12"
-        >
-          {p.count}
-        </text>
-      </svg>
+      <div className="flex h-20 items-center justify-center text-sm text-sercha-fog-grey">
+        No search data yet
+      </div>
     );
   }
 
-  const linePath = chartData.pathPoints
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
-    .join(" ");
-  const areaPath = `${linePath} L ${chartData.pathPoints[chartData.pathPoints.length - 1].x} ${chartData.height - chartData.paddingBottom} L ${chartData.pathPoints[0].x} ${chartData.height - chartData.paddingBottom} Z`;
+  const fastPercent = (metrics.fast_searches / total) * 100;
+  const mediumPercent = (metrics.medium_searches / total) * 100;
+  const slowPercent = (metrics.slow_searches / total) * 100;
 
   return (
-    <svg viewBox={`0 0 ${chartData.width} ${chartData.height}`} className="h-20 w-full">
-      <defs>
-        <linearGradient id="searchGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="rgb(147, 51, 234)" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="rgb(147, 51, 234)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill="url(#searchGradient)" />
-      <path d={linePath} fill="none" stroke="rgb(147, 51, 234)" strokeWidth="2" />
-      {chartData.pathPoints.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="3" fill="rgb(147, 51, 234)" />
-      ))}
-    </svg>
+    <div className="space-y-3">
+      {/* Performance distribution bar */}
+      <div className="flex h-8 overflow-hidden rounded-lg">
+        {fastPercent > 0 && (
+          <div
+            className="flex items-center justify-center bg-emerald-500 text-xs font-medium text-white"
+            style={{ width: `${fastPercent}%` }}
+          >
+            {fastPercent > 15 && `${fastPercent.toFixed(0)}%`}
+          </div>
+        )}
+        {mediumPercent > 0 && (
+          <div
+            className="flex items-center justify-center bg-amber-500 text-xs font-medium text-white"
+            style={{ width: `${mediumPercent}%` }}
+          >
+            {mediumPercent > 15 && `${mediumPercent.toFixed(0)}%`}
+          </div>
+        )}
+        {slowPercent > 0 && (
+          <div
+            className="flex items-center justify-center bg-red-500 text-xs font-medium text-white"
+            style={{ width: `${slowPercent}%` }}
+          >
+            {slowPercent > 15 && `${slowPercent.toFixed(0)}%`}
+          </div>
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center justify-between text-xs text-sercha-fog-grey">
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-emerald-500" />
+          <span>Fast (&lt;100ms): {metrics.fast_searches}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-amber-500" />
+          <span>Medium (100-500ms): {metrics.medium_searches}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-red-500" />
+          <span>Slow (&gt;500ms): {metrics.slow_searches}</span>
+        </div>
+      </div>
+
+      {/* Percentile stats */}
+      <div className="mt-2 flex items-center justify-between text-xs text-sercha-fog-grey">
+        <span>P50: {metrics.p50_duration_ms.toFixed(0)}ms</span>
+        <span>P95: {metrics.p95_duration_ms.toFixed(0)}ms</span>
+        <span>P99: {metrics.p99_duration_ms.toFixed(0)}ms</span>
+      </div>
+    </div>
   );
 }
 
@@ -294,14 +279,14 @@ export default function AdminDashboardPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [stats, setStats] = useState<AdminStatsResponse | null>(null);
   const [sources, setSources] = useState<SourceSummary[]>([]);
-  const [jobHistory, setJobHistory] = useState<JobHistoryResponse | null>(null);
-  const [upcomingJobs, setUpcomingJobs] = useState<UpcomingJobsResponse | null>(null);
+  const [jobHistory, setJobHistory] = useState<JobHistory | null>(null);
+  const [upcomingJobs, setUpcomingJobs] = useState<UpcomingJobs | null>(null);
   const [jobStats, setJobStats] = useState<JobStats | null>(null);
   const [searchAnalytics, setSearchAnalytics] = useState<SearchAnalytics | null>(null);
   const [searchMetrics, setSearchMetrics] = useState<SearchMetrics | null>(null);
-  const [searchHistory, setSearchHistory] = useState<SearchQueryRecord[] | null>(null);
+  const [searchHistory, setSearchHistory] = useState<SearchQuery[] | null>(null);
   const [aiStatus, setAIStatus] = useState<AISettingsStatus | null>(null);
-  const [metricsPeriod, setMetricsPeriod] = useState<"hourly" | "daily">("hourly");
+  const [metricsPeriod, setMetricsPeriod] = useState<"24h" | "7d" | "30d">("24h");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -313,10 +298,10 @@ export default function AdminDashboardPage() {
         getHealth().catch(() => null),
         getAdminStats().catch(() => null),
         listSources().catch(() => []),
-        getJobHistory({ limit: 10 }).catch(() => null),
+        getJobs({ limit: 10 }).catch(() => null),
         getUpcomingJobs().catch(() => null),
-        getJobStats().catch(() => null),
-        getSearchAnalytics().catch(() => null),
+        getJobStats(metricsPeriod).catch(() => null),
+        getSearchAnalytics(metricsPeriod).catch(() => null),
         getSearchMetrics(metricsPeriod).catch(() => null),
         getSearchHistory({ limit: 5 }).catch(() => null),
         getAIStatus().catch(() => null),
@@ -329,7 +314,7 @@ export default function AdminDashboardPage() {
       setJobStats(jobStatsData);
       setSearchAnalytics(searchAnalyticsData);
       setSearchMetrics(searchMetricsData);
-      setSearchHistory(searchHistoryData?.searches || null);
+      setSearchHistory(searchHistoryData || null);
       setAIStatus(aiStatusData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
@@ -456,14 +441,14 @@ export default function AdminDashboardPage() {
           {/* Searches */}
           <div className="rounded-xl border border-sercha-silverline bg-white p-4">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-medium text-sercha-fog-grey">Searches Today</p>
+              <p className="text-sm font-medium text-sercha-fog-grey">Searches</p>
               <Search className="h-4 w-4 text-purple-500" />
             </div>
             <p className="text-3xl font-bold text-sercha-ink-slate">
-              {searchAnalytics?.searches_today || 0}
+              {searchAnalytics?.total_searches || 0}
             </p>
             <p className="mt-1 text-sm text-sercha-fog-grey">
-              {searchAnalytics?.total_searches || 0} total ({searchAnalytics?.unique_users || 0} users)
+              {searchAnalytics?.unique_users || 0} users · {searchAnalytics?.average_duration_ms?.toFixed(0) || 0}ms avg
             </p>
           </div>
 
@@ -474,10 +459,10 @@ export default function AdminDashboardPage() {
               <Clock className="h-4 w-4 text-amber-500" />
             </div>
             <p className="text-3xl font-bold text-sercha-ink-slate">
-              {jobStats ? (jobStats.completed + jobStats.failed + jobStats.pending + jobStats.processing) : 0}
+              {jobStats?.total_jobs || 0}
             </p>
             <p className="mt-1 text-sm text-sercha-fog-grey">
-              {jobStats?.processing || 0} running, {jobStats?.pending || 0} pending
+              {jobStats?.processing_jobs || 0} running, {jobStats?.pending_jobs || 0} pending
             </p>
           </div>
         </section>
@@ -503,28 +488,37 @@ export default function AdminDashboardPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {jobHistory.jobs.slice(0, 4).map((job) => (
-                      <div
-                        key={job.id}
-                        className="flex items-center justify-between rounded-lg border border-sercha-mist p-2.5"
-                      >
-                        <div className="flex items-center gap-2">
-                          <JobStatusBadge status={job.status} />
-                          <div>
-                            <JobTypeLabel type={job.type} />
-                            <p className="mt-0.5 text-xs text-sercha-fog-grey">
-                              {formatRelativeTime(job.created_at)}
-                              {job.duration_ms && ` · ${formatDuration(job.duration_ms)}`}
-                            </p>
+                    {jobHistory.jobs.slice(0, 4).map((job) => {
+                      // Calculate duration from started_at and completed_at
+                      let durationMs: number | undefined;
+                      if (job.started_at && job.completed_at) {
+                        const start = new Date(job.started_at).getTime();
+                        const end = new Date(job.completed_at).getTime();
+                        durationMs = end - start;
+                      }
+                      return (
+                        <div
+                          key={job.id}
+                          className="flex items-center justify-between rounded-lg border border-sercha-mist p-2.5"
+                        >
+                          <div className="flex items-center gap-2">
+                            <JobStatusBadge status={job.status} />
+                            <div>
+                              <JobTypeLabel type={job.type} />
+                              <p className="mt-0.5 text-xs text-sercha-fog-grey">
+                                {formatRelativeTime(job.created_at)}
+                                {durationMs && ` · ${formatDuration(durationMs)}`}
+                              </p>
+                            </div>
                           </div>
+                          {job.error && (
+                            <span className="max-w-[100px] truncate text-xs text-red-500" title={job.error}>
+                              {job.error}
+                            </span>
+                          )}
                         </div>
-                        {job.error && (
-                          <span className="max-w-[100px] truncate text-xs text-red-500" title={job.error}>
-                            {job.error}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -557,26 +551,30 @@ export default function AdminDashboardPage() {
                       </div>
                     ))}
                     {/* Scheduled recurring tasks */}
-                    {upcomingJobs?.scheduled_tasks?.slice(0, 3).map((task) => (
-                      <div
-                        key={task.id}
-                        className="flex items-center justify-between rounded-lg border border-sercha-mist p-2.5"
-                      >
-                        <div className="flex items-center gap-2">
-                          <RefreshCw className={`h-4 w-4 ${task.enabled ? "text-sercha-indigo" : "text-gray-400"}`} />
-                          <div>
-                            <p className="text-sm font-medium text-sercha-ink-slate">{task.name}</p>
-                            <p className="text-xs text-sercha-fog-grey">
-                              Every {task.interval_minutes}m
-                              {task.next_run && ` · Next: ${new Date(task.next_run).toLocaleTimeString()}`}
-                            </p>
+                    {upcomingJobs?.scheduled_tasks?.slice(0, 3).map((task) => {
+                      // Convert interval from nanoseconds to minutes
+                      const intervalMinutes = Math.floor(task.interval / (60 * 1000000000));
+                      return (
+                        <div
+                          key={task.id}
+                          className="flex items-center justify-between rounded-lg border border-sercha-mist p-2.5"
+                        >
+                          <div className="flex items-center gap-2">
+                            <RefreshCw className={`h-4 w-4 ${task.enabled ? "text-sercha-indigo" : "text-gray-400"}`} />
+                            <div>
+                              <p className="text-sm font-medium text-sercha-ink-slate">{task.name}</p>
+                              <p className="text-xs text-sercha-fog-grey">
+                                Every {intervalMinutes}m
+                                {task.next_run && ` · Next: ${new Date(task.next_run).toLocaleTimeString()}`}
+                              </p>
+                            </div>
                           </div>
+                          <span className={`text-xs ${task.enabled ? "text-emerald-600" : "text-gray-400"}`}>
+                            {task.enabled ? "Active" : "Disabled"}
+                          </span>
                         </div>
-                        <span className={`text-xs ${task.enabled ? "text-emerald-600" : "text-gray-400"}`}>
-                          {task.enabled ? "Active" : "Disabled"}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -586,45 +584,48 @@ export default function AdminDashboardPage() {
           {/* Search Activity Chart */}
           <div className="rounded-2xl border border-sercha-silverline bg-white p-6">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-semibold text-sercha-ink-slate">Search Activity</h3>
+              <h3 className="font-semibold text-sercha-ink-slate">Search Performance</h3>
               <select
                 value={metricsPeriod}
-                onChange={(e) => setMetricsPeriod(e.target.value as "hourly" | "daily")}
+                onChange={(e) => setMetricsPeriod(e.target.value as "24h" | "7d" | "30d")}
                 className="rounded-lg border border-sercha-silverline bg-white px-3 py-1.5 text-sm text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none focus:ring-1 focus:ring-sercha-indigo"
               >
-                <option value="hourly">Last 24 Hours</option>
-                <option value="daily">Last 30 Days</option>
+                <option value="24h">Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
               </select>
             </div>
             <SearchMetricsChart metrics={searchMetrics} />
-            <div className="mt-4 flex items-center justify-between text-sm">
-              <span className="text-sercha-fog-grey">
-                {searchMetrics?.total_count || 0} searches in period
-              </span>
-              {searchMetrics?.points?.length ? (
-                <span className="text-sercha-fog-grey">
-                  {metricsPeriod === "hourly" ? "By hour" : "By day"}
-                </span>
-              ) : null}
-            </div>
+            {searchMetrics && searchMetrics.zero_result_searches > 0 && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-amber-600">
+                <AlertCircle className="h-4 w-4" />
+                <span>{searchMetrics.zero_result_searches} searches returned no results</span>
+              </div>
+            )}
             {/* Recent Searches */}
             {searchHistory && searchHistory.length > 0 && (
               <div className="mt-4 border-t border-sercha-mist pt-4">
                 <h4 className="mb-3 text-xs font-medium uppercase tracking-wide text-sercha-fog-grey">Recent Searches</h4>
                 <div className="space-y-2">
-                  {searchHistory.map((search) => (
-                    <div key={search.id} className="flex items-center justify-between text-sm">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Search className="h-3.5 w-3.5 flex-shrink-0 text-sercha-silverline" />
-                        <span className="truncate text-sercha-ink-slate">{search.query}</span>
+                  {searchHistory.map((search) => {
+                    // Convert duration from nanoseconds to milliseconds
+                    const durationMs = Math.floor(search.duration / 1000000);
+                    return (
+                      <div key={search.id} className="flex items-center justify-between text-sm">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Search className="h-3.5 w-3.5 flex-shrink-0 text-sercha-silverline" />
+                          <span className="truncate text-sercha-ink-slate">{search.query}</span>
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-2 text-xs text-sercha-fog-grey">
+                          <span>{search.result_count} results</span>
+                          <span>·</span>
+                          <span>{durationMs}ms</span>
+                          <span>·</span>
+                          <span>{formatRelativeTime(search.created_at)}</span>
+                        </div>
                       </div>
-                      <div className="flex flex-shrink-0 items-center gap-2 text-xs text-sercha-fog-grey">
-                        <span>{search.result_count} results</span>
-                        <span>·</span>
-                        <span>{formatRelativeTime(search.created_at)}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

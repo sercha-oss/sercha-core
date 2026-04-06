@@ -127,7 +127,7 @@ function GeneralSettingsSection({
   return (
     <section className="rounded-2xl border-2 border-sercha-silverline bg-white p-6">
       <h2 className="mb-6 text-lg font-semibold text-sercha-ink-slate">
-        General Settings
+        Search Settings
       </h2>
 
       {error && (
@@ -311,7 +311,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <AdminLayout title="General Settings" description="Configure general settings">
+      <AdminLayout title="Other Settings" description="Configure other settings">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-sercha-indigo" />
         </div>
@@ -320,7 +320,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <AdminLayout title="General Settings" description="Configure general settings">
+    <AdminLayout title="Other Settings" description="Configure other settings">
       <div className="space-y-8">
         {error && (
           <div className="flex items-center gap-2 rounded-lg bg-red-50 p-4 text-red-600">

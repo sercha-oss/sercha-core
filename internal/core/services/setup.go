@@ -57,8 +57,9 @@ func (s *setupService) GetStatus(ctx context.Context) (*driving.SetupStatusRespo
 		vespaConnected = vespaConfig.IsConnected()
 	}
 
-	// Setup is complete if we have users and sources
-	setupComplete := hasUsers && hasSources
+	// Setup is complete once the first admin user has been created.
+	// Sources are configured separately after initial setup.
+	setupComplete := hasUsers
 
 	return &driving.SetupStatusResponse{
 		SetupComplete:  setupComplete,

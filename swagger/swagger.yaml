@@ -49,6 +49,13 @@ definitions:
         description: Whether base URL is needed (e.g., Ollama)
         type: boolean
     type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod:
+    properties:
+      end:
+        type: string
+      start:
+        type: string
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.AuthMethod:
     enum:
     - oauth2
@@ -163,6 +170,77 @@ definitions:
       document:
         $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Document'
     type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.JobDetail:
+    properties:
+      execution_logs:
+        description: ExecutionLogs contains log entries for this job (future enhancement)
+        items:
+          type: string
+        type: array
+      retry_history:
+        description: RetryHistory shows previous retry attempts
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.RetryAttempt'
+        type: array
+      source_name:
+        description: SourceName is the name of the source (if applicable)
+        type: string
+      task:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Task'
+        description: Task is the main task information
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.JobHistory:
+    properties:
+      has_more:
+        description: HasMore indicates if there are more jobs beyond the current page
+        type: boolean
+      jobs:
+        description: Jobs is the list of historical job executions
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Task'
+        type: array
+      total_count:
+        description: TotalCount is the total number of jobs matching the query
+        type: integer
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.JobStats:
+    properties:
+      average_duration_ms:
+        description: AverageDuration is the average job duration in milliseconds
+        type: number
+      completed_jobs:
+        description: CompletedJobs is the number of successfully completed jobs
+        type: integer
+      failed_jobs:
+        description: FailedJobs is the number of failed jobs
+        type: integer
+      jobs_by_type:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: JobsByType shows the breakdown by task type
+        type: object
+      pending_jobs:
+        description: PendingJobs is the number of jobs waiting to be processed
+        type: integer
+      period:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod'
+        description: Period is the time range for these statistics
+      processing_jobs:
+        description: ProcessingJobs is the number of jobs currently being processed
+        type: integer
+      success_rate:
+        description: SuccessRate is the percentage of successful jobs (0-100)
+        type: number
+      total_jobs:
+        description: Total jobs across all statuses
+        type: integer
+      total_retries:
+        description: TotalRetries is the total number of retry attempts
+        type: integer
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.LoginRequest:
     properties:
       email:
@@ -221,6 +299,13 @@ definitions:
     - ProviderTypeLocalFS
     - ProviderTypeZendesk
     - ProviderTypeIntercom
+  github_com_custodia-labs_sercha-core_internal_core_domain.QueryFrequency:
+    properties:
+      count:
+        type: integer
+      query:
+        type: string
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.RankedChunk:
     properties:
       chunk:
@@ -238,6 +323,18 @@ definitions:
   github_com_custodia-labs_sercha-core_internal_core_domain.RefreshRequest:
     properties:
       refresh_token:
+        type: string
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.RetryAttempt:
+    properties:
+      attempt:
+        description: Attempt is the attempt number (1-indexed)
+        type: integer
+      error:
+        description: Error is the error message from this attempt
+        type: string
+      timestamp:
+        description: Timestamp is when this attempt occurred
         type: string
     type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.Role:
@@ -258,6 +355,97 @@ definitions:
     - RoleAdmin
     - RoleMember
     - RoleViewer
+  github_com_custodia-labs_sercha-core_internal_core_domain.ScheduledTask:
+    properties:
+      enabled:
+        description: Enabled indicates if the schedule is active
+        type: boolean
+      id:
+        description: ID is the unique identifier for this scheduled task
+        type: string
+      interval:
+        allOf:
+        - $ref: '#/definitions/time.Duration'
+        description: Interval is how often to run the task
+      last_error:
+        description: LastError contains the last error if the scheduled task failed
+        type: string
+      last_run:
+        description: LastRun is when the task was last triggered
+        type: string
+      name:
+        description: Name is a human-readable name for the task
+        type: string
+      next_run:
+        description: NextRun is when the task should next be triggered
+        type: string
+      team_id:
+        description: TeamID is the team this schedule belongs to
+        type: string
+      type:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.TaskType'
+        description: Type is the task type to create when triggered
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.SearchAnalytics:
+    properties:
+      average_duration_ms:
+        description: AverageDuration is the average search duration in milliseconds
+        type: number
+      average_results:
+        description: AverageResults is the average number of results per search
+        type: number
+      period:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod'
+        description: Period is the time range for these analytics
+      searches_by_mode:
+        additionalProperties:
+          format: int64
+          type: integer
+        description: SearchesByMode shows the breakdown by search mode
+        type: object
+      top_queries:
+        description: TopQueries are the most common search queries
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.QueryFrequency'
+        type: array
+      total_searches:
+        description: TotalSearches is the total number of searches in the period
+        type: integer
+      unique_users:
+        description: UniqueUsers is the number of unique users who searched
+        type: integer
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.SearchMetrics:
+    properties:
+      fast_searches:
+        description: FastSearches is the number of searches under 100ms
+        type: integer
+      medium_searches:
+        description: MediumSearches is the number of searches 100ms-500ms
+        type: integer
+      p50_duration_ms:
+        description: P50Duration is the 50th percentile search duration in milliseconds
+        type: number
+      p95_duration_ms:
+        description: P95Duration is the 95th percentile search duration in milliseconds
+        type: number
+      p99_duration_ms:
+        description: P99Duration is the 99th percentile search duration in milliseconds
+        type: number
+      period:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.AnalyticsPeriod'
+        description: Period is the time range for these metrics
+      slow_searches:
+        description: SlowSearches is the number of searches over 500ms
+        type: integer
+      zero_result_searches:
+        description: ZeroResultSearches is the number of searches that returned no
+          results
+        type: integer
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode:
     enum:
     - hybrid
@@ -276,6 +464,42 @@ definitions:
     - SearchModeHybrid
     - SearchModeTextOnly
     - SearchModeSemanticOnly
+  github_com_custodia-labs_sercha-core_internal_core_domain.SearchQuery:
+    properties:
+      created_at:
+        description: CreatedAt is when the search was performed
+        type: string
+      duration:
+        description: Duration is how long the search took to execute (in nanoseconds)
+        type: integer
+      has_filters:
+        description: Filters are the additional filters applied
+        type: boolean
+      id:
+        description: ID is the unique identifier for this search query log entry
+        type: string
+      mode:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMode'
+        description: Mode is the search mode used (hybrid, text, semantic)
+      query:
+        description: Query is the search text that was submitted
+        type: string
+      result_count:
+        description: ResultCount is the number of results returned
+        type: integer
+      source_ids:
+        description: SourceIDs are the source IDs that were filtered (if any)
+        items:
+          type: string
+        type: array
+      team_id:
+        description: TeamID is the team that performed the search
+        type: string
+      user_id:
+        description: UserID is the user who performed the search
+        type: string
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.SearchResult:
     properties:
       mode:
@@ -465,6 +689,97 @@ definitions:
     - SyncStatusRunning
     - SyncStatusCompleted
     - SyncStatusFailed
+  github_com_custodia-labs_sercha-core_internal_core_domain.Task:
+    properties:
+      attempts:
+        description: Attempts is how many times this task has been attempted
+        type: integer
+      completed_at:
+        description: CompletedAt is when processing finished (nil if not complete)
+        type: string
+      created_at:
+        description: CreatedAt is when the task was enqueued
+        type: string
+      error:
+        description: Error contains the last error message if failed
+        type: string
+      id:
+        description: ID is the unique identifier for this task
+        type: string
+      max_attempts:
+        description: MaxAttempts is the maximum retry count before giving up
+        type: integer
+      payload:
+        additionalProperties:
+          type: string
+        description: |-
+          Payload contains task-specific data
+          For sync_source: {"source_id": "src-123"}
+          For sync_all: {} (empty)
+        type: object
+      priority:
+        description: |-
+          Priority determines processing order (higher = more urgent)
+          Default is 0, range is -100 to 100
+        type: integer
+      scheduled_for:
+        description: ScheduledFor is when the task should be processed (for delayed
+          tasks)
+        type: string
+      started_at:
+        description: StartedAt is when processing began (nil if not started)
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.TaskStatus'
+        description: Status is the current state of the task
+      team_id:
+        description: TeamID is the team this task belongs to
+        type: string
+      type:
+        allOf:
+        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.TaskType'
+        description: Type identifies what kind of task this is
+      updated_at:
+        description: UpdatedAt is when the task was last modified
+        type: string
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_domain.TaskStatus:
+    enum:
+    - pending
+    - processing
+    - completed
+    - failed
+    type: string
+    x-enum-varnames:
+    - TaskStatusPending
+    - TaskStatusProcessing
+    - TaskStatusCompleted
+    - TaskStatusFailed
+  github_com_custodia-labs_sercha-core_internal_core_domain.TaskType:
+    enum:
+    - sync_source
+    - sync_all
+    type: string
+    x-enum-varnames:
+    - TaskTypeSyncSource
+    - TaskTypeSyncAll
+  github_com_custodia-labs_sercha-core_internal_core_domain.UpcomingJobs:
+    properties:
+      next_scheduled_run:
+        description: NextScheduledRun is when the next scheduled task will run
+        type: string
+      pending_tasks:
+        description: PendingTasks are tasks ready to be processed now
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.Task'
+        type: array
+      scheduled_tasks:
+        description: ScheduledTasks are recurring task schedules
+        items:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ScheduledTask'
+        type: array
+    type: object
   github_com_custodia-labs_sercha-core_internal_core_domain.User:
     properties:
       active:
@@ -668,6 +983,12 @@ definitions:
         - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ProviderType'
         description: ProviderType is the OAuth provider (github, slack, notion, etc.)
         example: github
+      return_context:
+        description: |-
+          ReturnContext indicates where to redirect after OAuth completes.
+          Values: "setup" (FTUE), "admin-sources" (add source wizard), or empty for default.
+        example: admin-sources
+        type: string
     type: object
   github_com_custodia-labs_sercha-core_internal_core_ports_driving.AuthorizeResponse:
     description: Response containing the OAuth authorization URL
@@ -686,18 +1007,6 @@ definitions:
           State is the CSRF token that will be returned in the callback.
           This is provided for reference - the frontend should not need to track it.
         example: abc123xyz
-        type: string
-    type: object
-  github_com_custodia-labs_sercha-core_internal_core_ports_driving.CallbackResponse:
-    description: Response after successful OAuth authorization
-    properties:
-      installation:
-        allOf:
-        - $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.ConnectionSummary'
-        description: Installation is the created installation summary.
-      message:
-        description: Message provides a human-readable status message.
-        example: Successfully connected to GitHub as octocat
         type: string
     type: object
   github_com_custodia-labs_sercha-core_internal_core_ports_driving.CapabilitiesResponse:
@@ -880,6 +1189,19 @@ definitions:
         type: boolean
       vespa_connected:
         type: boolean
+    type: object
+  github_com_custodia-labs_sercha-core_internal_core_ports_driving.TriggerReindexRequest:
+    properties:
+      priority:
+        description: Priority sets the task priority (-100 to 100)
+        type: integer
+      source_ids:
+        description: |-
+          SourceIDs optionally specifies which sources to reindex
+          If empty, all enabled sources are reindexed
+        items:
+          type: string
+        type: array
     type: object
   github_com_custodia-labs_sercha-core_internal_core_ports_driving.UpdateAISettingsRequest:
     properties:
@@ -1092,6 +1414,16 @@ definitions:
         example: accepted
         type: string
     type: object
+  internal_adapters_driving_http.TriggerReindexResponse:
+    description: Response containing task IDs created for reindex operation
+    properties:
+      message:
+        type: string
+      task_ids:
+        items:
+          type: string
+        type: array
+    type: object
   internal_adapters_driving_http.UpdateContainersRequest:
     description: Request to update which containers a source should index
     properties:
@@ -1113,6 +1445,84 @@ definitions:
     properties:
       version:
         example: 1.0.0
+        type: string
+    type: object
+  internal_adapters_driving_http.VespaMetricsResponse:
+    properties:
+      documents:
+        properties:
+          active:
+            type: integer
+          ready:
+            type: integer
+          removed:
+            type: integer
+          total:
+            type: integer
+        type: object
+      feed:
+        properties:
+          avg_latency_ms:
+            type: number
+          failed_operations:
+            type: integer
+          pending_operations:
+            type: integer
+          succeeded_operations:
+            type: integer
+          total_operations:
+            type: integer
+        type: object
+      nodes:
+        items:
+          $ref: '#/definitions/internal_adapters_driving_http.VespaNodeMetricsResponse'
+        type: array
+      query_performance:
+        properties:
+          avg_latency_ms:
+            type: number
+          degraded_queries:
+            type: integer
+          empty_results:
+            type: integer
+          failed_queries:
+            type: integer
+          queries_per_second:
+            type: number
+          total_queries:
+            type: integer
+        type: object
+      storage:
+        properties:
+          data_size_bytes:
+            type: integer
+          disk_used_bytes:
+            type: integer
+          disk_used_percent:
+            type: number
+          memory_used_bytes:
+            type: integer
+          memory_used_percent:
+            type: number
+        type: object
+      timestamp:
+        type: integer
+    type: object
+  internal_adapters_driving_http.VespaNodeMetricsResponse:
+    properties:
+      disk_used_bytes:
+        type: integer
+      disk_used_percent:
+        type: number
+      document_count:
+        type: integer
+      hostname:
+        type: string
+      memory_used_bytes:
+        type: integer
+      memory_used_percent:
+        type: number
+      role:
         type: string
     type: object
   internal_adapters_driving_http.aiProviderInfo:
@@ -1166,6 +1576,43 @@ definitions:
           type: string
         type: array
     type: object
+  time.Duration:
+    enum:
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    format: int64
+    type: integer
+    x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
 host: localhost:8081
 info:
   contact:
@@ -1179,6 +1626,292 @@ info:
   title: Sercha Core API
   version: "1.0"
 paths:
+  /admin/jobs:
+    get:
+      description: Retrieve job execution history with filtering and pagination
+      parameters:
+      - description: Filter by status (pending, processing, completed, failed)
+        in: query
+        name: status
+        type: string
+      - description: Filter by task type (sync_source, sync_all)
+        in: query
+        name: type
+        type: string
+      - description: 'Maximum number of jobs to return (default: 50, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      - description: Number of jobs to skip for pagination
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.JobHistory'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List job history
+      tags:
+      - Admin
+  /admin/jobs/{id}:
+    get:
+      description: Retrieve detailed information about a specific job
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.JobDetail'
+        "400":
+          description: Missing job ID
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "404":
+          description: Job not found
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get job details
+      tags:
+      - Admin
+  /admin/jobs/stats:
+    get:
+      description: Compute aggregated job statistics for a time period
+      parameters:
+      - default: 24h
+        description: Time period (24h, 7d, 30d)
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.JobStats'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get job statistics
+      tags:
+      - Admin
+  /admin/jobs/upcoming:
+    get:
+      description: Retrieve pending tasks and scheduled task configurations
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.UpcomingJobs'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get upcoming jobs
+      tags:
+      - Admin
+  /admin/reindex:
+    post:
+      consumes:
+      - application/json
+      description: Create tasks to reindex sources. If no source IDs are provided,
+        all enabled sources are reindexed.
+      parameters:
+      - description: Reindex options
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.TriggerReindexRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.TriggerReindexResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Trigger reindex
+      tags:
+      - Admin
+  /admin/search/analytics:
+    get:
+      description: Compute search usage analytics for a time period
+      parameters:
+      - default: 24h
+        description: Time period (24h, 7d, 30d)
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchAnalytics'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get search analytics
+      tags:
+      - Admin
+  /admin/search/history:
+    get:
+      description: Retrieve recent search queries
+      parameters:
+      - description: 'Maximum number of searches to return (default: 50, max: 100)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchQuery'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get search history
+      tags:
+      - Admin
+  /admin/search/metrics:
+    get:
+      description: Compute search performance metrics for a time period
+      parameters:
+      - default: 24h
+        description: Time period (24h, 7d, 30d)
+        in: query
+        name: period
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_domain.SearchMetrics'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get search metrics
+      tags:
+      - Admin
   /admin/stats:
     get:
       description: Get system-wide statistics including document counts, chunk counts,
@@ -1277,6 +2010,34 @@ paths:
       summary: Vespa health check
       tags:
       - Vespa
+  /admin/vespa/metrics:
+    get:
+      description: Get detailed Vespa cluster metrics including document counts, storage,
+        query performance, and feed stats (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.VespaMetricsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get Vespa metrics
+      tags:
+      - Vespa Admin
   /admin/vespa/status:
     get:
       description: Get the current Vespa connection and schema status (admin only)
@@ -1897,7 +2658,8 @@ paths:
     get:
       description: Handle the OAuth callback from an external provider. This endpoint
         is called by the provider after the user authorizes the application. It exchanges
-        the authorization code for tokens and creates a connector installation.
+        the authorization code for tokens and creates a connector installation, then
+        redirects to the UI.
       parameters:
       - description: Authorization code from provider
         in: query
@@ -1916,21 +2678,9 @@ paths:
         in: query
         name: error_description
         type: string
-      produces:
-      - application/json
       responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_custodia-labs_sercha-core_internal_core_ports_driving.CallbackResponse'
-        "400":
-          description: Invalid state or missing code
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Token exchange failed
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "302":
+          description: Redirect to UI oauth/complete page with error
       summary: OAuth callback
       tags:
       - OAuth

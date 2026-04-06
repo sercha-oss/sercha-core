@@ -10,62 +10,32 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Search,
   Server,
+  Sparkles,
   LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface NavItem {
   name: string;
   href: string;
   icon: LucideIcon;
-  children?: { name: string; href: string }[];
 }
 
 const navigation: NavItem[] = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Sources", href: "/admin/sources", icon: Database },
   { name: "Vespa", href: "/admin/vespa", icon: Server },
-  {
-    name: "Settings",
-    href: "/admin/settings",
-    icon: Settings,
-    children: [
-      { name: "General", href: "/admin/settings" },
-      { name: "Sync", href: "/admin/settings/sync" },
-      { name: "OAuth", href: "/admin/settings/oauth" },
-      { name: "AI", href: "/admin/settings/ai" },
-    ],
-  },
+  { name: "AI", href: "/admin/settings/ai", icon: Sparkles },
+  { name: "Other", href: "/admin/settings", icon: Settings },
   { name: "Team", href: "/admin/team", icon: Users },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const [settingsExpanded, setSettingsExpanded] = useState(false);
-
-  // Auto-expand Settings when on a settings page
-  useEffect(() => {
-    if (pathname.startsWith("/admin/settings")) {
-      setSettingsExpanded(true);
-    }
-  }, [pathname]);
-
-  // When clicking Settings in collapsed mode, expand the sidebar
-  const handleSettingsClick = (item: NavItem) => {
-    if (item.children) {
-      if (collapsed) {
-        setCollapsed(false);
-        setSettingsExpanded(true);
-      } else {
-        setSettingsExpanded(!settingsExpanded);
-      }
-    }
-  };
 
   return (
     <aside
@@ -110,69 +80,6 @@ export function Sidebar() {
             pathname === item.href ||
             (item.href !== "/" && item.href !== "/admin" && pathname.startsWith(item.href));
 
-          // Items with children (Settings) render differently
-          if (item.children) {
-            const isChildActive = item.children.some(
-              (child) =>
-                pathname === child.href ||
-                (child.href !== "/admin/settings" && pathname.startsWith(child.href))
-            );
-
-            return (
-              <div key={item.name}>
-                {/* Parent item - clickable to expand/collapse */}
-                <button
-                  onClick={() => handleSettingsClick(item)}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                    collapsed && "justify-center",
-                    isChildActive
-                      ? "text-sercha-indigo"
-                      : "text-sercha-fog-grey hover:bg-sercha-mist hover:text-sercha-ink-slate"
-                  )}
-                >
-                  <item.icon size={20} />
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1 text-left">{item.name}</span>
-                      <ChevronDown
-                        size={16}
-                        className={cn(
-                          "transition-transform",
-                          settingsExpanded && "rotate-180"
-                        )}
-                      />
-                    </>
-                  )}
-                </button>
-
-                {/* Children - only show when expanded and sidebar not collapsed */}
-                {settingsExpanded && !collapsed && (
-                  <div className="ml-6 mt-1 space-y-1 border-l border-sercha-silverline pl-3">
-                    {item.children.map((child) => {
-                      const isSubActive = pathname === child.href;
-                      return (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          className={cn(
-                            "block rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                            isSubActive
-                              ? "bg-sercha-indigo-soft text-sercha-indigo"
-                              : "text-sercha-fog-grey hover:bg-sercha-mist hover:text-sercha-ink-slate"
-                          )}
-                        >
-                          {child.name}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          // Regular items without children
           return (
             <Link
               key={item.name}

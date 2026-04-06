@@ -78,8 +78,9 @@ func TestSetupService_GetStatus_SetupIncomplete_NoSources(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if status.SetupComplete {
-		t.Error("expected setup to be incomplete when no sources exist")
+	// Setup is complete once users exist (sources are configured separately)
+	if !status.SetupComplete {
+		t.Error("expected setup to be complete when users exist (sources configured separately)")
 	}
 
 	if !status.HasUsers {
@@ -123,7 +124,7 @@ func TestSetupService_GetStatus_SetupComplete(t *testing.T) {
 	}
 
 	if !status.SetupComplete {
-		t.Error("expected setup to be complete when users and sources exist")
+		t.Error("expected setup to be complete when users exist")
 	}
 
 	if !status.HasUsers {

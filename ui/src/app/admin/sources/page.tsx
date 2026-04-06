@@ -239,9 +239,9 @@ export default function SourcesPage() {
         listProviders(),
       ]);
 
-      // Map connections to sources
-      const connectionMap = new Map(connectionsData.map((c) => [c.id, c]));
-      const sourcesWithConnections: SourceWithConnection[] = sourcesData.map((s) => ({
+      // Map connections to sources (handle null/undefined)
+      const connectionMap = new Map((connectionsData || []).map((c) => [c.id, c]));
+      const sourcesWithConnections: SourceWithConnection[] = (sourcesData || []).map((s) => ({
         ...s,
         connection: s.connection_id ? connectionMap.get(s.connection_id) : undefined,
       }));
@@ -250,7 +250,7 @@ export default function SourcesPage() {
       // Determine which providers are available vs unavailable
       // A provider is "available" if it's in capabilities.oauth_providers AND no source exists for it
       const configuredProviders = new Set(capabilities.oauth_providers);
-      const providersWithSources = new Set(sourcesData.map((s) => s.provider_type));
+      const providersWithSources = new Set((sourcesData || []).map((s) => s.provider_type));
 
       const available: ProviderListItem[] = [];
       const unavailable: ProviderListItem[] = [];

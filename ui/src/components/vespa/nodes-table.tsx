@@ -17,7 +17,7 @@ export function VespaNodesTable({ nodes }: Props) {
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
   };
 
-  if (nodes.length === 0) {
+  if (!nodes || nodes.length === 0) {
     return (
       <section className="rounded-2xl border-2 border-sercha-silverline bg-white p-6">
         <h3 className="mb-4 text-lg font-semibold text-sercha-ink-slate">

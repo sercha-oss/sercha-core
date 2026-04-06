@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
@@ -20,6 +21,7 @@ type vespaAdminService struct {
 	configStore     driven.VespaConfigStore
 	settingsStore   driven.SettingsStore
 	searchEngine    driven.SearchEngine
+	configProvider  driven.ConfigProvider
 	services        *runtime.Services
 	teamID          string
 	defaultEndpoint string
@@ -31,6 +33,7 @@ func NewVespaAdminService(
 	configStore driven.VespaConfigStore,
 	settingsStore driven.SettingsStore,
 	searchEngine driven.SearchEngine,
+	configProvider driven.ConfigProvider,
 	services *runtime.Services,
 	teamID string,
 	defaultEndpoint string,
@@ -43,6 +46,7 @@ func NewVespaAdminService(
 		configStore:     configStore,
 		settingsStore:   settingsStore,
 		searchEngine:    searchEngine,
+		configProvider:  configProvider,
 		services:        services,
 		teamID:          teamID,
 		defaultEndpoint: defaultEndpoint,
@@ -184,12 +188,17 @@ func (s *vespaAdminService) Status(ctx context.Context) (*driving.VespaStatus, e
 		}
 	}
 
-	// Check if current embedding service matches stored config
-	canUpgrade := config.CanUpgradeToHybrid()
-	embSvc := s.services.EmbeddingService()
-	if embSvc != nil && config.SchemaMode == domain.VespacSchemaModeBM25 {
-		// Have embedding service but running BM25-only schema
-		canUpgrade = true
+	// Check if we can upgrade to hybrid schema
+	// can_upgrade is only true if:
+	// 1. Current schema is BM25 (upgradeable), AND
+	// 2. Embedding providers are configured via environment variables (capabilities)
+	canUpgrade := false
+	if s.configProvider != nil {
+		caps := s.configProvider.GetCapabilities()
+		if caps != nil && len(caps.EmbeddingProviders) > 0 && config.SchemaMode == domain.VespacSchemaModeBM25 {
+			// Embedding providers configured but running BM25-only schema - can upgrade
+			canUpgrade = true
+		}
 	}
 
 	return &driving.VespaStatus{
@@ -234,4 +243,52 @@ func (s *vespaAdminService) HealthCheck(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// GetMetrics retrieves detailed metrics from the Vespa cluster
+func (s *vespaAdminService) GetMetrics(ctx context.Context) (*domain.VespaMetrics, error) {
+	config, err := s.configStore.GetVespaConfig(ctx, s.teamID)
+	if err != nil {
+		return nil, fmt.Errorf("vespa not configured")
+	}
+
+	if !config.Connected {
+		return nil, fmt.Errorf("vespa not connected")
+	}
+
+	// Derive metrics endpoint from config endpoint
+	// Config server is typically on port 19071, metrics proxy on 19092
+	metricsEndpoint := deriveMetricsEndpoint(config.Endpoint)
+
+	return s.deployer.GetMetrics(ctx, metricsEndpoint)
+}
+
+// deriveMetricsEndpoint converts a config server endpoint to metrics proxy endpoint
+// e.g., http://vespa:19071 -> http://vespa:19092
+func deriveMetricsEndpoint(configEndpoint string) string {
+	// Default if we can't parse
+	defaultMetrics := "http://vespa:19092"
+
+	// Try to parse and replace port
+	if strings.Contains(configEndpoint, ":19071") {
+		return strings.Replace(configEndpoint, ":19071", ":19092", 1)
+	}
+
+	// If it's a different port structure, try to extract host
+	if strings.HasPrefix(configEndpoint, "http://") {
+		parts := strings.SplitN(configEndpoint[7:], ":", 2)
+		if len(parts) >= 1 {
+			host := strings.SplitN(parts[0], "/", 2)[0]
+			return fmt.Sprintf("http://%s:19092", host)
+		}
+	}
+	if strings.HasPrefix(configEndpoint, "https://") {
+		parts := strings.SplitN(configEndpoint[8:], ":", 2)
+		if len(parts) >= 1 {
+			host := strings.SplitN(parts[0], "/", 2)[0]
+			return fmt.Sprintf("https://%s:19092", host)
+		}
+	}
+
+	return defaultMetrics
 }

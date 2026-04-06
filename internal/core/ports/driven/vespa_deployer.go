@@ -23,6 +23,10 @@ type VespaDeployer interface {
 
 	// HealthCheck verifies the Vespa cluster is healthy
 	HealthCheck(ctx context.Context, endpoint string) error
+
+	// GetMetrics fetches cluster metrics from the Vespa metrics API.
+	// metricsEndpoint should be the metrics proxy endpoint (typically port 19092).
+	GetMetrics(ctx context.Context, metricsEndpoint string) (*domain.VespaMetrics, error)
 }
 
 // AppPackage represents a Vespa application package

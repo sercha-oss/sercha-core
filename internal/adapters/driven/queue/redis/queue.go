@@ -669,6 +669,126 @@ func (q *Queue) claimAbandonedTask(ctx context.Context) (*domain.Task, error) {
 	return nil, nil
 }
 
+// GetJobStats computes aggregated job statistics for a time period
+// Note: Redis implementation scans all tasks - for large datasets, consider PostgreSQL
+func (q *Queue) GetJobStats(ctx context.Context, teamID string, period domain.AnalyticsPeriod) (*domain.JobStats, error) {
+	stats := domain.NewJobStats(period)
+
+	// Scan all task keys
+	iter := q.client.Scan(ctx, 0, taskKeyPrefix+"*", 0).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
+		if key == taskKeyPrefix || key == "" {
+			continue
+		}
+
+		taskData, err := q.client.Get(ctx, key).Bytes()
+		if err != nil {
+			continue
+		}
+
+		var task domain.Task
+		if err := json.Unmarshal(taskData, &task); err != nil {
+			continue
+		}
+
+		// Filter by team and period
+		if task.TeamID != teamID {
+			continue
+		}
+		if task.CreatedAt.Before(period.Start) || task.CreatedAt.After(period.End) {
+			continue
+		}
+
+		// Count by status
+		stats.TotalJobs++
+		switch task.Status {
+		case domain.TaskStatusPending:
+			stats.PendingJobs++
+		case domain.TaskStatusProcessing:
+			stats.ProcessingJobs++
+		case domain.TaskStatusCompleted:
+			stats.CompletedJobs++
+		case domain.TaskStatusFailed:
+			stats.FailedJobs++
+		}
+
+		// Count by type
+		stats.JobsByType[task.Type]++
+
+		// Sum retries
+		if task.Attempts > 1 {
+			stats.TotalRetries += int64(task.Attempts - 1)
+		}
+
+		// Calculate duration for completed tasks
+		if task.Status == domain.TaskStatusCompleted && task.StartedAt != nil && task.CompletedAt != nil {
+			duration := task.CompletedAt.Sub(*task.StartedAt).Milliseconds()
+			// Running average
+			if stats.AverageDuration == 0 {
+				stats.AverageDuration = float64(duration)
+			} else {
+				stats.AverageDuration = (stats.AverageDuration + float64(duration)) / 2
+			}
+		}
+	}
+
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("scan tasks: %w", err)
+	}
+
+	stats.CalculateSuccessRate()
+	return stats, nil
+}
+
+// CountTasks returns the total number of tasks matching the filter
+// Note: Redis implementation scans all tasks - for large datasets, consider PostgreSQL
+func (q *Queue) CountTasks(ctx context.Context, filter driven.TaskFilter) (int64, error) {
+	var count int64
+
+	// Scan all task keys
+	iter := q.client.Scan(ctx, 0, taskKeyPrefix+"*", 0).Iterator()
+	for iter.Next(ctx) {
+		key := iter.Val()
+		if key == taskKeyPrefix || key == "" {
+			continue
+		}
+
+		taskData, err := q.client.Get(ctx, key).Bytes()
+		if err != nil {
+			continue
+		}
+
+		var task domain.Task
+		if err := json.Unmarshal(taskData, &task); err != nil {
+			continue
+		}
+
+		// Filter by team
+		if task.TeamID != filter.TeamID {
+			continue
+		}
+
+		// Filter by status
+		if filter.Status != "" && task.Status != filter.Status {
+			continue
+		}
+
+		// Filter by type
+		if filter.Type != "" && task.Type != filter.Type {
+			continue
+		}
+
+		count++
+	}
+
+	if err := iter.Err(); err != nil {
+		return 0, fmt.Errorf("scan tasks: %w", err)
+	}
+
+	return count, nil
+}
+
 // Helper functions
 
 func isGroupExistsError(err error) bool {

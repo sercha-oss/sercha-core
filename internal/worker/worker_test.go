@@ -128,6 +128,16 @@ func (m *mockTaskQueue) Close() error {
 	return nil
 }
 
+func (m *mockTaskQueue) GetJobStats(ctx context.Context, teamID string, period domain.AnalyticsPeriod) (*domain.JobStats, error) {
+	return domain.NewJobStats(period), nil
+}
+
+func (m *mockTaskQueue) CountTasks(ctx context.Context, filter driven.TaskFilter) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return int64(len(m.tasks)), nil
+}
+
 func TestNewWorker(t *testing.T) {
 	queue := newMockTaskQueue()
 	logger := slog.Default()

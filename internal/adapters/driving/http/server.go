@@ -7,12 +7,23 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driving"
 )
+
+// stripTrailingSlash removes trailing slashes from request paths (except root)
+func stripTrailingSlash(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" && strings.HasSuffix(r.URL.Path, "/") {
+			r.URL.Path = strings.TrimSuffix(r.URL.Path, "/")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // Pinger is a simple health check interface
 type Pinger interface {
@@ -39,11 +50,13 @@ type Server struct {
 	syncOrchestrator    driving.SyncOrchestrator
 	capabilitiesService driving.CapabilitiesService
 	setupService        driving.SetupService
+	adminService        driving.AdminService
 
 	// Infrastructure
-	taskQueue   driven.TaskQueue
-	db          Pinger // PostgreSQL health check
-	redisClient Pinger // Redis health check (optional)
+	taskQueue           driven.TaskQueue
+	searchQueryRepo     driven.SearchQueryRepository // for search tracking
+	db                  Pinger                       // PostgreSQL health check
+	redisClient         Pinger                       // Redis health check (optional)
 }
 
 // Config holds server configuration
@@ -78,7 +91,9 @@ func NewServer(
 	syncOrchestrator driving.SyncOrchestrator,
 	capabilitiesService driving.CapabilitiesService,
 	setupService driving.SetupService,
+	adminService driving.AdminService,
 	taskQueue driven.TaskQueue,
+	searchQueryRepo driven.SearchQueryRepository,
 	db Pinger,
 	redisClient Pinger, // can be nil
 ) *Server {
@@ -98,14 +113,16 @@ func NewServer(
 		syncOrchestrator:    syncOrchestrator,
 		capabilitiesService: capabilitiesService,
 		setupService:        setupService,
+		adminService:        adminService,
 		taskQueue:           taskQueue,
+		searchQueryRepo:     searchQueryRepo,
 		db:                  db,
 		redisClient:         redisClient,
 	}
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-		Handler:      s.router,
+		Handler:      stripTrailingSlash(s.router),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -236,6 +253,32 @@ func (s *Server) setupRoutes() {
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetAdminStats))))
 
+	// Admin dashboard endpoints (admin-only)
+	s.router.Handle("GET /api/v1/admin/jobs",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListJobs))))
+	s.router.Handle("GET /api/v1/admin/jobs/upcoming",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetUpcomingJobs))))
+	s.router.Handle("GET /api/v1/admin/jobs/{id}",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetJob))))
+	s.router.Handle("GET /api/v1/admin/jobs/stats",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetJobStats))))
+	s.router.Handle("GET /api/v1/admin/search/analytics",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetSearchAnalytics))))
+	s.router.Handle("GET /api/v1/admin/search/history",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetSearchHistory))))
+	s.router.Handle("GET /api/v1/admin/search/metrics",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetSearchMetrics))))
+	s.router.Handle("POST /api/v1/admin/reindex",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleTriggerReindex))))
+
 	// Vespa admin endpoints (admin-only)
 	s.router.Handle("POST /api/v1/admin/vespa/connect",
 		authMiddleware.Authenticate(
@@ -246,6 +289,9 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("GET /api/v1/admin/vespa/health",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleVespaHealth))))
+	s.router.Handle("GET /api/v1/admin/vespa/metrics",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleVespaMetrics))))
 
 	// Provider configuration endpoints (admin-only)
 	// Note: Provider credentials are now managed via environment variables, not API

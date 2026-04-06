@@ -18,6 +18,9 @@ type VespaAdminService interface {
 
 	// HealthCheck performs a health check on the Vespa cluster
 	HealthCheck(ctx context.Context) error
+
+	// GetMetrics retrieves detailed metrics from the Vespa cluster
+	GetMetrics(ctx context.Context) (*domain.VespaMetrics, error)
 }
 
 // ConnectVespaRequest represents a request to connect to Vespa

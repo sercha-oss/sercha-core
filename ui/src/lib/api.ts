@@ -63,6 +63,7 @@ export interface VespaMetrics {
   storage: {
     disk_used_bytes: number;
     disk_used_percent: number;
+    data_size_bytes: number;
     memory_used_bytes: number;
     memory_used_percent: number;
   };
@@ -1035,57 +1036,13 @@ export async function getVersion(): Promise<VersionResponse> {
 
 // ========== Job History API ==========
 
-export interface JobSummary {
+// Task represents a background job (matches domain.Task)
+export interface Task {
   id: string;
   type: string;
-  status: "pending" | "processing" | "completed" | "failed";
-  created_at: string;
-  started_at?: string;
-  completed_at?: string;
-  duration_ms?: number;
-  attempts: number;
-  error?: string;
-}
-
-export interface JobHistoryResponse {
-  jobs: JobSummary[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
-export interface PendingJob {
-  id: string;
-  type: string;
-  status: string;
-  created_at: string;
-  scheduled_for: string;
-  priority: number;
-  payload?: Record<string, string>;
-}
-
-export interface ScheduledJob {
-  id: string;
-  name: string;
-  type: string;
-  interval_minutes: number;
-  enabled: boolean;
-  last_run?: string;
-  next_run: string;
-  last_error?: string;
-}
-
-export interface UpcomingJobsResponse {
-  pending_tasks: PendingJob[];
-  scheduled_tasks: ScheduledJob[];
-}
-
-export interface JobDetail {
-  id: string;
-  type: string;
-  status: string;
   team_id: string;
   payload?: Record<string, string>;
+  status: "pending" | "processing" | "completed" | "failed";
   priority: number;
   attempts: number;
   max_attempts: number;
@@ -1095,126 +1052,185 @@ export interface JobDetail {
   started_at?: string;
   completed_at?: string;
   scheduled_for: string;
-  duration_ms?: number;
 }
 
+// JobHistory represents the job history response (matches domain.JobHistory)
+export interface JobHistory {
+  jobs: Task[];
+  total_count: number;
+  has_more: boolean;
+}
+
+// ScheduledTask represents a recurring task schedule (matches domain.ScheduledTask)
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  type: string;
+  team_id: string;
+  interval: number; // Duration in nanoseconds from backend, will be converted to minutes in UI
+  enabled: boolean;
+  last_run?: string;
+  next_run: string;
+  last_error?: string;
+}
+
+// UpcomingJobs represents pending and scheduled jobs (matches domain.UpcomingJobs)
+export interface UpcomingJobs {
+  pending_tasks: Task[];
+  scheduled_tasks: ScheduledTask[];
+  next_scheduled_run?: string;
+}
+
+// RetryAttempt represents a single retry attempt (matches domain.RetryAttempt)
+export interface RetryAttempt {
+  attempt: number;
+  error: string;
+  timestamp: string;
+}
+
+// JobDetail represents detailed job information (matches domain.JobDetail)
+export interface JobDetail {
+  task: Task;
+  source_name?: string;
+  execution_logs?: string[];
+  retry_history?: RetryAttempt[];
+}
+
+// JobStats represents aggregated job statistics (matches domain.JobStats)
 export interface JobStats {
-  pending: number;
-  processing: number;
-  completed: number;
-  failed: number;
-  oldest_pending_age_seconds: number;
+  total_jobs: number;
+  pending_jobs: number;
+  processing_jobs: number;
+  completed_jobs: number;
+  failed_jobs: number;
+  success_rate: number;
+  average_duration_ms: number;
+  total_retries: number;
+  jobs_by_type: Record<string, number>;
+  period: AnalyticsPeriod;
 }
 
-export interface ListJobHistoryParams {
+export interface ListJobsParams {
   limit?: number;
   offset?: number;
-  status?: "completed" | "failed";
+  status?: "pending" | "processing" | "completed" | "failed";
   type?: string;
 }
 
-export async function getJobHistory(params?: ListJobHistoryParams): Promise<JobHistoryResponse> {
+export async function getJobs(params?: ListJobsParams): Promise<JobHistory> {
   const searchParams = new URLSearchParams();
   if (params?.limit) searchParams.set("limit", params.limit.toString());
   if (params?.offset) searchParams.set("offset", params.offset.toString());
   if (params?.status) searchParams.set("status", params.status);
   if (params?.type) searchParams.set("type", params.type);
   const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  return apiFetch<JobHistoryResponse>(`/api/v1/admin/jobs${query}`);
+  return apiFetch<JobHistory>(`/api/v1/admin/jobs${query}`);
 }
 
-export async function getUpcomingJobs(): Promise<UpcomingJobsResponse> {
-  return apiFetch<UpcomingJobsResponse>("/api/v1/admin/jobs/upcoming");
+export async function getUpcomingJobs(): Promise<UpcomingJobs> {
+  return apiFetch<UpcomingJobs>("/api/v1/admin/jobs/upcoming");
 }
 
 export async function getJob(id: string): Promise<JobDetail> {
   return apiFetch<JobDetail>(`/api/v1/admin/jobs/${id}`);
 }
 
-export async function getJobStats(): Promise<JobStats> {
-  return apiFetch<JobStats>("/api/v1/admin/jobs/stats");
+export async function getJobStats(period?: "24h" | "7d" | "30d"): Promise<JobStats> {
+  const params = period ? `?period=${period}` : "";
+  return apiFetch<JobStats>(`/api/v1/admin/jobs/stats${params}`);
 }
+
+// Backward compatibility aliases
+export type ListJobHistoryParams = ListJobsParams;
+export type JobHistoryResponse = JobHistory;
+export const getJobHistory = getJobs;
 
 // ========== Search Analytics API ==========
 
-export interface QueryCount {
+// AnalyticsPeriod represents the time range for analytics (matches domain.AnalyticsPeriod)
+export interface AnalyticsPeriod {
+  start: string;
+  end: string;
+}
+
+// QueryFrequency represents how often a query appears (matches domain.QueryFrequency)
+export interface QueryFrequency {
   query: string;
   count: number;
 }
 
-export interface SearchAnalytics {
-  total_searches: number;
-  searches_today: number;
-  searches_this_week: number;
-  avg_latency_ms: number;
-  avg_result_count: number;
-  unique_users: number;
-  top_queries: QueryCount[];
-}
-
-export interface SearchQueryRecord {
+// SearchQuery represents a logged search query (matches domain.SearchQuery)
+export interface SearchQuery {
   id: string;
-  user_id: string;
   team_id: string;
+  user_id: string;
   query: string;
   mode: string;
   result_count: number;
-  latency_ms: number;
+  duration: number; // nanoseconds
   source_ids?: string[];
+  has_filters: boolean;
   created_at: string;
 }
 
-export interface SearchHistoryResponse {
-  searches: SearchQueryRecord[];
-  total: number;
-  limit: number;
-  offset: number;
+// SearchAnalytics represents aggregated search analytics (matches domain.SearchAnalytics)
+export interface SearchAnalytics {
+  total_searches: number;
+  unique_users: number;
+  average_duration_ms: number;
+  average_results: number;
+  top_queries: QueryFrequency[];
+  searches_by_mode: Record<string, number>;
+  period: AnalyticsPeriod;
+}
+
+// SearchMetrics represents search performance metrics (matches domain.SearchMetrics)
+export interface SearchMetrics {
+  fast_searches: number;
+  medium_searches: number;
+  slow_searches: number;
+  p50_duration_ms: number;
+  p95_duration_ms: number;
+  p99_duration_ms: number;
+  zero_result_searches: number;
+  period: AnalyticsPeriod;
 }
 
 export interface ListSearchHistoryParams {
   limit?: number;
-  offset?: number;
 }
 
-export async function getSearchAnalytics(): Promise<SearchAnalytics> {
-  return apiFetch<SearchAnalytics>("/api/v1/admin/search/analytics");
+export async function getSearchAnalytics(period?: "24h" | "7d" | "30d"): Promise<SearchAnalytics> {
+  const params = period ? `?period=${period}` : "";
+  return apiFetch<SearchAnalytics>(`/api/v1/admin/search/analytics${params}`);
 }
 
-export async function getSearchHistory(params?: ListSearchHistoryParams): Promise<SearchHistoryResponse> {
+export async function getSearchHistory(params?: ListSearchHistoryParams): Promise<SearchQuery[]> {
   const searchParams = new URLSearchParams();
   if (params?.limit) searchParams.set("limit", params.limit.toString());
-  if (params?.offset) searchParams.set("offset", params.offset.toString());
   const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  return apiFetch<SearchHistoryResponse>(`/api/v1/admin/search/history${query}`);
+  return apiFetch<SearchQuery[]>(`/api/v1/admin/search/history${query}`);
 }
 
-// Search Metrics types and API
-
-export interface SearchMetricPoint {
-  timestamp: string;
-  search_count: number;
-}
-
-export interface SearchMetrics {
-  points: SearchMetricPoint[];
-  total_count: number;
-  period: "hourly" | "daily";
-}
-
-export async function getSearchMetrics(period: "hourly" | "daily" = "hourly"): Promise<SearchMetrics> {
-  return apiFetch<SearchMetrics>(`/api/v1/admin/search/metrics?period=${period}`);
+export async function getSearchMetrics(period?: "24h" | "7d" | "30d"): Promise<SearchMetrics> {
+  const params = period ? `?period=${period}` : "";
+  return apiFetch<SearchMetrics>(`/api/v1/admin/search/metrics${params}`);
 }
 
 // ========== Reindex API ==========
 
-export interface ReindexResponse {
-  message: string;
-  task_id: string;
+export interface TriggerReindexRequest {
+  source_ids?: string[];
+  priority?: number;
 }
 
-export async function triggerReindex(): Promise<ReindexResponse> {
-  return apiFetch<ReindexResponse>("/api/v1/admin/reindex", {
+export interface TriggerReindexResponse {
+  task_ids: string[];
+}
+
+export async function triggerReindex(request?: TriggerReindexRequest): Promise<TriggerReindexResponse> {
+  return apiFetch<TriggerReindexResponse>("/api/v1/admin/reindex", {
     method: "POST",
-    body: JSON.stringify({ confirm: true }),
+    body: JSON.stringify(request || {}),
   });
 }

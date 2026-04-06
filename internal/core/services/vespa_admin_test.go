@@ -51,6 +51,14 @@ func (m *MockVespaDeployer) HealthCheck(ctx context.Context, endpoint string) er
 	return args.Error(0)
 }
 
+func (m *MockVespaDeployer) GetMetrics(ctx context.Context, metricsEndpoint string) (*domain.VespaMetrics, error) {
+	args := m.Called(ctx, metricsEndpoint)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.VespaMetrics), args.Error(1)
+}
+
 // MockVespaConfigStore is a mock implementation of driven.VespaConfigStore
 type MockVespaConfigStore struct {
 	mock.Mock
@@ -184,28 +192,79 @@ func (m *MockSearchEngine) Count(ctx context.Context) (int64, error) {
 	return args.Get(0).(int64), args.Error(1)
 }
 
+// MockConfigProvider is a mock implementation of driven.ConfigProvider
+type MockConfigProvider struct {
+	mock.Mock
+}
+
+func (m *MockConfigProvider) GetOAuthCredentials(provider domain.ProviderType) *driven.OAuthCredentials {
+	args := m.Called(provider)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*driven.OAuthCredentials)
+}
+
+func (m *MockConfigProvider) GetAICredentials(provider domain.AIProvider) *driven.AICredentials {
+	args := m.Called(provider)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*driven.AICredentials)
+}
+
+func (m *MockConfigProvider) IsOAuthConfigured(provider domain.ProviderType) bool {
+	args := m.Called(provider)
+	return args.Bool(0)
+}
+
+func (m *MockConfigProvider) IsAIConfigured(provider domain.AIProvider) bool {
+	args := m.Called(provider)
+	return args.Bool(0)
+}
+
+func (m *MockConfigProvider) GetCapabilities() *driven.Capabilities {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*driven.Capabilities)
+}
+
+func (m *MockConfigProvider) GetBaseURL() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 // Test Helpers
 
-func setupVespaAdminTest(t *testing.T) (*vespaAdminService, *MockVespaDeployer, *MockVespaConfigStore, *MockSettingsStore, *MockSearchEngine, *runtime.Services) {
+func setupVespaAdminTest(t *testing.T) (*vespaAdminService, *MockVespaDeployer, *MockVespaConfigStore, *MockSettingsStore, *MockSearchEngine, *MockConfigProvider, *runtime.Services) {
 	deployer := new(MockVespaDeployer)
 	configStore := new(MockVespaConfigStore)
 	settingsStore := new(MockSettingsStore)
 	searchEngine := new(MockSearchEngine)
+	configProvider := new(MockConfigProvider)
 	runtimeConfig := domain.NewRuntimeConfig("redis")
 	services := runtime.NewServices(runtimeConfig)
 	teamID := "test-team-123"
+
+	// Default: no embedding providers configured
+	configProvider.On("GetCapabilities").Return(&driven.Capabilities{
+		EmbeddingProviders: []domain.AIProvider{},
+	}).Maybe()
 
 	svc := &vespaAdminService{
 		deployer:        deployer,
 		configStore:     configStore,
 		settingsStore:   settingsStore,
 		searchEngine:    searchEngine,
+		configProvider:  configProvider,
 		services:        services,
 		teamID:          teamID,
 		defaultEndpoint: "http://localhost:19071",
 	}
 
-	return svc, deployer, configStore, settingsStore, searchEngine, services
+	return svc, deployer, configStore, settingsStore, searchEngine, configProvider, services
 }
 
 // TestNewVespaAdminService tests the constructor
@@ -214,12 +273,13 @@ func TestNewVespaAdminService(t *testing.T) {
 	configStore := new(MockVespaConfigStore)
 	settingsStore := new(MockSettingsStore)
 	searchEngine := new(MockSearchEngine)
+	configProvider := new(MockConfigProvider)
 	runtimeConfig := domain.NewRuntimeConfig("redis")
 	services := runtime.NewServices(runtimeConfig)
 	teamID := "test-team-123"
 	defaultEndpoint := "http://localhost:19071"
 
-	svc := NewVespaAdminService(deployer, configStore, settingsStore, searchEngine, services, teamID, defaultEndpoint)
+	svc := NewVespaAdminService(deployer, configStore, settingsStore, searchEngine, configProvider, services, teamID, defaultEndpoint)
 
 	require.NotNil(t, svc)
 	assert.Implements(t, (*driving.VespaAdminService)(nil), svc)
@@ -228,7 +288,7 @@ func TestNewVespaAdminService(t *testing.T) {
 // TestConnect_DevMode_BM25Only tests connecting in dev mode without embeddings
 func TestConnect_DevMode_BM25Only(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://localhost:8080",
@@ -274,7 +334,7 @@ func TestConnect_DevMode_BM25Only(t *testing.T) {
 // TestConnect_DevMode_WithEmbeddings tests connecting in dev mode with embeddings
 func TestConnect_DevMode_WithEmbeddings(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, services := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, services := setupVespaAdminTest(t)
 
 	// Setup embedding service
 	mockEmbed := new(MockEmbeddingService)
@@ -338,7 +398,7 @@ func TestConnect_DevMode_WithEmbeddings(t *testing.T) {
 // TestConnect_ProductionMode_Success tests connecting in production mode
 func TestConnect_ProductionMode_Success(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://prod-vespa:8080",
@@ -390,7 +450,7 @@ func TestConnect_ProductionMode_Success(t *testing.T) {
 // TestConnect_ProductionMode_NoExistingApp tests production mode when no app is deployed
 func TestConnect_ProductionMode_NoExistingApp(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://prod-vespa:8080",
@@ -420,7 +480,7 @@ func TestConnect_ProductionMode_NoExistingApp(t *testing.T) {
 // TestConnect_HealthCheckFails tests connect when health check fails
 func TestConnect_HealthCheckFails(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://localhost:8080",
@@ -447,7 +507,7 @@ func TestConnect_HealthCheckFails(t *testing.T) {
 // TestConnect_CannotDowngradeFromHybrid tests that we can't downgrade from hybrid to BM25
 func TestConnect_CannotDowngradeFromHybrid(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://localhost:8080",
@@ -485,7 +545,7 @@ func TestConnect_CannotDowngradeFromHybrid(t *testing.T) {
 // TestConnect_CannotChangeDimension tests that we can't change embedding dimension
 func TestConnect_CannotChangeDimension(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, services := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, services := setupVespaAdminTest(t)
 
 	// Setup embedding service with different dimension
 	mockEmbed := new(MockEmbeddingService)
@@ -535,7 +595,7 @@ func TestConnect_CannotChangeDimension(t *testing.T) {
 // TestConnect_DeployFails tests when deployment fails
 func TestConnect_DeployFails(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://localhost:8080",
@@ -565,7 +625,7 @@ func TestConnect_DeployFails(t *testing.T) {
 // TestConnect_SaveConfigFails tests when config save fails
 func TestConnect_SaveConfigFails(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://localhost:8080",
@@ -604,7 +664,7 @@ func TestConnect_SaveConfigFails(t *testing.T) {
 // TestConnect_DefaultEndpoint tests using default endpoint when not provided
 func TestConnect_DefaultEndpoint(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "", // Empty - should use default
@@ -643,7 +703,7 @@ func TestConnect_DefaultEndpoint(t *testing.T) {
 // TestConnect_UseStoredEndpoint tests using stored endpoint from config
 func TestConnect_UseStoredEndpoint(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "", // Empty - should use stored endpoint
@@ -687,7 +747,7 @@ func TestConnect_UseStoredEndpoint(t *testing.T) {
 // TestConnect_UpgradeFromBM25ToHybrid tests upgrading schema from BM25 to hybrid
 func TestConnect_UpgradeFromBM25ToHybrid(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, services := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, services := setupVespaAdminTest(t)
 
 	// Setup embedding service
 	mockEmbed := new(MockEmbeddingService)
@@ -753,7 +813,7 @@ func TestConnect_UpgradeFromBM25ToHybrid(t *testing.T) {
 // TestStatus_Connected tests status when Vespa is connected and healthy
 func TestStatus_Connected(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, searchEngine, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, searchEngine, _, _ := setupVespaAdminTest(t)
 
 	existingConfig := &domain.VespaConfig{
 		TeamID:            "test-team-123",
@@ -795,7 +855,7 @@ func TestStatus_Connected(t *testing.T) {
 // TestStatus_NotConfigured tests status when Vespa is not configured
 func TestStatus_NotConfigured(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	// Config not found
 	configStore.On("GetVespaConfig", ctx, "test-team-123").Return(nil, errors.New("not found"))
@@ -816,7 +876,7 @@ func TestStatus_NotConfigured(t *testing.T) {
 // TestStatus_ConnectedButUnhealthy tests status when configured but Vespa is down
 func TestStatus_ConnectedButUnhealthy(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	existingConfig := &domain.VespaConfig{
 		TeamID:        "test-team-123",
@@ -846,11 +906,13 @@ func TestStatus_ConnectedButUnhealthy(t *testing.T) {
 // TestStatus_CanUpgrade tests status can upgrade flag
 func TestStatus_CanUpgrade(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, searchEngine, services := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, searchEngine, configProvider, _ := setupVespaAdminTest(t)
 
-	// Setup embedding service
-	mockEmbed := new(MockEmbeddingService)
-	services.SetEmbeddingService(mockEmbed)
+	// Configure capabilities with embedding providers (overrides default empty from setup)
+	configProvider.ExpectedCalls = nil // Clear default mock
+	configProvider.On("GetCapabilities").Return(&driven.Capabilities{
+		EmbeddingProviders: []domain.AIProvider{domain.AIProviderOpenAI},
+	})
 
 	// Config is BM25-only
 	existingConfig := &domain.VespaConfig{
@@ -872,7 +934,7 @@ func TestStatus_CanUpgrade(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, status)
-	assert.True(t, status.CanUpgrade) // Should be true since we have embedding service
+	assert.True(t, status.CanUpgrade) // Should be true since embedding providers are configured
 
 	deployer.AssertExpectations(t)
 	configStore.AssertExpectations(t)
@@ -883,7 +945,7 @@ func TestStatus_CanUpgrade(t *testing.T) {
 // TestStatus_HybridMode tests status with hybrid mode enabled
 func TestStatus_HybridMode(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, searchEngine, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, searchEngine, _, _ := setupVespaAdminTest(t)
 
 	existingConfig := &domain.VespaConfig{
 		TeamID:            "test-team-123",
@@ -924,7 +986,7 @@ func TestStatus_HybridMode(t *testing.T) {
 // TestHealthCheck_Success tests successful health check
 func TestHealthCheck_Success(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, searchEngine, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, searchEngine, _, _ := setupVespaAdminTest(t)
 
 	existingConfig := &domain.VespaConfig{
 		TeamID:    "test-team-123",
@@ -950,7 +1012,7 @@ func TestHealthCheck_Success(t *testing.T) {
 // TestHealthCheck_NotConfigured tests health check when not configured
 func TestHealthCheck_NotConfigured(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	// Config not found
 	configStore.On("GetVespaConfig", ctx, "test-team-123").Return(nil, errors.New("not found"))
@@ -968,7 +1030,7 @@ func TestHealthCheck_NotConfigured(t *testing.T) {
 // TestHealthCheck_NotConnected tests health check when not connected
 func TestHealthCheck_NotConnected(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	existingConfig := &domain.VespaConfig{
 		TeamID:    "test-team-123",
@@ -990,7 +1052,7 @@ func TestHealthCheck_NotConnected(t *testing.T) {
 // TestHealthCheck_Fails tests health check when Vespa is down
 func TestHealthCheck_Fails(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	existingConfig := &domain.VespaConfig{
 		TeamID:    "test-team-123",
@@ -1015,7 +1077,7 @@ func TestHealthCheck_Fails(t *testing.T) {
 // TestConnect_WithEmbeddingsButNoAISettings tests connecting with embeddings when AI settings fail to load
 func TestConnect_WithEmbeddingsButNoAISettings(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, services := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, services := setupVespaAdminTest(t)
 
 	// Setup embedding service
 	mockEmbed := new(MockEmbeddingService)
@@ -1059,7 +1121,7 @@ func TestConnect_WithEmbeddingsButNoAISettings(t *testing.T) {
 // TestConnect_ProductionMode_FetchFails tests production mode when fetch fails
 func TestConnect_ProductionMode_FetchFails(t *testing.T) {
 	ctx := context.Background()
-	svc, deployer, configStore, settingsStore, _, _ := setupVespaAdminTest(t)
+	svc, deployer, configStore, settingsStore, _, _, _ := setupVespaAdminTest(t)
 
 	req := driving.ConnectVespaRequest{
 		Endpoint: "http://prod-vespa:8080",
