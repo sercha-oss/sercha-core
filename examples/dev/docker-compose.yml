@@ -19,27 +19,12 @@ services:
       timeout: 5s
       retries: 5
 
-  vespa:
-    image: vespaengine/vespa:8
-    ports:
-      - "19071:19071"
-    volumes:
-      - vespa_data:/opt/vespa/var
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:19071/state/v1/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 60s
-
   sercha:
     build:
       context: ../..
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
-      VESPA_CONFIG_URL: http://vespa:19071
-      VESPA_CONTAINER_URL: http://vespa:8080
       JWT_SECRET: ${JWT_SECRET}
       MASTER_KEY: ${MASTER_KEY}
       PORT: 8080
@@ -64,9 +49,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      vespa:
-        condition: service_healthy
 
 volumes:
   postgres_data:
-  vespa_data:

@@ -169,7 +169,7 @@ function SearchSettingsSection({
             {schemaUpgradeRequired && (searchMode === "hybrid" || searchMode === "semantic") && (
               <p className="mt-1 flex items-center gap-1 text-xs text-amber-600">
                 <AlertCircle className="h-3 w-3" />
-                Upgrade the Vespa schema to use this mode (go to Vespa settings)
+                Schema upgrade required to use this mode
               </p>
             )}
             {!isEmbeddingConfigured && !schemaUpgradeRequired && (searchMode === "hybrid" || searchMode === "semantic") && (
@@ -211,7 +211,7 @@ function SearchSettingsSection({
                 {schemaUpgradeRequired && semanticEnabled && (
                   <p className="mt-1 flex items-center gap-1 text-xs text-amber-600">
                     <AlertCircle className="h-3 w-3" />
-                    Upgrade Vespa schema to enable this feature
+                    Schema upgrade required to enable this feature
                   </p>
                 )}
                 {!isEmbeddingConfigured && !schemaUpgradeRequired && semanticEnabled && (
@@ -711,17 +711,11 @@ export default function SettingsPage() {
               <div className="flex-1">
                 <h3 className="font-semibold text-amber-800">Schema Upgrade Required</h3>
                 <p className="mt-1 text-sm text-amber-700">
-                  {aiStatus.schema_upgrade_reason || "Vespa schema needs upgrade to support embeddings."}
+                  {aiStatus.schema_upgrade_reason || "Search schema needs upgrade to support embeddings."}
                 </p>
                 <p className="mt-2 text-sm text-amber-600">
-                  Go to the Vespa page and click &quot;Reconnect&quot; to upgrade the schema. After upgrading, you&apos;ll need to reindex existing documents.
+                  After upgrading the search backend, you&apos;ll need to reindex existing documents.
                 </p>
-                <a
-                  href="/admin/vespa"
-                  className="mt-3 inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700"
-                >
-                  Go to Vespa Settings
-                </a>
               </div>
             </div>
           </div>

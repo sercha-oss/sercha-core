@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { CheckCircle2, ArrowRight, Database, Sparkles, Link2, FileText, Loader2 } from "lucide-react";
-import { getVespaStatus, getAISettings, listProviders, listSources } from "@/lib/api";
+import { CheckCircle2, ArrowRight, Sparkles, Link2, FileText, Loader2 } from "lucide-react";
+import { getAISettings, listProviders, listSources } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 interface StepCompleteProps {
@@ -11,7 +11,6 @@ interface StepCompleteProps {
 }
 
 interface ActualStatus {
-  vespaConnected: boolean;
   aiConfigured: boolean;
   providerConfigured: boolean;
   sourceConnected: boolean;
@@ -21,7 +20,6 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<ActualStatus>({
-    vespaConnected: false,
     aiConfigured: false,
     providerConfigured: false,
     sourceConnected: false,
@@ -31,15 +29,13 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const [vespaStatus, aiSettings, providers, sources] = await Promise.all([
-          getVespaStatus().catch(() => null),
+        const [aiSettings, providers, sources] = await Promise.all([
           getAISettings().catch(() => null),
           listProviders().catch(() => []),
           listSources().catch(() => []),
         ]);
 
         setStatus({
-          vespaConnected: vespaStatus?.healthy || vespaStatus?.connected || false,
           aiConfigured: aiSettings?.embedding?.is_configured || aiSettings?.llm?.is_configured || false,
           providerConfigured: providers.some((p) => p.configured),
           sourceConnected: sources.length > 0,
@@ -47,10 +43,9 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
       } catch {
         // Fall back to completedSteps if API fails
         setStatus({
-          vespaConnected: completedSteps.includes(2),
-          aiConfigured: completedSteps.includes(3),
-          providerConfigured: completedSteps.includes(4),
-          sourceConnected: completedSteps.includes(4),
+          aiConfigured: completedSteps.includes(2),
+          providerConfigured: completedSteps.includes(3),
+          sourceConnected: completedSteps.includes(3),
         });
       } finally {
         setLoading(false);
@@ -60,12 +55,6 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
   }, [completedSteps]);
 
   const features = [
-    {
-      icon: Database,
-      title: "Vespa Connected",
-      description: "Your search engine is ready",
-      completed: status.vespaConnected,
-    },
     {
       icon: Sparkles,
       title: "AI Configured",
@@ -124,7 +113,7 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
 
       {/* Configuration Summary */}
       <div className="mt-8 rounded-xl border border-sercha-silverline bg-white p-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           {features.map((feature) => (
             <div
               key={feature.title}

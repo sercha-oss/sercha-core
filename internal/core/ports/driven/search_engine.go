@@ -6,7 +6,7 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 )
 
-// SearchEngine handles search indexing and querying (Vespa)
+// SearchEngine handles search indexing and querying
 type SearchEngine interface {
 	// Index indexes chunks for a document
 	Index(ctx context.Context, chunks []*domain.Chunk) error
@@ -31,8 +31,7 @@ type SearchEngine interface {
 }
 
 // VectorIndex handles vector similarity search
-// Note: In Vespa, this is integrated with SearchEngine.
-// This interface exists for alternative implementations.
+// This interface allows for dedicated vector store implementations (e.g., pgvector).
 type VectorIndex interface {
 	// Index adds vectors to the index
 	Index(ctx context.Context, id string, embedding []float32) error

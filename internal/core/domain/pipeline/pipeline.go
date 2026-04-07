@@ -26,7 +26,7 @@ type ProducesManifest struct {
 // ProducedCapability describes a capability that was stored during indexing.
 type ProducedCapability struct {
 	Type       CapabilityType `json:"type"`                 // e.g., "vector_store"
-	Store      string         `json:"store"`                // e.g., "vespa-embeddings"
+	Store      string         `json:"store"`                // e.g., "pgvector"
 	Model      string         `json:"model,omitempty"`      // e.g., "text-embedding-3-small"
 	Dimensions int            `json:"dimensions,omitempty"` // For embeddings
 	Metadata   map[string]any `json:"metadata,omitempty"`   // Additional info

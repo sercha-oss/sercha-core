@@ -201,14 +201,6 @@ func (m *mockConfigProvider) GetDatabaseURL() string {
 	return "postgres://test"
 }
 
-func (m *mockConfigProvider) GetVespaConfigURL() string {
-	return "http://localhost:19071"
-}
-
-func (m *mockConfigProvider) GetVespaContainerURL() string {
-	return "http://localhost:8080"
-}
-
 // mockOAuthHandler implements connectors.OAuthHandler for testing
 type mockOAuthHandler struct {
 	authURL   string

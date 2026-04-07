@@ -18,12 +18,10 @@ var _ driven.ConfigProvider = (*Config)(nil)
 // Config holds application configuration from environment variables
 type Config struct {
 	// Required configuration
-	DatabaseURL        string
-	JWTSecret          string
-	MasterKey          []byte
-	VespaConfigURL     string
-	VespaContainerURL  string
-	BaseURL            string
+	DatabaseURL string
+	JWTSecret   string
+	MasterKey   []byte
+	BaseURL     string
 
 	// OAuth provider credentials
 	oauthCredentials map[domain.ProviderType]*driven.OAuthCredentials
@@ -45,10 +43,8 @@ func Load() (*Config, error) {
 
 	// Required variables
 	requiredVars := map[string]*string{
-		"DATABASE_URL":        &cfg.DatabaseURL,
-		"JWT_SECRET":          &cfg.JWTSecret,
-		"VESPA_CONFIG_URL":    &cfg.VespaConfigURL,
-		"VESPA_CONTAINER_URL": &cfg.VespaContainerURL,
+		"DATABASE_URL": &cfg.DatabaseURL,
+		"JWT_SECRET":   &cfg.JWTSecret,
 	}
 
 	var missing []string

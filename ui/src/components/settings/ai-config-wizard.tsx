@@ -15,8 +15,8 @@ import {
   type AIProviderMeta,
   type AIModelMeta,
   type AIProviderConfig,
-  getVespaMetrics,
   triggerReindex,
+  getAdminStats,
 } from "@/lib/api";
 
 type WizardStep = "provider" | "model" | "confirm";
@@ -64,9 +64,9 @@ export function AIConfigWizard({
   useEffect(() => {
     if (isOpen && type === "embedding") {
       setLoadingDocCount(true);
-      getVespaMetrics()
-        .then((metrics) => {
-          setDocumentCount(metrics.documents?.total ?? 0);
+      getAdminStats()
+        .then((stats) => {
+          setDocumentCount(stats.documents?.total ?? 0);
         })
         .catch(() => {
           setDocumentCount(0);

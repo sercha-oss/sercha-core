@@ -11,7 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
-  Server,
   Sparkles,
   LucideIcon,
 } from "lucide-react";
@@ -27,7 +26,6 @@ interface NavItem {
 const navigation: NavItem[] = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Sources", href: "/admin/sources", icon: Database },
-  { name: "Vespa", href: "/admin/vespa", icon: Server },
   { name: "AI", href: "/admin/settings/ai", icon: Sparkles },
   { name: "Team", href: "/admin/team", icon: Users },
   { name: "Other", href: "/admin/settings", icon: Settings },

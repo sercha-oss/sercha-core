@@ -35,7 +35,7 @@ func (s *capabilitiesService) GetCapabilities(ctx context.Context) (*driving.Cap
 		},
 		Features: driving.FeaturesCapability{
 			SemanticSearch: len(capabilities.EmbeddingProviders) > 0,
-			VectorIndexing: len(capabilities.EmbeddingProviders) > 0, // Vespa check should be in adapter
+			VectorIndexing: len(capabilities.EmbeddingProviders) > 0, // Backend check handled by capability system
 		},
 		Limits: driving.LimitsCapability{
 			SyncMinInterval:   capabilities.Limits.SyncMinInterval,

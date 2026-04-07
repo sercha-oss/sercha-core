@@ -43,7 +43,6 @@ type Server struct {
 	sourceService       driving.SourceService
 	docService          driving.DocumentService
 	settingsService     driving.SettingsService
-	vespaAdminService   driving.VespaAdminService
 	providerService     driving.ProviderService
 	oauthService        driving.OAuthService
 	connectionService   driving.ConnectionService
@@ -85,7 +84,6 @@ func NewServer(
 	sourceService driving.SourceService,
 	docService driving.DocumentService,
 	settingsService driving.SettingsService,
-	vespaAdminService driving.VespaAdminService,
 	providerService driving.ProviderService,
 	oauthService driving.OAuthService,
 	connectionService driving.ConnectionService,
@@ -107,7 +105,6 @@ func NewServer(
 		sourceService:       sourceService,
 		docService:          docService,
 		settingsService:     settingsService,
-		vespaAdminService:   vespaAdminService,
 		providerService:     providerService,
 		oauthService:        oauthService,
 		connectionService:   connectionService,
@@ -286,20 +283,6 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("POST /api/v1/admin/reindex",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleTriggerReindex))))
-
-	// Vespa admin endpoints (admin-only)
-	s.router.Handle("POST /api/v1/admin/vespa/connect",
-		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleVespaConnect))))
-	s.router.Handle("GET /api/v1/admin/vespa/status",
-		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleVespaStatus))))
-	s.router.Handle("GET /api/v1/admin/vespa/health",
-		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleVespaHealth))))
-	s.router.Handle("GET /api/v1/admin/vespa/metrics",
-		authMiddleware.Authenticate(
-			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleVespaMetrics))))
 
 	// Provider configuration endpoints (admin-only)
 	// Note: Provider credentials are now managed via environment variables, not API

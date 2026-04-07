@@ -145,16 +145,13 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run) WHERE enabled = true;
 CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_team_id ON scheduled_tasks(team_id);
 
--- Vespa config table (tracks Vespa connection and schema state)
-CREATE TABLE IF NOT EXISTS vespa_config (
+-- Capability preferences table (stores per-team capability preferences)
+CREATE TABLE IF NOT EXISTS capability_preferences (
     team_id TEXT PRIMARY KEY,
-    endpoint TEXT NOT NULL DEFAULT 'http://vespa:19071',
-    connected BOOLEAN NOT NULL DEFAULT false,
-    schema_mode TEXT,
-    embedding_dim INT,
-    embedding_provider TEXT,
-    schema_version TEXT,
-    connected_at TIMESTAMPTZ,
+    text_indexing_enabled BOOLEAN NOT NULL DEFAULT true,
+    embedding_indexing_enabled BOOLEAN NOT NULL DEFAULT false,
+    bm25_search_enabled BOOLEAN NOT NULL DEFAULT true,
+    vector_search_enabled BOOLEAN NOT NULL DEFAULT true,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

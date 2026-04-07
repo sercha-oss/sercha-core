@@ -64,20 +64,9 @@ type LLMSettingsInput struct {
 
 // AISettingsStatus represents the status of AI services
 type AISettingsStatus struct {
-	Embedding           AIServiceStatus    `json:"embedding"`
-	LLM                 AIServiceStatus    `json:"llm"`
-	Vespa               VespaServiceStatus `json:"vespa"`
-	EffectiveSearchMode domain.SearchMode  `json:"effective_search_mode"`
-}
-
-// VespaServiceStatus represents the status of the Vespa search engine
-type VespaServiceStatus struct {
-	Connected         bool                   `json:"connected"`
-	SchemaMode        domain.VespaSchemaMode `json:"schema_mode"`
-	EmbeddingsEnabled bool                   `json:"embeddings_enabled"`
-	EmbeddingDim      int                    `json:"embedding_dim,omitempty"`
-	CanUpgrade        bool                   `json:"can_upgrade"`
-	Healthy           bool                   `json:"healthy"`
+	Embedding           AIServiceStatus   `json:"embedding"`
+	LLM                 AIServiceStatus   `json:"llm"`
+	EffectiveSearchMode domain.SearchMode `json:"effective_search_mode"`
 }
 
 // AIServiceStatus represents the status of a single AI service

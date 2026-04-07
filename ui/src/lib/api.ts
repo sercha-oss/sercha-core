@@ -40,66 +40,6 @@ export interface SetupResponse {
   message: string;
 }
 
-export interface VespaStatus {
-  connected: boolean;
-  endpoint: string;
-  dev_mode: boolean;
-  schema_mode: "hybrid" | "bm25";
-  embeddings_enabled: boolean;
-  embedding_dim: number;
-  healthy: boolean;
-  indexed_chunks: number;
-  can_upgrade?: boolean;
-  reindex_required?: boolean;
-}
-
-export interface VespaMetrics {
-  documents: {
-    total: number;
-    ready: number;
-    active: number;
-    removed: number;
-  };
-  storage: {
-    disk_used_bytes: number;
-    disk_used_percent: number;
-    data_size_bytes: number;
-    memory_used_bytes: number;
-    memory_used_percent: number;
-  };
-  query_performance: {
-    total_queries: number;
-    queries_per_second: number;
-    avg_latency_ms: number;
-    failed_queries: number;
-    degraded_queries: number;
-    empty_results: number;
-  };
-  feed: {
-    total_operations: number;
-    succeeded_operations: number;
-    failed_operations: number;
-    pending_operations: number;
-    avg_latency_ms: number;
-  };
-  nodes: VespaNodeMetrics[];
-  timestamp: number;
-}
-
-export interface VespaNodeMetrics {
-  hostname: string;
-  role: "container" | "content";
-  document_count: number;
-  disk_used_bytes: number;
-  disk_used_percent: number;
-  memory_used_bytes: number;
-  memory_used_percent: number;
-}
-
-export interface VespaConnectRequest {
-  endpoint: string;
-  dev_mode?: boolean;
-}
 
 export type AIProvider = "openai" | "anthropic" | "ollama" | "cohere" | "voyage";
 
@@ -127,21 +67,10 @@ export interface AISettingsResponse {
   llm: AIProviderInfo;
 }
 
-// Vespa service status within AI settings context
-export interface VespaServiceStatus {
-  connected: boolean;
-  schema_mode: "hybrid" | "bm25" | "";
-  embeddings_enabled: boolean;
-  embedding_dim?: number;
-  can_upgrade: boolean;
-  healthy: boolean;
-}
-
 // Response from GET /api/v1/settings/ai/status
 export interface AISettingsStatus {
   embedding: { available: boolean; provider?: string; embedding_dim?: number };
   llm: { available: boolean; provider?: string };
-  vespa: VespaServiceStatus;
   effective_search_mode: string;
   reindex_required: boolean;
   reindex_reason?: string;
@@ -501,7 +430,6 @@ export interface SetupStatusResponse {
   setup_complete: boolean;
   has_users: boolean;
   has_sources: boolean;
-  vespa_connected: boolean;
 }
 
 // API Error class
@@ -691,33 +619,6 @@ export async function getSetupStatus(): Promise<SetupStatusResponse> {
     );
   }
   return response.json();
-}
-
-// ========== Vespa API ==========
-
-export async function getVespaStatus(): Promise<VespaStatus> {
-  return apiFetch<VespaStatus>("/api/v1/admin/vespa/status");
-}
-
-export async function connectVespa(data: VespaConnectRequest): Promise<VespaStatus> {
-  return apiFetch<VespaStatus>("/api/v1/admin/vespa/connect", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-
-export async function disconnectVespa(): Promise<{ status: string }> {
-  return apiFetch<{ status: string }>("/api/v1/admin/vespa", {
-    method: "DELETE",
-  });
-}
-
-export async function checkVespaHealth(): Promise<{ status: string }> {
-  return apiFetch<{ status: string }>("/api/v1/admin/vespa/health");
-}
-
-export async function getVespaMetrics(): Promise<VespaMetrics> {
-  return apiFetch<VespaMetrics>("/api/v1/admin/vespa/metrics");
 }
 
 // ========== AI Settings API ==========

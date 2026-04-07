@@ -370,41 +370,6 @@ func (m *mockCapabilitiesService) GetCapabilities(ctx context.Context) (*driving
 	}, nil
 }
 
-type mockVespaAdminService struct {
-	connectFn     func(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error)
-	statusFn      func(ctx context.Context) (*driving.VespaStatus, error)
-	healthCheckFn func(ctx context.Context) error
-	getMetricsFn  func(ctx context.Context) (*domain.VespaMetrics, error)
-}
-
-func (m *mockVespaAdminService) Connect(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error) {
-	if m.connectFn != nil {
-		return m.connectFn(ctx, req)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockVespaAdminService) Status(ctx context.Context) (*driving.VespaStatus, error) {
-	if m.statusFn != nil {
-		return m.statusFn(ctx)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockVespaAdminService) HealthCheck(ctx context.Context) error {
-	if m.healthCheckFn != nil {
-		return m.healthCheckFn(ctx)
-	}
-	return errors.New("not implemented")
-}
-
-func (m *mockVespaAdminService) GetMetrics(ctx context.Context) (*domain.VespaMetrics, error) {
-	if m.getMetricsFn != nil {
-		return m.getMetricsFn(ctx)
-	}
-	return nil, errors.New("not implemented")
-}
-
 type mockSetupService struct {
 	getStatusFn func(ctx context.Context) (*driving.SetupStatusResponse, error)
 }
@@ -434,39 +399,6 @@ func TestHealthHandler(t *testing.T) {
 	}
 	if response.Status != "healthy" {
 		t.Errorf("expected status 'healthy', got %s", response.Status)
-	}
-	if response.Components["server"].Status != "healthy" {
-		t.Errorf("expected server component to be healthy")
-	}
-}
-
-func TestHealthHandler_WithVespaUnhealthy(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		healthCheckFn: func(ctx context.Context) error {
-			return errors.New("vespa not connected")
-		},
-	}
-	server := &Server{version: "test", vespaAdminService: mockVespa}
-
-	req := httptest.NewRequest("GET", "/health", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleHealth(rr, req)
-
-	// Always returns 200 - service is up and can respond
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
-	}
-
-	var response HealthResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if response.Status != "degraded" {
-		t.Errorf("expected status 'degraded', got %s", response.Status)
-	}
-	if response.Components["vespa"].Status != "unhealthy" {
-		t.Errorf("expected vespa component to be unhealthy")
 	}
 	if response.Components["server"].Status != "healthy" {
 		t.Errorf("expected server component to be healthy")
@@ -2246,54 +2178,6 @@ func TestHandleGetAIStatus_Success(t *testing.T) {
 	}
 }
 
-func TestHandleGetAIStatus_WithVespaService(t *testing.T) {
-	mockSettings := &mockSettingsService{
-		getAIStatusFn: func(ctx context.Context) (*driving.AISettingsStatus, error) {
-			return &driving.AISettingsStatus{
-				Embedding: driving.AIServiceStatus{Available: true},
-				LLM:       driving.AIServiceStatus{Available: true},
-			}, nil
-		},
-	}
-
-	mockVespa := &mockVespaAdminService{
-		statusFn: func(ctx context.Context) (*driving.VespaStatus, error) {
-			return &driving.VespaStatus{
-				Connected:         true,
-				SchemaMode:        domain.VespacSchemaModeHybrid,
-				EmbeddingsEnabled: true,
-				EmbeddingDim:      384,
-				Healthy:           true,
-			}, nil
-		},
-	}
-
-	server := &Server{
-		settingsService:   mockSettings,
-		vespaAdminService: mockVespa,
-	}
-
-	req := httptest.NewRequest("GET", "/api/v1/settings/ai/status", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleGetAIStatus(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
-	}
-
-	var response driving.AISettingsStatus
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if !response.Vespa.Connected {
-		t.Error("expected Vespa to be connected")
-	}
-	if response.Vespa.EmbeddingDim != 384 {
-		t.Errorf("expected embedding dim 384, got %d", response.Vespa.EmbeddingDim)
-	}
-}
-
 func TestHandleTestAIConnection_Success(t *testing.T) {
 	mockSettings := &mockSettingsService{
 		testConnectionFn: func(ctx context.Context) error {
@@ -2332,190 +2216,15 @@ func TestHandleTestAIConnection_Failure(t *testing.T) {
 	}
 }
 
-// Vespa Admin Handler Tests
-
-func TestHandleVespaConnect_Success(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		connectFn: func(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error) {
-			return &driving.VespaStatus{
-				Connected:  true,
-				Endpoint:   "http://localhost:8080",
-				DevMode:    req.DevMode,
-				SchemaMode: domain.VespacSchemaModeBM25,
-				Healthy:    true,
-			}, nil
-		},
-	}
-
-	server := &Server{vespaAdminService: mockVespa}
-
-	body, _ := json.Marshal(driving.ConnectVespaRequest{
-		Endpoint: "http://localhost:8080",
-		DevMode:  true,
-	})
-	req := httptest.NewRequest("POST", "/api/v1/admin/vespa/connect", bytes.NewBuffer(body))
-	rr := httptest.NewRecorder()
-
-	server.handleVespaConnect(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
-	}
-
-	var response driving.VespaStatus
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if !response.Connected {
-		t.Error("expected Vespa to be connected")
-	}
-}
-
-func TestHandleVespaConnect_EmptyBody(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		connectFn: func(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error) {
-			return &driving.VespaStatus{Connected: true}, nil
-		},
-	}
-
-	server := &Server{vespaAdminService: mockVespa}
-
-	req := httptest.NewRequest("POST", "/api/v1/admin/vespa/connect", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleVespaConnect(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
-	}
-}
-
-func TestHandleVespaConnect_InvalidJSON(t *testing.T) {
-	server := &Server{vespaAdminService: &mockVespaAdminService{}}
-
-	req := httptest.NewRequest("POST", "/api/v1/admin/vespa/connect", bytes.NewBufferString("invalid"))
-	rr := httptest.NewRecorder()
-
-	server.handleVespaConnect(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d", rr.Code)
-	}
-}
-
-func TestHandleVespaConnect_Error(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		connectFn: func(ctx context.Context, req driving.ConnectVespaRequest) (*driving.VespaStatus, error) {
-			return nil, errors.New("connection failed")
-		},
-	}
-
-	server := &Server{vespaAdminService: mockVespa}
-
-	body, _ := json.Marshal(driving.ConnectVespaRequest{
-		Endpoint: "http://localhost:8080",
-		DevMode:  true,
-	})
-	req := httptest.NewRequest("POST", "/api/v1/admin/vespa/connect", bytes.NewBuffer(body))
-	rr := httptest.NewRecorder()
-
-	server.handleVespaConnect(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected status 500, got %d", rr.Code)
-	}
-}
-
-func TestHandleVespaStatus_Success(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		statusFn: func(ctx context.Context) (*driving.VespaStatus, error) {
-			return &driving.VespaStatus{
-				Connected:  true,
-				SchemaMode: domain.VespacSchemaModeHybrid,
-				Healthy:    true,
-			}, nil
-		},
-	}
-
-	server := &Server{vespaAdminService: mockVespa}
-
-	req := httptest.NewRequest("GET", "/api/v1/admin/vespa/status", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleVespaStatus(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
-	}
-}
-
-func TestHandleVespaStatus_Error(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		statusFn: func(ctx context.Context) (*driving.VespaStatus, error) {
-			return nil, errors.New("vespa not configured")
-		},
-	}
-
-	server := &Server{vespaAdminService: mockVespa}
-
-	req := httptest.NewRequest("GET", "/api/v1/admin/vespa/status", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleVespaStatus(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected status 500, got %d", rr.Code)
-	}
-}
-
-func TestHandleVespaHealth_Success(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		healthCheckFn: func(ctx context.Context) error {
-			return nil
-		},
-	}
-
-	server := &Server{vespaAdminService: mockVespa}
-
-	req := httptest.NewRequest("GET", "/api/v1/admin/vespa/health", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleVespaHealth(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rr.Code)
-	}
-}
-
-func TestHandleVespaHealth_Unhealthy(t *testing.T) {
-	mockVespa := &mockVespaAdminService{
-		healthCheckFn: func(ctx context.Context) error {
-			return errors.New("vespa cluster unhealthy")
-		},
-	}
-
-	server := &Server{vespaAdminService: mockVespa}
-
-	req := httptest.NewRequest("GET", "/api/v1/admin/vespa/health", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleVespaHealth(rr, req)
-
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected status 503, got %d", rr.Code)
-	}
-}
-
 // Setup Handler Tests
 
 func TestHandleSetupStatus_Success(t *testing.T) {
 	mockSetup := &mockSetupService{
 		getStatusFn: func(ctx context.Context) (*driving.SetupStatusResponse, error) {
 			return &driving.SetupStatusResponse{
-				SetupComplete:  true,
-				HasUsers:       true,
-				HasSources:     true,
-				VespaConnected: true,
+				SetupComplete: true,
+				HasUsers:      true,
+				HasSources:    true,
 			}, nil
 		},
 	}
@@ -2545,19 +2254,15 @@ func TestHandleSetupStatus_Success(t *testing.T) {
 	if !response.HasSources {
 		t.Error("expected HasSources to be true")
 	}
-	if !response.VespaConnected {
-		t.Error("expected VespaConnected to be true")
-	}
 }
 
 func TestHandleSetupStatus_SetupIncomplete(t *testing.T) {
 	mockSetup := &mockSetupService{
 		getStatusFn: func(ctx context.Context) (*driving.SetupStatusResponse, error) {
 			return &driving.SetupStatusResponse{
-				SetupComplete:  false,
-				HasUsers:       false,
-				HasSources:     false,
-				VespaConnected: false,
+				SetupComplete: false,
+				HasUsers:      false,
+				HasSources:    false,
 			}, nil
 		},
 	}
@@ -2586,9 +2291,6 @@ func TestHandleSetupStatus_SetupIncomplete(t *testing.T) {
 	}
 	if response.HasSources {
 		t.Error("expected HasSources to be false")
-	}
-	if response.VespaConnected {
-		t.Error("expected VespaConnected to be false")
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 var _ driven.ChunkStore = (*ChunkStore)(nil)
 
 // ChunkStore implements driven.ChunkStore using PostgreSQL
-// Note: Embeddings are stored in Vespa, not here
+// Note: Embeddings are stored in the vector store (pgvector), not here
 type ChunkStore struct {
 	db *DB
 }
@@ -165,7 +165,7 @@ func (s *ChunkStore) DeleteBySource(ctx context.Context, sourceID string) error 
 	return err
 }
 
-// GetChunkIDs returns all chunk IDs for a document (useful for Vespa cleanup)
+// GetChunkIDs returns all chunk IDs for a document (useful for search index cleanup)
 func (s *ChunkStore) GetChunkIDs(ctx context.Context, documentID string) ([]string, error) {
 	query := `SELECT id FROM chunks WHERE document_id = $1`
 
@@ -191,7 +191,7 @@ func (s *ChunkStore) GetChunkIDs(ctx context.Context, documentID string) ([]stri
 	return ids, nil
 }
 
-// GetChunkIDsBySource returns all chunk IDs for a source (useful for Vespa cleanup)
+// GetChunkIDsBySource returns all chunk IDs for a source (useful for search index cleanup)
 func (s *ChunkStore) GetChunkIDsBySource(ctx context.Context, sourceID string) ([]string, error) {
 	query := `SELECT id FROM chunks WHERE source_id = $1`
 

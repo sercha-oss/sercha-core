@@ -70,19 +70,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check Vespa health
-	if s.vespaAdminService != nil {
-		if err := s.vespaAdminService.HealthCheck(r.Context()); err != nil {
-			components["vespa"] = ComponentHealth{
-				Status:  "unhealthy",
-				Message: err.Error(),
-			}
-			allHealthy = false
-		} else {
-			components["vespa"] = ComponentHealth{Status: "healthy"}
-		}
-	}
-
 	// Check Redis health (optional)
 	if s.redisClient != nil {
 		if err := s.redisClient.Ping(r.Context()); err != nil {
@@ -1073,7 +1060,7 @@ func (s *Server) handleUpdateAISettings(w http.ResponseWriter, r *http.Request) 
 
 // handleGetAIStatus godoc
 // @Summary      Get AI status
-// @Description  Get the current status of AI services including embedding, LLM, and Vespa connection status
+// @Description  Get the current status of AI services including embedding and LLM
 // @Tags         AI Settings
 // @Produce      json
 // @Security     BearerAuth
@@ -1086,25 +1073,6 @@ func (s *Server) handleGetAIStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get AI status")
 		return
-	}
-
-	// Add Vespa status if service is available
-	if s.vespaAdminService != nil {
-		vespaStatus, err := s.vespaAdminService.Status(r.Context())
-		if err == nil && vespaStatus != nil {
-			status.Vespa = driving.VespaServiceStatus{
-				Connected:         vespaStatus.Connected,
-				SchemaMode:        vespaStatus.SchemaMode,
-				EmbeddingsEnabled: vespaStatus.EmbeddingsEnabled,
-				EmbeddingDim:      vespaStatus.EmbeddingDim,
-				CanUpgrade:        vespaStatus.CanUpgrade,
-				Healthy:           vespaStatus.Healthy,
-			}
-			// Include embedding dimension in embedding status if Vespa is configured with embeddings
-			if vespaStatus.EmbeddingsEnabled && vespaStatus.EmbeddingDim > 0 {
-				status.Embedding.EmbeddingDim = vespaStatus.EmbeddingDim
-			}
-		}
 	}
 
 	writeJSON(w, http.StatusOK, status)
@@ -1148,208 +1116,6 @@ func (s *Server) handleGetAIProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, providers)
-}
-
-// Vespa admin endpoints
-
-// handleVespaConnect godoc
-// @Summary      Connect to Vespa
-// @Description  Connect to a Vespa cluster and deploy the search schema (admin only). Use dev_mode=true for local development, dev_mode=false for production clusters.
-// @Tags         Vespa
-// @Accept       json
-// @Produce      json
-// @Security     BearerAuth
-// @Param        request  body      driving.ConnectVespaRequest  true  "Vespa connection settings"
-// @Success      200      {object}  driving.VespaStatus
-// @Failure      400      {object}  ErrorResponse  "Invalid request"
-// @Failure      401      {object}  ErrorResponse  "Unauthorized"
-// @Failure      403      {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      500      {object}  ErrorResponse  "Connection failed"
-// @Router       /admin/vespa/connect [post]
-func (s *Server) handleVespaConnect(w http.ResponseWriter, r *http.Request) {
-	var req driving.ConnectVespaRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && r.ContentLength > 0 {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	status, err := s.vespaAdminService.Connect(r.Context(), req)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, status)
-}
-
-// handleVespaStatus godoc
-// @Summary      Get Vespa status
-// @Description  Get the current Vespa connection and schema status (admin only)
-// @Tags         Vespa
-// @Produce      json
-// @Security     BearerAuth
-// @Success      200  {object}  driving.VespaStatus
-// @Failure      401  {object}  ErrorResponse  "Unauthorized"
-// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      500  {object}  ErrorResponse  "Internal server error"
-// @Router       /admin/vespa/status [get]
-func (s *Server) handleVespaStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := s.vespaAdminService.Status(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, status)
-}
-
-// handleVespaHealth godoc
-// @Summary      Vespa health check
-// @Description  Check if the Vespa cluster is healthy (admin only)
-// @Tags         Vespa
-// @Produce      json
-// @Security     BearerAuth
-// @Success      200  {object}  StatusResponse
-// @Failure      401  {object}  ErrorResponse  "Unauthorized"
-// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      503  {object}  ErrorResponse  "Vespa unhealthy"
-// @Router       /admin/vespa/health [get]
-func (s *Server) handleVespaHealth(w http.ResponseWriter, r *http.Request) {
-	if err := s.vespaAdminService.HealthCheck(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
-}
-
-// VespaMetricsResponse represents Vespa cluster metrics
-type VespaMetricsResponse struct {
-	Documents struct {
-		Total   int64 `json:"total"`
-		Ready   int64 `json:"ready"`
-		Active  int64 `json:"active"`
-		Removed int64 `json:"removed"`
-	} `json:"documents"`
-	Storage struct {
-		DiskUsedBytes     int64   `json:"disk_used_bytes"`
-		DiskUsedPercent   float64 `json:"disk_used_percent"`
-		DataSizeBytes     int64   `json:"data_size_bytes"`
-		MemoryUsedBytes   int64   `json:"memory_used_bytes"`
-		MemoryUsedPercent float64 `json:"memory_used_percent"`
-	} `json:"storage"`
-	QueryPerformance struct {
-		TotalQueries     int64   `json:"total_queries"`
-		QueriesPerSecond float64 `json:"queries_per_second"`
-		AvgLatencyMs     float64 `json:"avg_latency_ms"`
-		FailedQueries    int64   `json:"failed_queries"`
-		DegradedQueries  int64   `json:"degraded_queries"`
-		EmptyResults     int64   `json:"empty_results"`
-	} `json:"query_performance"`
-	Feed struct {
-		TotalOperations     int64   `json:"total_operations"`
-		SucceededOperations int64   `json:"succeeded_operations"`
-		FailedOperations    int64   `json:"failed_operations"`
-		PendingOperations   int64   `json:"pending_operations"`
-		AvgLatencyMs        float64 `json:"avg_latency_ms"`
-	} `json:"feed"`
-	Nodes     []VespaNodeMetricsResponse `json:"nodes"`
-	Timestamp int64                      `json:"timestamp"`
-}
-
-// VespaNodeMetricsResponse represents metrics for a single Vespa node
-type VespaNodeMetricsResponse struct {
-	Hostname         string  `json:"hostname"`
-	Role             string  `json:"role"`
-	DocumentCount    int64   `json:"document_count"`
-	DiskUsedBytes    int64   `json:"disk_used_bytes"`
-	DiskUsedPercent  float64 `json:"disk_used_percent"`
-	MemoryUsedBytes  int64   `json:"memory_used_bytes"`
-	MemoryUsedPercent float64 `json:"memory_used_percent"`
-}
-
-// handleVespaMetrics godoc
-// @Summary      Get Vespa metrics
-// @Description  Get detailed Vespa cluster metrics including document counts, storage, query performance, and feed stats (admin only)
-// @Tags         Vespa Admin
-// @Produce      json
-// @Security     BearerAuth
-// @Success      200  {object}  VespaMetricsResponse
-// @Failure      401  {object}  ErrorResponse  "Unauthorized"
-// @Failure      403  {object}  ErrorResponse  "Forbidden - admin only"
-// @Failure      500  {object}  ErrorResponse  "Internal server error"
-// @Router       /admin/vespa/metrics [get]
-func (s *Server) handleVespaMetrics(w http.ResponseWriter, r *http.Request) {
-	// Get real metrics from Vespa cluster
-	metrics, err := s.vespaAdminService.GetMetrics(r.Context())
-	if err != nil {
-		// Log the error but return partial data if possible
-		// Fall back to status-based metrics
-		status, statusErr := s.vespaAdminService.Status(r.Context())
-		if statusErr != nil {
-			writeError(w, http.StatusInternalServerError, "failed to get vespa metrics")
-			return
-		}
-
-		// Return basic metrics from status
-		response := VespaMetricsResponse{
-			Timestamp: status.IndexedChunks,
-		}
-		response.Documents.Total = status.IndexedChunks
-		response.Documents.Ready = status.IndexedChunks
-		response.Documents.Active = status.IndexedChunks
-		writeJSON(w, http.StatusOK, response)
-		return
-	}
-
-	// Transform domain metrics to API response
-	response := VespaMetricsResponse{
-		Timestamp: metrics.Timestamp,
-	}
-
-	// Document metrics
-	response.Documents.Total = metrics.Documents.Total
-	response.Documents.Ready = metrics.Documents.Ready
-	response.Documents.Active = metrics.Documents.Active
-	response.Documents.Removed = metrics.Documents.Removed
-
-	// Storage metrics
-	response.Storage.DiskUsedBytes = metrics.Storage.DiskUsedBytes
-	response.Storage.DiskUsedPercent = metrics.Storage.DiskUsedPercent
-	response.Storage.DataSizeBytes = metrics.Storage.DataSizeBytes
-	response.Storage.MemoryUsedBytes = metrics.Storage.MemoryUsedBytes
-	response.Storage.MemoryUsedPercent = metrics.Storage.MemoryUsedPercent
-
-	// Query performance metrics
-	response.QueryPerformance.TotalQueries = metrics.QueryPerformance.TotalQueries
-	response.QueryPerformance.QueriesPerSecond = metrics.QueryPerformance.QueriesPerSecond
-	response.QueryPerformance.AvgLatencyMs = metrics.QueryPerformance.AvgLatencyMs
-
-	// Feed metrics
-	response.Feed.TotalOperations = metrics.Feed.PutOperations + metrics.Feed.UpdateOperations + metrics.Feed.RemoveOperations
-	response.Feed.AvgLatencyMs = metrics.Feed.AvgLatencyMs
-
-	// Build node metrics from services
-	response.Nodes = make([]VespaNodeMetricsResponse, 0)
-	for _, svc := range metrics.Services {
-		if svc.Status == "up" {
-			node := VespaNodeMetricsResponse{
-				Hostname:  svc.Name,
-				Role:      svc.Name,
-				MemoryUsedBytes: svc.MemoryMB * 1024 * 1024,
-			}
-			// Add document count for searchnode
-			if svc.Name == "vespa.searchnode" {
-				node.DocumentCount = metrics.Documents.Active
-				node.DiskUsedBytes = metrics.Storage.DiskUsedBytes
-				node.DiskUsedPercent = metrics.Storage.DiskUsedPercent
-				node.MemoryUsedPercent = metrics.Storage.MemoryUsedPercent
-			}
-			response.Nodes = append(response.Nodes, node)
-		}
-	}
-
-	writeJSON(w, http.StatusOK, response)
 }
 
 // Provider configuration endpoints

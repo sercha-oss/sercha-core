@@ -43,7 +43,7 @@ type FeaturesCapability struct {
 	// SemanticSearch indicates if semantic search is available (requires embedding service)
 	SemanticSearch bool `json:"semantic_search"`
 
-	// VectorIndexing indicates if vector indexing is available (requires Vespa with embeddings)
+	// VectorIndexing indicates if vector indexing is available (requires vector store + embeddings)
 	VectorIndexing bool `json:"vector_indexing"`
 }
 

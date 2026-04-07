@@ -13,24 +13,21 @@ var _ driving.SetupService = (*setupService)(nil)
 
 // setupService implements the SetupService interface
 type setupService struct {
-	userStore        driven.UserStore
-	sourceStore      driven.SourceStore
-	vespaConfigStore driven.VespaConfigStore
-	teamID           string
+	userStore   driven.UserStore
+	sourceStore driven.SourceStore
+	teamID      string
 }
 
 // NewSetupService creates a new SetupService
 func NewSetupService(
 	userStore driven.UserStore,
 	sourceStore driven.SourceStore,
-	vespaConfigStore driven.VespaConfigStore,
 	teamID string,
 ) driving.SetupService {
 	return &setupService{
-		userStore:        userStore,
-		sourceStore:      sourceStore,
-		vespaConfigStore: vespaConfigStore,
-		teamID:           teamID,
+		userStore:   userStore,
+		sourceStore: sourceStore,
+		teamID:      teamID,
 	}
 }
 
@@ -50,21 +47,13 @@ func (s *setupService) GetStatus(ctx context.Context) (*driving.SetupStatusRespo
 	}
 	hasSources := len(sources) > 0
 
-	// Check Vespa connection status
-	vespaConnected := false
-	vespaConfig, err := s.vespaConfigStore.GetVespaConfig(ctx, s.teamID)
-	if err == nil && vespaConfig != nil {
-		vespaConnected = vespaConfig.IsConnected()
-	}
-
 	// Setup is complete once the first admin user has been created.
 	// Sources are configured separately after initial setup.
 	setupComplete := hasUsers
 
 	return &driving.SetupStatusResponse{
-		SetupComplete:  setupComplete,
-		HasUsers:       hasUsers,
-		HasSources:     hasSources,
-		VespaConnected: vespaConnected,
+		SetupComplete: setupComplete,
+		HasUsers:      hasUsers,
+		HasSources:    hasSources,
 	}, nil
 }

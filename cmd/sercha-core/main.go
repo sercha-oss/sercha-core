@@ -43,7 +43,6 @@ import (
 	postgresqueue "github.com/sercha-oss/sercha-core/internal/adapters/driven/queue/postgres"
 	redisqueue "github.com/sercha-oss/sercha-core/internal/adapters/driven/queue/redis"
 	redisadapter "github.com/sercha-oss/sercha-core/internal/adapters/driven/redis"
-	"github.com/sercha-oss/sercha-core/internal/adapters/driven/vespa"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driving/http"
 	"github.com/sercha-oss/sercha-core/internal/config"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
@@ -167,14 +166,10 @@ func main() {
 		log.Println("Redis connected")
 	}
 
-	// ===== Initialize Vespa =====
-	log.Println("Connecting to Vespa...")
-	searchEngine := vespa.NewSearchEngine(vespa.DefaultConfig(cfg.VespaContainerURL))
-	if err := searchEngine.HealthCheck(ctx); err != nil {
-		log.Printf("Warning: Vespa health check failed: %v (search may not work)", err)
-	} else {
-		log.Println("Vespa connected")
-	}
+	// ===== Search Engine (temporarily stubbed - no backend) =====
+	// TODO: Replace with OpenSearch/pgvector in subsequent tickets (#28, #29)
+	var searchEngine driven.SearchEngine = nil
+	log.Println("Search engine: disabled (no backend configured)")
 
 	// ===== Driven adapters (infrastructure) =====
 	authAdapter := auth.NewAdapter(cfg.JWTSecret)
@@ -188,11 +183,8 @@ func main() {
 	syncStore := postgres.NewSyncStateStore(db)
 	settingsStore := postgres.NewSettingsStore(db)
 	schedulerStore := postgres.NewSchedulerStore(db)
-	vespaConfigStore := postgres.NewVespaConfigStore(db)
+	// capabilityStore := postgres.NewCapabilityStore(db) // TODO: Use in capability management service (#30)
 	searchQueryRepo := postgres.NewSearchQueryRepository(db)
-
-	// ===== Vespa Deployer =====
-	vespaDeployer := vespa.NewDeployer()
 
 	// ===== Session Store (Redis if available, otherwise PostgreSQL) =====
 	var sessionStore driven.SessionStore
@@ -338,15 +330,8 @@ func main() {
 	}
 
 	// Register capability providers
-	// Vector store (Vespa) - always available
-	if err := capabilityRegistry.Register(&capabilityProvider{
-		capType:  pipeline.CapabilityVectorStore,
-		id:       "vespa",
-		instance: searchEngine,
-		avail:    func() bool { return true },
-	}); err != nil {
-		log.Fatalf("Failed to register vector store capability: %v", err)
-	}
+	// Vector store - disabled (no backend configured yet)
+	// TODO: Register OpenSearch/pgvector in tickets #28, #29
 
 	// Embedder - dynamically available via runtimeServices
 	// The instance is resolved at runtime when needed
@@ -414,8 +399,7 @@ func main() {
 	documentService := services.NewDocumentService(documentStore, chunkStore)
 	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, nil)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)
-	vespaAdminService := services.NewVespaAdminService(vespaDeployer, vespaConfigStore, settingsStore, searchEngine, cfg, runtimeServices, teamID, cfg.VespaConfigURL)
-	setupService := services.NewSetupService(userStore, sourceStore, vespaConfigStore, teamID)
+	setupService := services.NewSetupService(userStore, sourceStore, teamID)
 
 	// Provider service (shows configuration status based on env vars)
 	providerService := services.NewProviderService(cfg)
@@ -494,7 +478,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
 
 	case "worker":
 		// Worker-only mode: Task processing, scheduler, no HTTP server
@@ -509,7 +493,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, vespaAdminService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
 
 	default:
 		log.Fatalf("Unknown mode: %s (use: api, worker, or all)", mode)
@@ -524,7 +508,6 @@ func runAPI(
 	sourceService driving.SourceService,
 	documentService driving.DocumentService,
 	settingsService driving.SettingsService,
-	vespaAdminService driving.VespaAdminService,
 	providerService driving.ProviderService,
 	oauthService driving.OAuthService,
 	connectionService driving.ConnectionService,
@@ -555,7 +538,6 @@ func runAPI(
 		sourceService,
 		documentService,
 		settingsService,
-		vespaAdminService,
 		providerService,
 		oauthService,
 		connectionService,

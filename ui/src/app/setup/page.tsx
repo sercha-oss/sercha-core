@@ -8,7 +8,6 @@ import { Loader2, CheckCircle } from "lucide-react";
 import {
   ProgressBar,
   StepWelcome,
-  StepVespa,
   StepAI,
   StepDataSources,
   StepComplete,
@@ -52,7 +51,7 @@ function SetupWizardContent() {
     newParams.set("step", currentStep.toString());
 
     // Clear OAuth params when reaching completion step
-    if (currentStep === 5) {
+    if (currentStep === 4) {
       newParams.delete("connection_id");
       newParams.delete("provider");
     }
@@ -80,24 +79,22 @@ function SetupWizardContent() {
       case 1:
         return <StepWelcome onComplete={() => completeStep(1)} />;
       case 2:
-        return <StepVespa onComplete={() => completeStep(2)} />;
-      case 3:
         return (
           <StepAI
+            onComplete={() => completeStep(2)}
+            onSkip={() => skipStep(2)}
+          />
+        );
+      case 3:
+        return (
+          <StepDataSources
+            connectionId={searchParams.get("connection_id") || undefined}
+            provider={searchParams.get("provider") || undefined}
             onComplete={() => completeStep(3)}
             onSkip={() => skipStep(3)}
           />
         );
       case 4:
-        return (
-          <StepDataSources
-            connectionId={searchParams.get("connection_id") || undefined}
-            provider={searchParams.get("provider") || undefined}
-            onComplete={() => completeStep(4)}
-            onSkip={() => skipStep(4)}
-          />
-        );
-      case 5:
         return <StepComplete completedSteps={completedSteps} />;
       default:
         return <StepWelcome onComplete={() => completeStep(1)} />;
@@ -162,8 +159,8 @@ function SetupWizardContent() {
         </div>
       </div>
 
-      {/* Progress Bar - Hide on step 5 (complete) */}
-      {currentStep < 5 && (
+      {/* Progress Bar - Hide on step 4 (complete) */}
+      {currentStep < 4 && (
         <div className="mx-auto mb-12 w-full max-w-2xl">
           <ProgressBar
             currentStep={currentStep}
