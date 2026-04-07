@@ -1,6 +1,10 @@
 -- Sercha Core PostgreSQL Schema
 -- This schema is idempotent - can be run multiple times safely
 
+-- Enable pgvector extension for vector similarity search
+-- Note: Requires pgvector extension to be installed (pgvector/pgvector:pg16 Docker image)
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -100,7 +104,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_source_id ON documents(source_id);
 CREATE INDEX IF NOT EXISTS idx_documents_external_id ON documents(external_id);
 
 -- Chunks table (searchable chunks of documents)
--- Note: embeddings are stored in Vespa, not here
+-- Embeddings stored in the embedding column (pgvector) for vector similarity search
 CREATE TABLE IF NOT EXISTS chunks (
     id TEXT PRIMARY KEY,
     document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -114,6 +118,22 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id);
+
+-- Add embedding column for pgvector (idempotent)
+-- Uses 1536 dimensions by default (OpenAI ada-002)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'chunks' AND column_name = 'embedding'
+    ) THEN
+        ALTER TABLE chunks ADD COLUMN embedding vector(1536);
+    END IF;
+END $$;
+
+-- HNSW index for efficient approximate nearest neighbor search
+-- Uses cosine distance (vector_cosine_ops) which is standard for embeddings
+CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON chunks USING hnsw (embedding vector_cosine_ops);
 
 -- Sync states table (tracks sync progress per source)
 CREATE TABLE IF NOT EXISTS sync_states (

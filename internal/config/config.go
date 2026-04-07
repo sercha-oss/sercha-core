@@ -26,6 +26,10 @@ type Config struct {
 	// Optional infrastructure
 	OpenSearchURL string
 
+	// Pgvector configuration (optional, for vector similarity search)
+	PgvectorURL        string
+	PgvectorDimensions int
+
 	// OAuth provider credentials
 	oauthCredentials map[domain.ProviderType]*driven.OAuthCredentials
 
@@ -91,6 +95,12 @@ func Load() (*Config, error) {
 
 	// OPENSEARCH_URL (optional)
 	cfg.OpenSearchURL = os.Getenv("OPENSEARCH_URL")
+
+	// PGVECTOR_URL (optional) - separate connection for vector operations
+	cfg.PgvectorURL = os.Getenv("PGVECTOR_URL")
+
+	// PGVECTOR_DIMENSIONS (optional, default 1536 for OpenAI ada-002)
+	cfg.PgvectorDimensions = getEnvInt("PGVECTOR_DIMENSIONS", 1536)
 
 	// Load OAuth credentials (all optional)
 	cfg.loadOAuthCredentials()

@@ -47,4 +47,7 @@ type VectorIndex interface {
 
 	// DeleteBatch removes multiple vectors
 	DeleteBatch(ctx context.Context, ids []string) error
+
+	// HealthCheck verifies the vector store is available
+	HealthCheck(ctx context.Context) error
 }

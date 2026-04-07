@@ -36,6 +36,7 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/github"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/localfs"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/opensearch"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pgvector"
 	pipelineexec "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/executor"
 	pipelinereg "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/registry"
 	indexingstages "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/stages/indexing"
@@ -186,6 +187,36 @@ func main() {
 		}
 	} else {
 		log.Println("Search engine: disabled (OPENSEARCH_URL not configured)")
+	}
+
+	// ===== Vector Index (pgvector if configured) =====
+	var vectorIndex driven.VectorIndex = nil
+	var pgvectorAdapter *pgvector.VectorIndex = nil
+	if cfg.PgvectorURL != "" {
+		log.Println("Initializing pgvector vector index...")
+		pgvConfig := pgvector.DefaultConfig()
+		pgvConfig.URL = cfg.PgvectorURL
+		pgvConfig.Dimensions = cfg.PgvectorDimensions
+		var err error
+		pgvectorAdapter, err = pgvector.New(ctx, pgvConfig)
+		if err != nil {
+			log.Fatalf("Failed to initialize pgvector: %v", err)
+		}
+		// Verify connectivity and vector extension
+		if err := pgvectorAdapter.HealthCheck(ctx); err != nil {
+			log.Printf("Warning: pgvector health check failed: %v", err)
+			pgvectorAdapter.Close()
+			pgvectorAdapter = nil
+		} else {
+			vectorIndex = pgvectorAdapter
+			log.Printf("pgvector connected: %s (dimensions: %d)", cfg.PgvectorURL, cfg.PgvectorDimensions)
+		}
+	} else {
+		log.Println("Vector index: disabled (PGVECTOR_URL not configured)")
+	}
+	// Ensure pgvector is closed on shutdown
+	if pgvectorAdapter != nil {
+		defer pgvectorAdapter.Close()
 	}
 
 	// ===== Driven adapters (infrastructure) =====
@@ -360,6 +391,21 @@ func main() {
 		},
 	}); err != nil {
 		log.Fatalf("Failed to register embedder capability: %v", err)
+	}
+
+	// VectorStore - pgvector if configured
+	if vectorIndex != nil {
+		if err := capabilityRegistry.Register(&capabilityProvider{
+			capType:  pipeline.CapabilityVectorStore,
+			id:       "pgvector",
+			instance: vectorIndex,
+			avail: func() bool {
+				return vectorIndex != nil
+			},
+		}); err != nil {
+			log.Fatalf("Failed to register pgvector capability: %v", err)
+		}
+		log.Println("Registered pgvector as vector_store capability")
 	}
 
 	// Register default indexing pipeline

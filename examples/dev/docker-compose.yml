@@ -4,7 +4,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: sercha
       POSTGRES_PASSWORD: sercha_dev
@@ -47,6 +47,8 @@ services:
       UI_BASE_URL: http://localhost:3001
       CORS_ALLOWED_ORIGINS: http://localhost:3001
       OPENSEARCH_URL: http://opensearch:9200
+      PGVECTOR_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
+      PGVECTOR_DIMENSIONS: "1536"
       LOCALFS_ALLOWED_ROOTS: /data
       # Optional: Configure AI providers
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
