@@ -52,7 +52,6 @@ import (
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driving"
 	"github.com/custodia-labs/sercha-core/internal/core/services"
 	"github.com/custodia-labs/sercha-core/internal/normalisers"
-	"github.com/custodia-labs/sercha-core/internal/postprocessors"
 	"github.com/custodia-labs/sercha-core/internal/runtime"
 	"github.com/custodia-labs/sercha-core/internal/worker"
 	"github.com/redis/go-redis/v9"
@@ -298,7 +297,6 @@ func main() {
 
 	// Initialize registries (shared across all modes)
 	normaliserRegistry := normalisers.DefaultRegistry()
-	postProcessorPipeline := postprocessors.DefaultPipeline()
 
 	// ===== Pipeline Infrastructure =====
 	log.Println("Initializing pipeline infrastructure...")
@@ -465,7 +463,6 @@ func main() {
 		SearchEngine:     searchEngine,
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		LegacyPipeline:   postProcessorPipeline,
 		Services:         runtimeServices,
 		Logger:           slog.Default(),
 		IndexingExecutor: indexingExecutor,

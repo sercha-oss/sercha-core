@@ -55,7 +55,6 @@ func TestSyncOrchestrator_WithPipelineExecutor(t *testing.T) {
 	searchEngine := mocks.NewMockSearchEngine()
 	connectorFactory := newMockConnectorFactory()
 	normaliserRegistry := mocks.NewMockNormaliserRegistry()
-	legacyPipeline := mocks.NewMockPostProcessorPipeline()
 
 	cfg := domain.NewRuntimeConfig("memory")
 	services := runtime.NewServices(cfg)
@@ -72,7 +71,6 @@ func TestSyncOrchestrator_WithPipelineExecutor(t *testing.T) {
 		SearchEngine:     searchEngine,
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		LegacyPipeline:   legacyPipeline,
 		Services:         services,
 		IndexingExecutor: executor,
 		CapabilitySet:    capabilitySet,
@@ -140,151 +138,7 @@ func TestSyncOrchestrator_WithPipelineExecutor(t *testing.T) {
 	}
 }
 
-// TestSyncOrchestrator_PipelineExecutorFallback tests fallback to legacy pipeline when executor fails
-func TestSyncOrchestrator_PipelineExecutorFallback(t *testing.T) {
-	sourceStore := mocks.NewMockSourceStore()
-	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	syncStore := mocks.NewMockSyncStateStore()
-	searchEngine := mocks.NewMockSearchEngine()
-	connectorFactory := newMockConnectorFactory()
-	normaliserRegistry := mocks.NewMockNormaliserRegistry()
-	legacyPipeline := mocks.NewMockPostProcessorPipeline()
 
-	cfg := domain.NewRuntimeConfig("memory")
-	services := runtime.NewServices(cfg)
-
-	// Create mock executor that fails
-	executor := &mockIndexingExecutor{
-		executeFn: func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
-			return nil, errors.New("pipeline execution failed")
-		},
-	}
-	capabilitySet := pipeline.NewCapabilitySet()
-
-	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
-		SourceStore:      sourceStore,
-		DocumentStore:    documentStore,
-		ChunkStore:       chunkStore,
-		SyncStore:        syncStore,
-		SearchEngine:     searchEngine,
-		ConnectorFactory: connectorFactory,
-		NormaliserReg:    normaliserRegistry,
-		LegacyPipeline:   legacyPipeline,
-		Services:         services,
-		IndexingExecutor: executor,
-		CapabilitySet:    capabilitySet,
-	})
-
-	ctx := context.Background()
-
-	// Create enabled source
-	source := &domain.Source{
-		ID:      "source-1",
-		Enabled: true,
-	}
-	_ = sourceStore.Save(ctx, source)
-
-	// Setup connector to return one document
-	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
-		if cursor == "" {
-			return []*domain.Change{
-				{
-					ExternalID: "ext-1",
-					Type:       domain.ChangeTypeAdded,
-					Document:   &domain.Document{ExternalID: "ext-1", Title: "Test Doc"},
-					Content:    "Test content",
-				},
-			}, "", nil
-		}
-		return nil, "", nil
-	}
-
-	result, err := orchestrator.SyncSource(ctx, "source-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Success {
-		t.Error("expected Success=true (should fall back to legacy)")
-	}
-
-	// Verify pipeline executor was attempted
-	if executor.executeCount != 1 {
-		t.Errorf("expected pipeline executor to be attempted once, got %d calls", executor.executeCount)
-	}
-
-	// Verify document was still processed via legacy pipeline
-	if result.Stats.DocumentsAdded != 1 {
-		t.Errorf("expected 1 document added via fallback, got %d", result.Stats.DocumentsAdded)
-	}
-}
-
-// TestSyncOrchestrator_NilExecutorUsesLegacy tests that nil executor uses legacy pipeline
-func TestSyncOrchestrator_NilExecutorUsesLegacy(t *testing.T) {
-	sourceStore := mocks.NewMockSourceStore()
-	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	syncStore := mocks.NewMockSyncStateStore()
-	searchEngine := mocks.NewMockSearchEngine()
-	connectorFactory := newMockConnectorFactory()
-	normaliserRegistry := mocks.NewMockNormaliserRegistry()
-	legacyPipeline := mocks.NewMockPostProcessorPipeline()
-
-	cfg := domain.NewRuntimeConfig("memory")
-	services := runtime.NewServices(cfg)
-
-	// Create orchestrator with nil executor
-	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
-		SourceStore:      sourceStore,
-		DocumentStore:    documentStore,
-		ChunkStore:       chunkStore,
-		SyncStore:        syncStore,
-		SearchEngine:     searchEngine,
-		ConnectorFactory: connectorFactory,
-		NormaliserReg:    normaliserRegistry,
-		LegacyPipeline:   legacyPipeline,
-		Services:         services,
-		IndexingExecutor: nil, // No executor - should use legacy
-		CapabilitySet:    nil,
-	})
-
-	ctx := context.Background()
-
-	// Create enabled source
-	source := &domain.Source{
-		ID:      "source-1",
-		Enabled: true,
-	}
-	_ = sourceStore.Save(ctx, source)
-
-	// Setup connector to return one document
-	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
-		if cursor == "" {
-			return []*domain.Change{
-				{
-					ExternalID: "ext-1",
-					Type:       domain.ChangeTypeAdded,
-					Document:   &domain.Document{ExternalID: "ext-1", Title: "Test Doc"},
-					Content:    "Test content",
-				},
-			}, "", nil
-		}
-		return nil, "", nil
-	}
-
-	result, err := orchestrator.SyncSource(ctx, "source-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Success {
-		t.Error("expected Success=true with legacy pipeline")
-	}
-
-	// Verify document was processed
-	if result.Stats.DocumentsAdded != 1 {
-		t.Errorf("expected 1 document added via legacy, got %d", result.Stats.DocumentsAdded)
-	}
-}
 
 // TestProcessWithPipeline_Success tests successful pipeline execution
 func TestProcessWithPipeline_Success(t *testing.T) {
@@ -588,55 +442,3 @@ func TestProcessWithPipeline_ContextPassing(t *testing.T) {
 	}
 }
 
-// TestProcessWithLegacy_BackwardCompatibility tests that legacy pipeline still works
-func TestProcessWithLegacy_BackwardCompatibility(t *testing.T) {
-	orchestrator, sourceStore, documentStore, chunkStore, _, searchEngine, _ := createTestSyncOrchestrator(t)
-	ctx := context.Background()
-
-	source := &domain.Source{ID: "source-1"}
-	_ = sourceStore.Save(ctx, source)
-
-	doc := &domain.Document{
-		ID:         "doc-1",
-		SourceID:   "source-1",
-		ExternalID: "ext-1",
-		Title:      "Test Doc",
-	}
-	content := "Test content"
-	isUpdate := false
-	stats := &domain.SyncStats{}
-
-	err := orchestrator.processWithLegacy(ctx, doc, content, isUpdate, stats, doc.CreatedAt)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify document was saved
-	savedDoc, err := documentStore.Get(ctx, "doc-1")
-	if err != nil {
-		t.Fatalf("document not saved: %v", err)
-	}
-	if savedDoc.Title != "Test Doc" {
-		t.Errorf("expected title 'Test Doc', got '%s'", savedDoc.Title)
-	}
-
-	// Verify chunks were saved
-	chunks, _ := chunkStore.GetByDocument(ctx, "doc-1")
-	if len(chunks) != 1 {
-		t.Errorf("expected 1 chunk, got %d", len(chunks))
-	}
-
-	// Verify chunks were indexed
-	count, _ := searchEngine.Count(ctx)
-	if count != 1 {
-		t.Errorf("expected 1 chunk in search engine, got %d", count)
-	}
-
-	// Verify stats
-	if stats.DocumentsAdded != 1 {
-		t.Errorf("expected DocumentsAdded=1, got %d", stats.DocumentsAdded)
-	}
-	if stats.ChunksIndexed != 1 {
-		t.Errorf("expected ChunksIndexed=1, got %d", stats.ChunksIndexed)
-	}
-}

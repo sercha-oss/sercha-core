@@ -20,7 +20,7 @@ type searchService struct {
 	searchEngine   driven.SearchEngine
 	documentStore  driven.DocumentStore
 	services       *runtime.Services // Dynamic AI services
-	searchExecutor pipelineport.SearchExecutor // Optional pipeline executor
+	searchExecutor pipelineport.SearchExecutor // Required pipeline executor
 	capabilitySet  *pipeline.CapabilitySet     // Capabilities for pipeline
 }
 
@@ -30,9 +30,14 @@ func NewSearchService(
 	searchEngine driven.SearchEngine,
 	documentStore driven.DocumentStore,
 	services *runtime.Services,
-	searchExecutor pipelineport.SearchExecutor, // Optional pipeline executor
-	capabilitySet *pipeline.CapabilitySet, // Optional capabilities
+	searchExecutor pipelineport.SearchExecutor, // Required pipeline executor
+	capabilitySet *pipeline.CapabilitySet, // Required capabilities
 ) driving.SearchService {
+	// SearchExecutor is now required
+	if searchExecutor == nil {
+		panic("SearchExecutor is required for SearchService")
+	}
+
 	return &searchService{
 		searchEngine:   searchEngine,
 		documentStore:  documentStore,
@@ -54,18 +59,8 @@ func (s *searchService) Search(ctx context.Context, query string, opts domain.Se
 		opts.Limit = 100
 	}
 
-	// Try pipeline executor first
-	if s.searchExecutor != nil {
-		result, err := s.searchWithPipeline(ctx, query, opts, start)
-		if err == nil {
-			return result, nil
-		}
-		// Log error but fall back to legacy silently
-		// TODO: Add logging
-	}
-
-	// Fallback: Use legacy search engine directly
-	return s.searchWithLegacy(ctx, query, opts, start)
+	// Use pipeline executor (required)
+	return s.searchWithPipeline(ctx, query, opts, start)
 }
 
 // searchWithPipeline performs search using the pipeline executor.
@@ -137,58 +132,6 @@ func (s *searchService) searchWithPipeline(
 	}, nil
 }
 
-// searchWithLegacy performs search using the legacy search engine.
-func (s *searchService) searchWithLegacy(
-	ctx context.Context,
-	query string,
-	opts domain.SearchOptions,
-	start time.Time,
-) (*domain.SearchResult, error) {
-	// Determine effective search mode based on what's available NOW
-	opts.Mode = s.effectiveMode(opts.Mode)
-
-	// Get embedding service dynamically (may have been configured at runtime)
-	embeddingService := s.services.EmbeddingService()
-
-	// Generate query embedding for semantic search
-	var queryEmbedding []float32
-	if opts.Mode.RequiresEmbedding() {
-		if embeddingService != nil {
-			embedding, err := embeddingService.EmbedQuery(ctx, query)
-			if err != nil {
-				// Fall back to text-only if embedding fails
-				opts.Mode = domain.SearchModeTextOnly
-			} else {
-				queryEmbedding = embedding
-			}
-		} else {
-			// Embedding required but not available - degrade
-			opts.Mode = domain.SearchModeTextOnly
-		}
-	}
-
-	// Perform search
-	rankedChunks, totalCount, err := s.searchEngine.Search(ctx, query, queryEmbedding, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// Enrich with document data
-	for _, rc := range rankedChunks {
-		if rc.Document == nil && rc.Chunk != nil {
-			doc, _ := s.documentStore.Get(ctx, rc.Chunk.DocumentID)
-			rc.Document = doc
-		}
-	}
-
-	return &domain.SearchResult{
-		Query:      query,
-		Mode:       opts.Mode,
-		Results:    rankedChunks,
-		TotalCount: totalCount,
-		Took:       time.Since(start),
-	}, nil
-}
 
 // SearchBySource performs a search within a specific source
 func (s *searchService) SearchBySource(ctx context.Context, sourceID string, query string, opts domain.SearchOptions) (*domain.SearchResult, error) {
@@ -207,26 +150,3 @@ func (s *searchService) Suggest(_ context.Context, _ string, _ int) ([]domain.Se
 	return []domain.SearchSuggestion{}, nil
 }
 
-// effectiveMode determines the best search mode based on requested mode and available services
-func (s *searchService) effectiveMode(requested domain.SearchMode) domain.SearchMode {
-	// Default to hybrid if not specified
-	if requested == "" {
-		requested = s.services.Config().EffectiveSearchMode()
-	}
-
-	config := s.services.Config()
-
-	// Validate requested mode is possible with current capabilities
-	switch requested {
-	case domain.SearchModeSemanticOnly:
-		if !config.CanDoSemanticSearch() {
-			return domain.SearchModeTextOnly
-		}
-	case domain.SearchModeHybrid:
-		if !config.CanDoSemanticSearch() {
-			return domain.SearchModeTextOnly
-		}
-	}
-
-	return requested
-}

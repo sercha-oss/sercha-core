@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
+	"github.com/custodia-labs/sercha-core/internal/core/domain/pipeline"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven/mocks"
 	"github.com/custodia-labs/sercha-core/internal/runtime"
@@ -31,10 +32,40 @@ func createTestSyncOrchestrator(t *testing.T) (
 	searchEngine := mocks.NewMockSearchEngine()
 	connectorFactory := newMockConnectorFactory()
 	normaliserRegistry := mocks.NewMockNormaliserRegistry()
-	pipeline := mocks.NewMockPostProcessorPipeline()
 
 	cfg := domain.NewRuntimeConfig("memory")
 	services := runtime.NewServices(cfg)
+
+	// Create mock indexing executor that actually saves chunks and indexes them
+	executor := &mockIndexingExecutor{
+		executeFn: func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
+			// Create a chunk from the input
+			chunk := &domain.Chunk{
+				ID:         input.DocumentID + "-chunk-0",
+				DocumentID: input.DocumentID,
+				SourceID:   pctx.SourceID,
+				Content:    input.Content,
+				Position:   0,
+			}
+
+			// Save to chunk store if available
+			if chunkStore != nil {
+				_ = chunkStore.Save(ctx, chunk)
+			}
+
+			// Index in search engine if available
+			if searchEngine != nil {
+				_ = searchEngine.Index(ctx, []*domain.Chunk{chunk})
+			}
+
+			return &pipeline.IndexingOutput{
+				DocumentID: input.DocumentID,
+				ChunkIDs:   []string{chunk.ID},
+				Manifest:   nil,
+			}, nil
+		},
+	}
+	capabilitySet := pipeline.NewCapabilitySet()
 
 	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
 		SourceStore:      sourceStore,
@@ -44,8 +75,9 @@ func createTestSyncOrchestrator(t *testing.T) (
 		SearchEngine:     searchEngine,
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		LegacyPipeline:   pipeline,
 		Services:         services,
+		IndexingExecutor: executor,
+		CapabilitySet:    capabilitySet,
 	})
 
 	return orchestrator, sourceStore, documentStore, chunkStore, syncStore, searchEngine, connectorFactory
@@ -103,11 +135,19 @@ func TestNewSyncOrchestrator(t *testing.T) {
 func TestNewSyncOrchestrator_NilLogger(t *testing.T) {
 	sourceStore := mocks.NewMockSourceStore()
 	documentStore := mocks.NewMockDocumentStore()
+	executor := &mockIndexingExecutor{}
+	capabilitySet := pipeline.NewCapabilitySet()
+
+	cfg := domain.NewRuntimeConfig("memory")
+	services := runtime.NewServices(cfg)
 
 	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
-		SourceStore:   sourceStore,
-		DocumentStore: documentStore,
-		Logger:        nil, // Explicitly nil
+		SourceStore:      sourceStore,
+		DocumentStore:    documentStore,
+		Logger:           nil, // Explicitly nil
+		Services:         services,
+		IndexingExecutor: executor,
+		CapabilitySet:    capabilitySet,
 	})
 
 	if orchestrator == nil {
@@ -766,14 +806,25 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 	}
 	_ = sourceStore.Save(ctx, source)
 
-	// Mock pipeline to return multiple chunks
-	pipeline := orchestrator.legacyPipeline.(*mocks.MockPostProcessorPipeline)
-	pipeline.ProcessFn = func(content string) []driven.Chunk {
-		return []driven.Chunk{
-			{Content: "Chunk 1", Position: 0, StartOffset: 0, EndOffset: 7},
-			{Content: "Chunk 2", Position: 1, StartOffset: 8, EndOffset: 15},
-			{Content: "Chunk 3", Position: 2, StartOffset: 16, EndOffset: 23},
+	// Mock indexing executor to return multiple chunks
+	executor := orchestrator.indexingExecutor.(*mockIndexingExecutor)
+	executor.executeFn = func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
+		// Create and save 3 chunks
+		chunks := []*domain.Chunk{
+			{ID: "chunk-1", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 1", Position: 0},
+			{ID: "chunk-2", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 2", Position: 1},
+			{ID: "chunk-3", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 3", Position: 2},
 		}
+		for _, chunk := range chunks {
+			_ = chunkStore.Save(ctx, chunk)
+		}
+		_ = searchEngine.Index(ctx, chunks)
+
+		return &pipeline.IndexingOutput{
+			DocumentID: input.DocumentID,
+			ChunkIDs:   []string{"chunk-1", "chunk-2", "chunk-3"},
+			Manifest:   nil,
+		}, nil
 	}
 
 	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
@@ -828,11 +879,15 @@ func TestSyncSource_NormaliserApplied(t *testing.T) {
 	normaliserRegistry.SetNormaliser(normaliser)
 	orchestrator.normaliserReg = normaliserRegistry
 
+	// Track what content was passed to the pipeline executor
 	var processedContent string
-	pipeline := orchestrator.legacyPipeline.(*mocks.MockPostProcessorPipeline)
-	pipeline.ProcessFn = func(content string) []driven.Chunk {
-		processedContent = content
-		return []driven.Chunk{{Content: content, Position: 0}}
+	executor := orchestrator.indexingExecutor.(*mockIndexingExecutor)
+	executor.executeFn = func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
+		processedContent = input.Content
+		return &pipeline.IndexingOutput{
+			DocumentID: input.DocumentID,
+			ChunkIDs:   []string{input.DocumentID + "-chunk-0"},
+		}, nil
 	}
 
 	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
@@ -867,7 +922,11 @@ func TestSyncSource_NilSearchEngine(t *testing.T) {
 	syncStore := mocks.NewMockSyncStateStore()
 	connectorFactory := newMockConnectorFactory()
 	normaliserRegistry := mocks.NewMockNormaliserRegistry()
-	pipeline := mocks.NewMockPostProcessorPipeline()
+	executor := &mockIndexingExecutor{}
+	capabilitySet := pipeline.NewCapabilitySet()
+
+	cfg := domain.NewRuntimeConfig("memory")
+	services := runtime.NewServices(cfg)
 
 	// Create orchestrator without search engine
 	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
@@ -878,7 +937,9 @@ func TestSyncSource_NilSearchEngine(t *testing.T) {
 		SearchEngine:     nil, // No search engine
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		LegacyPipeline:   pipeline,
+		Services:         services,
+		IndexingExecutor: executor,
+		CapabilitySet:    capabilitySet,
 	})
 
 	ctx := context.Background()
@@ -907,7 +968,11 @@ func TestSyncSource_NilChunkStore(t *testing.T) {
 	syncStore := mocks.NewMockSyncStateStore()
 	connectorFactory := newMockConnectorFactory()
 	normaliserRegistry := mocks.NewMockNormaliserRegistry()
-	pipeline := mocks.NewMockPostProcessorPipeline()
+	executor := &mockIndexingExecutor{}
+	capabilitySet := pipeline.NewCapabilitySet()
+
+	cfg := domain.NewRuntimeConfig("memory")
+	services := runtime.NewServices(cfg)
 
 	// Create orchestrator without chunk store
 	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
@@ -917,7 +982,9 @@ func TestSyncSource_NilChunkStore(t *testing.T) {
 		SyncStore:        syncStore,
 		ConnectorFactory: connectorFactory,
 		NormaliserReg:    normaliserRegistry,
-		LegacyPipeline:   pipeline,
+		Services:         services,
+		IndexingExecutor: executor,
+		CapabilitySet:    capabilitySet,
 	})
 
 	ctx := context.Background()

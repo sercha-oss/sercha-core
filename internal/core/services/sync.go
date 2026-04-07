@@ -33,10 +33,9 @@ type SyncOrchestrator struct {
 	searchEngine     driven.SearchEngine
 	connectorFactory driven.ConnectorFactory
 	normaliserReg    driven.NormaliserRegistry
-	legacyPipeline   driven.PostProcessorPipeline
 	services         *runtime.Services
 	logger           *slog.Logger
-	indexingExecutor pipelineport.IndexingExecutor // Optional pipeline executor
+	indexingExecutor pipelineport.IndexingExecutor // Required pipeline executor
 	capabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 }
 
@@ -49,10 +48,9 @@ type SyncOrchestratorConfig struct {
 	SearchEngine     driven.SearchEngine
 	ConnectorFactory driven.ConnectorFactory
 	NormaliserReg    driven.NormaliserRegistry
-	LegacyPipeline   driven.PostProcessorPipeline
 	Services         *runtime.Services
 	Logger           *slog.Logger
-	IndexingExecutor pipelineport.IndexingExecutor // Optional pipeline executor
+	IndexingExecutor pipelineport.IndexingExecutor // Required pipeline executor
 	CapabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 }
 
@@ -63,6 +61,11 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		logger = slog.Default()
 	}
 
+	// IndexingExecutor is now required
+	if cfg.IndexingExecutor == nil {
+		panic("IndexingExecutor is required for SyncOrchestrator")
+	}
+
 	return &SyncOrchestrator{
 		sourceStore:      cfg.SourceStore,
 		documentStore:    cfg.DocumentStore,
@@ -71,7 +74,6 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		searchEngine:     cfg.SearchEngine,
 		connectorFactory: cfg.ConnectorFactory,
 		normaliserReg:    cfg.NormaliserReg,
-		legacyPipeline:   cfg.LegacyPipeline,
 		services:         cfg.Services,
 		logger:           logger,
 		indexingExecutor: cfg.IndexingExecutor,
@@ -407,18 +409,8 @@ func (o *SyncOrchestrator) processAddOrUpdate(
 		normalizedContent = normaliser.Normalise(normalizedContent, doc.MimeType)
 	}
 
-	// Try pipeline executor first
-	if o.indexingExecutor != nil {
-		if err := o.processWithPipeline(ctx, source, doc, normalizedContent, isUpdate, stats); err != nil {
-			o.logger.Warn("pipeline execution failed, falling back to legacy", "error", err)
-			// Fall back to legacy pipeline
-			return o.processWithLegacy(ctx, doc, normalizedContent, isUpdate, stats, now)
-		}
-		return nil
-	}
-
-	// Fallback: Use legacy pipeline
-	return o.processWithLegacy(ctx, doc, normalizedContent, isUpdate, stats, now)
+	// Process with pipeline executor (required)
+	return o.processWithPipeline(ctx, source, doc, normalizedContent, isUpdate, stats)
 }
 
 // processWithPipeline processes a document using the pipeline executor.
@@ -478,82 +470,6 @@ func (o *SyncOrchestrator) processWithPipeline(
 	return nil
 }
 
-// processWithLegacy processes a document using the legacy pipeline.
-func (o *SyncOrchestrator) processWithLegacy(
-	ctx context.Context,
-	doc *domain.Document,
-	content string,
-	isUpdate bool,
-	stats *domain.SyncStats,
-	now time.Time,
-) error {
-	// Step 6c: PostProcess (chunk)
-	chunks := o.legacyPipeline.Process(content)
-
-	// Step 6d: Generate embeddings (if EmbeddingService available)
-	var domainChunks []*domain.Chunk
-	for i, chunk := range chunks {
-		domainChunk := &domain.Chunk{
-			ID:         fmt.Sprintf("%s-chunk-%d", doc.ID, i),
-			DocumentID: doc.ID,
-			SourceID:   doc.SourceID,
-			Content:    chunk.Content,
-			Position:   chunk.Position,
-			StartChar:  chunk.StartOffset,
-			EndChar:    chunk.EndOffset,
-			CreatedAt:  now,
-		}
-
-		// Generate embedding if available
-		if o.services != nil {
-			embeddingService := o.services.EmbeddingService()
-			if embeddingService != nil {
-				embeddings, err := embeddingService.Embed(ctx, []string{chunk.Content})
-				if err != nil {
-					o.logger.Warn("failed to generate embedding", "chunk_id", domainChunk.ID, "error", err)
-				} else if len(embeddings) > 0 {
-					domainChunk.Embedding = embeddings[0]
-				}
-			}
-		}
-
-		domainChunks = append(domainChunks, domainChunk)
-	}
-
-	// Step 6e: Save to DocumentStore
-	if err := o.documentStore.Save(ctx, doc); err != nil {
-		return fmt.Errorf("failed to save document: %w", err)
-	}
-
-	// Save chunks to ChunkStore
-	if o.chunkStore != nil {
-		for _, chunk := range domainChunks {
-			if err := o.chunkStore.Save(ctx, chunk); err != nil {
-				o.logger.Warn("failed to save chunk", "chunk_id", chunk.ID, "error", err)
-			}
-		}
-	}
-
-	// Step 6f & 6g: Index chunks in SearchEngine (Vespa)
-	chunksIndexed := 0
-	if o.searchEngine != nil {
-		if err := o.searchEngine.Index(ctx, domainChunks); err != nil {
-			o.logger.Warn("failed to index chunks", "doc_id", doc.ID, "error", err)
-		} else {
-			chunksIndexed = len(domainChunks)
-		}
-	}
-
-	// Update stats
-	if isUpdate {
-		stats.DocumentsUpdated++
-	} else {
-		stats.DocumentsAdded++
-	}
-	stats.ChunksIndexed += chunksIndexed
-
-	return nil
-}
 
 // failSync marks a sync as failed and returns the result.
 func (o *SyncOrchestrator) failSync(

@@ -44,54 +44,6 @@ type NormaliserRegistry interface {
 	List() []string
 }
 
-// PostProcessor applies post-processing to document content or chunks.
-// Processors form a pipeline: Chunker -> Deduplicator -> Enhancer -> etc.
-type PostProcessor interface {
-	// Process applies post-processing to content chunks.
-	// The first processor (Chunker) receives a single chunk with the full content.
-	// Subsequent processors receive the chunks from the previous stage.
-	Process(chunks []Chunk) []Chunk
-
-	// Name returns the processor name for logging/debugging.
-	Name() string
-
-	// Order returns the processor order in the pipeline (lower = earlier).
-	// Chunker should be 0, subsequent processors increment from there.
-	Order() int
-}
-
-// Chunk represents a piece of document content for processing.
-type Chunk struct {
-	// Content is the text content of the chunk
-	Content string
-
-	// Position is the chunk index within the document (0-based)
-	Position int
-
-	// StartOffset is the character offset from document start
-	StartOffset int
-
-	// EndOffset is the character offset for chunk end
-	EndOffset int
-
-	// Metadata contains additional chunk-specific data
-	Metadata map[string]string
-}
-
-// PostProcessorPipeline chains multiple post-processors in order.
-type PostProcessorPipeline interface {
-	// Process applies all processors in order.
-	// Input is the raw document content.
-	// Output is the processed chunks ready for embedding/indexing.
-	Process(content string) []Chunk
-
-	// Add adds a processor to the pipeline.
-	// Processors are sorted by Order() before processing.
-	Add(processor PostProcessor)
-
-	// List returns processor names in order.
-	List() []string
-}
 
 // CredentialsStore handles credential persistence (PostgreSQL, encrypted)
 type CredentialsStore interface {

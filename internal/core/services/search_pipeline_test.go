@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -92,97 +91,7 @@ func TestSearchService_WithSearchExecutor(t *testing.T) {
 	}
 }
 
-// TestSearchService_SearchExecutorFallback tests fallback to legacy search when executor fails
-func TestSearchService_SearchExecutorFallback(t *testing.T) {
-	searchEngine := mocks.NewMockSearchEngine()
-	documentStore := mocks.NewMockDocumentStore()
-	embeddingService := mocks.NewMockEmbeddingService()
-	runtimeServices := createTestServices(embeddingService)
 
-	// Create mock search executor that fails
-	executor := &mockSearchExecutor{
-		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
-			return nil, errors.New("pipeline search failed")
-		},
-	}
-	capabilitySet := pipeline.NewCapabilitySet()
-
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, capabilitySet)
-
-	// Index some chunks for legacy search to find
-	chunks := []*domain.Chunk{
-		{
-			ID:         "chunk-1",
-			DocumentID: "doc-1",
-			SourceID:   "source-1",
-			Content:    "Test content for fallback",
-		},
-	}
-	_ = searchEngine.Index(context.Background(), chunks)
-
-	// Perform search - should fall back to legacy
-	result, err := svc.Search(context.Background(), "test", domain.SearchOptions{
-		Mode:  domain.SearchModeTextOnly,
-		Limit: 10,
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result from fallback")
-	}
-
-	// Verify pipeline executor was attempted
-	if executor.executeCount != 1 {
-		t.Errorf("expected pipeline executor to be attempted once, got %d calls", executor.executeCount)
-	}
-
-	// Verify fallback worked
-	if len(result.Results) != 1 {
-		t.Errorf("expected 1 result from fallback, got %d", len(result.Results))
-	}
-}
-
-// TestSearchService_NilExecutorUsesLegacy tests that nil executor uses legacy search
-func TestSearchService_NilExecutorUsesLegacy(t *testing.T) {
-	searchEngine := mocks.NewMockSearchEngine()
-	documentStore := mocks.NewMockDocumentStore()
-	embeddingService := mocks.NewMockEmbeddingService()
-	runtimeServices := createTestServices(embeddingService)
-
-	// Create service with nil executor
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
-
-	// Index some chunks
-	chunks := []*domain.Chunk{
-		{
-			ID:         "chunk-1",
-			DocumentID: "doc-1",
-			SourceID:   "source-1",
-			Content:    "Test content",
-		},
-	}
-	_ = searchEngine.Index(context.Background(), chunks)
-
-	// Perform search
-	result, err := svc.Search(context.Background(), "test", domain.SearchOptions{
-		Mode:  domain.SearchModeTextOnly,
-		Limit: 10,
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-
-	// Verify results were returned via legacy
-	if len(result.Results) != 1 {
-		t.Errorf("expected 1 result from legacy, got %d", len(result.Results))
-	}
-}
 
 // TestSearchWithPipeline_Success tests successful pipeline search execution
 func TestSearchWithPipeline_Success(t *testing.T) {
@@ -551,61 +460,6 @@ func TestSearchBySource_WithPipeline(t *testing.T) {
 	}
 }
 
-// TestSearchWithLegacy_BackwardCompatibility tests that legacy search still works
-func TestSearchWithLegacy_BackwardCompatibility(t *testing.T) {
-	searchEngine := mocks.NewMockSearchEngine()
-	documentStore := mocks.NewMockDocumentStore()
-	embeddingService := mocks.NewMockEmbeddingService()
-	runtimeServices := createTestServices(embeddingService)
-
-	// Create service without executor - should use legacy
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
-
-	// Index chunks using legacy search engine
-	doc := &domain.Document{
-		ID:       "doc-1",
-		SourceID: "source-1",
-		Title:    "Test Document",
-	}
-	_ = documentStore.Save(context.Background(), doc)
-
-	chunks := []*domain.Chunk{
-		{
-			ID:         "chunk-1",
-			DocumentID: "doc-1",
-			SourceID:   "source-1",
-			Content:    "This is test content for legacy search",
-		},
-		{
-			ID:         "chunk-2",
-			DocumentID: "doc-1",
-			SourceID:   "source-1",
-			Content:    "More test content",
-		},
-	}
-	_ = searchEngine.Index(context.Background(), chunks)
-
-	// Perform search
-	result, err := svc.Search(context.Background(), "test", domain.SearchOptions{
-		Mode:  domain.SearchModeTextOnly,
-		Limit: 10,
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify legacy search works
-	if len(result.Results) != 2 {
-		t.Errorf("expected 2 results from legacy, got %d", len(result.Results))
-	}
-	if result.Query != "test" {
-		t.Errorf("expected query='test', got %s", result.Query)
-	}
-	if result.Took <= 0 {
-		t.Error("expected Took to be positive")
-	}
-}
 
 // TestSearchWithPipeline_ResultMapping tests proper mapping from pipeline results to domain results
 func TestSearchWithPipeline_ResultMapping(t *testing.T) {

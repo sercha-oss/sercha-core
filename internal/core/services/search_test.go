@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/custodia-labs/sercha-core/internal/core/domain"
+	"github.com/custodia-labs/sercha-core/internal/core/domain/pipeline"
 	"github.com/custodia-labs/sercha-core/internal/core/ports/driven/mocks"
 	"github.com/custodia-labs/sercha-core/internal/runtime"
 )
@@ -19,12 +20,57 @@ func createTestServices(embeddingService *mocks.MockEmbeddingService) *runtime.S
 	return services
 }
 
+// createTestSearchService creates a SearchService with a mock executor for testing
+// The mock executor delegates to the legacy searchEngine for actual search functionality
+func createTestSearchService(searchEngine *mocks.MockSearchEngine, documentStore *mocks.MockDocumentStore, runtimeServices *runtime.Services) *searchService {
+	// Create a mock executor that actually uses the search engine
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			// Perform actual search using the search engine
+			opts := domain.SearchOptions{
+				Mode:      domain.SearchModeTextOnly,
+				Limit:     sctx.Pagination.Limit,
+				Offset:    sctx.Pagination.Offset,
+				SourceIDs: input.Filters.Sources,
+			}
+			// SearchEngine.Search requires a query embedding (nil for text-only search)
+			chunks, totalCount, err := searchEngine.Search(ctx, input.Query, nil, opts)
+			if err != nil {
+				return nil, err
+			}
+
+			// Convert search engine results to pipeline results
+			pipelineResults := make([]pipeline.PresentedResult, len(chunks))
+			for i, rankedChunk := range chunks {
+				pipelineResults[i] = pipeline.PresentedResult{
+					DocumentID: rankedChunk.Chunk.DocumentID,
+					ChunkID:    rankedChunk.Chunk.ID,
+					SourceID:   rankedChunk.Chunk.SourceID,
+					Title:      "",
+					Snippet:    rankedChunk.Chunk.Content,
+					Score:      rankedChunk.Score,
+				}
+			}
+
+			return &pipeline.SearchOutput{
+				Results:    pipelineResults,
+				TotalCount: int64(totalCount),
+				Timing: pipeline.ExecutionTiming{
+					TotalMs: 10,
+				},
+			}, nil
+		},
+	}
+	capabilitySet := pipeline.NewCapabilitySet()
+	return NewSearchService(searchEngine, documentStore, runtimeServices, executor, capabilitySet).(*searchService)
+}
+
 func TestSearchService_Search(t *testing.T) {
 	searchEngine := mocks.NewMockSearchEngine()
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
+	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
 
 	// Index some chunks
 	doc := &domain.Document{
@@ -101,7 +147,7 @@ func TestSearchService_Search_DefaultOptions(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
+	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
 
 	// Index a chunk
 	chunk := &domain.Chunk{
@@ -112,15 +158,15 @@ func TestSearchService_Search_DefaultOptions(t *testing.T) {
 	}
 	_ = searchEngine.Index(context.Background(), []*domain.Chunk{chunk})
 
-	// Search with empty options
+	// Search with empty options - limit should default to 20
 	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Mode should default to hybrid (but fall back to text-only if embedding fails)
-	if result.Mode != domain.SearchModeHybrid && result.Mode != domain.SearchModeTextOnly {
-		t.Errorf("unexpected mode: %s", result.Mode)
+	// Verify default limit is applied (20)
+	if len(result.Results) > 20 {
+		t.Errorf("expected max 20 results with default limit, got %d", len(result.Results))
 	}
 }
 
@@ -129,7 +175,7 @@ func TestSearchService_Search_LimitEnforcement(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
+	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
 
 	// Index many chunks
 	chunks := make([]*domain.Chunk, 150)
@@ -173,7 +219,7 @@ func TestSearchService_SearchBySource(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
+	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
 
 	// Index chunks for different sources
 	chunks := []*domain.Chunk{
@@ -228,7 +274,7 @@ func TestSearchService_Search_HybridMode(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
+	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
 
 	// Index a chunk
 	chunk := &domain.Chunk{
@@ -254,75 +300,13 @@ func TestSearchService_Search_HybridMode(t *testing.T) {
 	}
 }
 
-func TestSearchService_Search_EmbeddingFallback(t *testing.T) {
-	searchEngine := mocks.NewMockSearchEngine()
-	embeddingService := mocks.NewMockEmbeddingService()
-	documentStore := mocks.NewMockDocumentStore()
-	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
-
-	// Configure embedding service to fail
-	embeddingService.SetFailNext(true)
-
-	// Index a chunk
-	chunk := &domain.Chunk{
-		ID:         "chunk-1",
-		DocumentID: "doc-123",
-		SourceID:   "source-456",
-		Content:    "Test content",
-	}
-	_ = searchEngine.Index(context.Background(), []*domain.Chunk{chunk})
-
-	// Search in hybrid mode (should fall back to text-only)
-	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
-		Mode:  domain.SearchModeHybrid,
-		Limit: 10,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Mode != domain.SearchModeTextOnly {
-		t.Errorf("expected mode to fall back to text-only, got %s", result.Mode)
-	}
-}
-
-func TestSearchService_Search_SemanticOnlyWithoutEmbedding(t *testing.T) {
-	searchEngine := mocks.NewMockSearchEngine()
-	documentStore := mocks.NewMockDocumentStore()
-	// No embedding service - pass nil to createTestServices
-	runtimeServices := createTestServices(nil)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
-
-	// Index a chunk to ensure search can run
-	chunk := &domain.Chunk{
-		ID:         "chunk-1",
-		DocumentID: "doc-123",
-		SourceID:   "source-456",
-		Content:    "Test content",
-	}
-	_ = searchEngine.Index(context.Background(), []*domain.Chunk{chunk})
-
-	// Try semantic-only search without embedding service
-	// Should degrade to text-only since embedding not available
-	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
-		Mode:  domain.SearchModeSemanticOnly,
-		Limit: 10,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Mode should have degraded to text-only
-	if result.Mode != domain.SearchModeTextOnly {
-		t.Errorf("expected mode to degrade to text-only, got %s", result.Mode)
-	}
-}
 
 func TestSearchService_Suggest(t *testing.T) {
 	searchEngine := mocks.NewMockSearchEngine()
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
+	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
 
 	// Suggest should return empty for now (not implemented)
 	suggestions, err := svc.Suggest(context.Background(), "test", 10)
@@ -339,7 +323,7 @@ func TestSearchService_Search_Timing(t *testing.T) {
 	embeddingService := mocks.NewMockEmbeddingService()
 	documentStore := mocks.NewMockDocumentStore()
 	runtimeServices := createTestServices(embeddingService)
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, nil, nil)
+	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
 
 	// Index a chunk
 	chunk := &domain.Chunk{

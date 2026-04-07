@@ -86,37 +86,3 @@ func (m *MockNormaliserRegistry) List() []string {
 func (m *MockNormaliserRegistry) SetNormaliser(n driven.Normaliser) {
 	m.normaliser = n
 }
-
-// MockPostProcessorPipeline is a mock implementation of PostProcessorPipeline for testing
-type MockPostProcessorPipeline struct {
-	ProcessFn func(content string) []driven.Chunk
-	AddFn     func(processor driven.PostProcessor)
-	ListFn    func() []string
-}
-
-func NewMockPostProcessorPipeline() *MockPostProcessorPipeline {
-	return &MockPostProcessorPipeline{}
-}
-
-func (m *MockPostProcessorPipeline) Process(content string) []driven.Chunk {
-	if m.ProcessFn != nil {
-		return m.ProcessFn(content)
-	}
-	// Default: return single chunk with content
-	return []driven.Chunk{
-		{Content: content, Position: 0, StartOffset: 0, EndOffset: len(content)},
-	}
-}
-
-func (m *MockPostProcessorPipeline) Add(processor driven.PostProcessor) {
-	if m.AddFn != nil {
-		m.AddFn(processor)
-	}
-}
-
-func (m *MockPostProcessorPipeline) List() []string {
-	if m.ListFn != nil {
-		return m.ListFn()
-	}
-	return []string{"mock-processor"}
-}
