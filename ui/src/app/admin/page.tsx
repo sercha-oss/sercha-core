@@ -14,6 +14,7 @@ import {
   getSearchMetrics,
   getSearchHistory,
   getAIStatus,
+  getCapabilityPreferences,
   HealthResponse,
   AdminStatsResponse,
   SourceSummary,
@@ -24,6 +25,7 @@ import {
   SearchMetrics,
   SearchQuery,
   AISettingsStatus,
+  CapabilityPreferencesResponse,
 } from "@/lib/api";
 import {
   RefreshCw,
@@ -38,6 +40,7 @@ import {
   Database,
   FolderSync,
   Search,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -286,6 +289,7 @@ export default function AdminDashboardPage() {
   const [searchMetrics, setSearchMetrics] = useState<SearchMetrics | null>(null);
   const [searchHistory, setSearchHistory] = useState<SearchQuery[] | null>(null);
   const [aiStatus, setAIStatus] = useState<AISettingsStatus | null>(null);
+  const [capabilityPrefs, setCapabilityPrefs] = useState<CapabilityPreferencesResponse | null>(null);
   const [metricsPeriod, setMetricsPeriod] = useState<"24h" | "7d" | "30d">("24h");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -294,7 +298,7 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       setError(null);
-      const [healthData, statsData, sourcesData, historyData, upcomingData, jobStatsData, searchAnalyticsData, searchMetricsData, searchHistoryData, aiStatusData] = await Promise.all([
+      const [healthData, statsData, sourcesData, historyData, upcomingData, jobStatsData, searchAnalyticsData, searchMetricsData, searchHistoryData, aiStatusData, capabilityPrefsData] = await Promise.all([
         getHealth().catch(() => null),
         getAdminStats().catch(() => null),
         listSources().catch(() => []),
@@ -305,6 +309,7 @@ export default function AdminDashboardPage() {
         getSearchMetrics(metricsPeriod).catch(() => null),
         getSearchHistory({ limit: 5 }).catch(() => null),
         getAIStatus().catch(() => null),
+        getCapabilityPreferences().catch(() => null),
       ]);
       setHealth(healthData);
       setStats(statsData);
@@ -316,6 +321,7 @@ export default function AdminDashboardPage() {
       setSearchMetrics(searchMetricsData);
       setSearchHistory(searchHistoryData || null);
       setAIStatus(aiStatusData);
+      setCapabilityPrefs(capabilityPrefsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
     } finally {
@@ -459,6 +465,99 @@ export default function AdminDashboardPage() {
             <p className="mt-1 text-sm text-sercha-fog-grey">
               {jobStats?.processing_jobs || 0} running, {jobStats?.pending_jobs || 0} pending
             </p>
+          </div>
+        </section>
+
+        {/* Capabilities Overview */}
+        <section>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-sercha-ink-slate">Capabilities</h2>
+            <Link href="/admin/capabilities" className="text-sm text-sercha-indigo hover:underline">
+              Manage capabilities
+            </Link>
+          </div>
+          <div className="rounded-2xl border border-sercha-silverline bg-white p-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-sercha-indigo/10">
+                <Zap className="h-6 w-6 text-sercha-indigo" />
+              </div>
+              <div className="flex-1">
+                {capabilityPrefs ? (
+                  <>
+                    <div className="flex flex-wrap gap-3">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                          capabilityPrefs.text_indexing_enabled
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            capabilityPrefs.text_indexing_enabled ? "bg-emerald-500" : "bg-gray-400"
+                          }`}
+                        />
+                        Text Indexing
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                          capabilityPrefs.embedding_indexing_enabled
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            capabilityPrefs.embedding_indexing_enabled ? "bg-emerald-500" : "bg-gray-400"
+                          }`}
+                        />
+                        Embedding Indexing
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                          capabilityPrefs.bm25_search_enabled
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            capabilityPrefs.bm25_search_enabled ? "bg-blue-500" : "bg-gray-400"
+                          }`}
+                        />
+                        BM25 Search
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                          capabilityPrefs.vector_search_enabled
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            capabilityPrefs.vector_search_enabled ? "bg-blue-500" : "bg-gray-400"
+                          }`}
+                        />
+                        Vector Search
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-sercha-fog-grey">
+                      {[
+                        capabilityPrefs.text_indexing_enabled,
+                        capabilityPrefs.embedding_indexing_enabled,
+                        capabilityPrefs.bm25_search_enabled,
+                        capabilityPrefs.vector_search_enabled,
+                      ].filter(Boolean).length} of 4 capabilities enabled
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-sercha-fog-grey">
+                    Loading capabilities...
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </section>
 

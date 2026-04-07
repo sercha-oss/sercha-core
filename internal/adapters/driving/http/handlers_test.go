@@ -355,7 +355,9 @@ func (m *mockSettingsService) GetAIProviders(ctx context.Context) (*driving.AIPr
 }
 
 type mockCapabilitiesService struct {
-	getCapabilitiesFn func(ctx context.Context) (*driving.CapabilitiesResponse, error)
+	getCapabilitiesFn           func(ctx context.Context) (*driving.CapabilitiesResponse, error)
+	getCapabilityPreferencesFn  func(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error)
+	updateCapabilityPreferencesFn func(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error)
 }
 
 func (m *mockCapabilitiesService) GetCapabilities(ctx context.Context) (*driving.CapabilitiesResponse, error) {
@@ -368,6 +370,20 @@ func (m *mockCapabilitiesService) GetCapabilities(ctx context.Context) (*driving
 			LLM:       []domain.AIProvider{domain.AIProviderOpenAI},
 		},
 	}, nil
+}
+
+func (m *mockCapabilitiesService) GetCapabilityPreferences(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error) {
+	if m.getCapabilityPreferencesFn != nil {
+		return m.getCapabilityPreferencesFn(ctx, teamID)
+	}
+	return domain.DefaultCapabilityPreferences(teamID), nil
+}
+
+func (m *mockCapabilitiesService) UpdateCapabilityPreferences(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error) {
+	if m.updateCapabilityPreferencesFn != nil {
+		return m.updateCapabilityPreferencesFn(ctx, teamID, req)
+	}
+	return domain.DefaultCapabilityPreferences(teamID), nil
 }
 
 type mockSetupService struct {
@@ -3045,5 +3061,383 @@ func TestHandleGetConnectionSources_SourceListError(t *testing.T) {
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("expected status 500, got %d", rr.Code)
+	}
+}
+
+// Capability Preferences Handler Tests
+
+func TestHandleGetCapabilityPreferences_Success(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{
+		getCapabilityPreferencesFn: func(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error) {
+			return &domain.CapabilityPreferences{
+				TeamID:                   teamID,
+				TextIndexingEnabled:      true,
+				EmbeddingIndexingEnabled: true,
+				BM25SearchEnabled:        true,
+				VectorSearchEnabled:      true,
+				UpdatedAt:                time.Now(),
+			}, nil
+		},
+	}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	req := httptest.NewRequest("GET", "/api/v1/capability-preferences", nil)
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleGetCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response domain.CapabilityPreferences
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.TeamID != "team-123" {
+		t.Errorf("expected team-123, got %s", response.TeamID)
+	}
+	if !response.TextIndexingEnabled {
+		t.Error("expected TextIndexingEnabled to be true")
+	}
+	if !response.EmbeddingIndexingEnabled {
+		t.Error("expected EmbeddingIndexingEnabled to be true")
+	}
+}
+
+func TestHandleGetCapabilityPreferences_Unauthenticated(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	req := httptest.NewRequest("GET", "/api/v1/capability-preferences", nil)
+	// No auth context set
+	rr := httptest.NewRecorder()
+
+	server.handleGetCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", rr.Code)
+	}
+
+	var response map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response["error"] != "unauthorized" {
+		t.Errorf("expected error 'unauthorized', got %s", response["error"])
+	}
+}
+
+func TestHandleGetCapabilityPreferences_ServiceError(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{
+		getCapabilityPreferencesFn: func(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error) {
+			return nil, errors.New("database error")
+		},
+	}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	req := httptest.NewRequest("GET", "/api/v1/capability-preferences", nil)
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleGetCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rr.Code)
+	}
+}
+
+func TestHandleGetCapabilityPreferences_ServiceUnavailable(t *testing.T) {
+	// Test when capabilitiesService is nil
+	server := &Server{capabilitiesService: nil}
+
+	req := httptest.NewRequest("GET", "/api/v1/capability-preferences", nil)
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleGetCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", rr.Code)
+	}
+}
+
+func TestHandleUpdateCapabilityPreferences_Success(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{
+		updateCapabilityPreferencesFn: func(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error) {
+			return &domain.CapabilityPreferences{
+				TeamID:                   teamID,
+				TextIndexingEnabled:      true,
+				EmbeddingIndexingEnabled: true,
+				BM25SearchEnabled:        true,
+				VectorSearchEnabled:      true,
+				UpdatedAt:                time.Now(),
+			}, nil
+		},
+	}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	embeddingEnabled := true
+	body, _ := json.Marshal(driving.UpdateCapabilityPreferencesRequest{
+		EmbeddingIndexingEnabled: &embeddingEnabled,
+	})
+	req := httptest.NewRequest("PUT", "/api/v1/capability-preferences", bytes.NewBuffer(body))
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response domain.CapabilityPreferences
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.TeamID != "team-123" {
+		t.Errorf("expected team-123, got %s", response.TeamID)
+	}
+	if !response.EmbeddingIndexingEnabled {
+		t.Error("expected EmbeddingIndexingEnabled to be true")
+	}
+}
+
+func TestHandleUpdateCapabilityPreferences_InvalidJSON(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	req := httptest.NewRequest("PUT", "/api/v1/capability-preferences", bytes.NewBufferString("invalid json"))
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rr.Code)
+	}
+
+	var response map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response["error"] != "invalid request body" {
+		t.Errorf("expected error 'invalid request body', got %s", response["error"])
+	}
+}
+
+func TestHandleUpdateCapabilityPreferences_Unauthenticated(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	body, _ := json.Marshal(driving.UpdateCapabilityPreferencesRequest{})
+	req := httptest.NewRequest("PUT", "/api/v1/capability-preferences", bytes.NewBuffer(body))
+	// No auth context set
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", rr.Code)
+	}
+
+	var response map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response["error"] != "unauthorized" {
+		t.Errorf("expected error 'unauthorized', got %s", response["error"])
+	}
+}
+
+func TestHandleUpdateCapabilityPreferences_ServiceError(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{
+		updateCapabilityPreferencesFn: func(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error) {
+			return nil, errors.New("database error")
+		},
+	}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	embeddingEnabled := true
+	body, _ := json.Marshal(driving.UpdateCapabilityPreferencesRequest{
+		EmbeddingIndexingEnabled: &embeddingEnabled,
+	})
+	req := httptest.NewRequest("PUT", "/api/v1/capability-preferences", bytes.NewBuffer(body))
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rr.Code)
+	}
+}
+
+func TestHandleUpdateCapabilityPreferences_ServiceUnavailable(t *testing.T) {
+	// Test when capabilitiesService is nil
+	server := &Server{capabilitiesService: nil}
+
+	body, _ := json.Marshal(driving.UpdateCapabilityPreferencesRequest{})
+	req := httptest.NewRequest("PUT", "/api/v1/capability-preferences", bytes.NewBuffer(body))
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", rr.Code)
+	}
+}
+
+func TestHandleUpdateCapabilityPreferences_AllFields(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{
+		updateCapabilityPreferencesFn: func(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error) {
+			// Verify the request has all fields
+			if req.TextIndexingEnabled == nil {
+				return nil, errors.New("TextIndexingEnabled is nil")
+			}
+			if req.EmbeddingIndexingEnabled == nil {
+				return nil, errors.New("EmbeddingIndexingEnabled is nil")
+			}
+			if req.BM25SearchEnabled == nil {
+				return nil, errors.New("BM25SearchEnabled is nil")
+			}
+			if req.VectorSearchEnabled == nil {
+				return nil, errors.New("VectorSearchEnabled is nil")
+			}
+			return &domain.CapabilityPreferences{
+				TeamID:                   teamID,
+				TextIndexingEnabled:      *req.TextIndexingEnabled,
+				EmbeddingIndexingEnabled: *req.EmbeddingIndexingEnabled,
+				BM25SearchEnabled:        *req.BM25SearchEnabled,
+				VectorSearchEnabled:      *req.VectorSearchEnabled,
+				UpdatedAt:                time.Now(),
+			}, nil
+		},
+	}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	textEnabled := false
+	embeddingEnabled := true
+	bm25Enabled := false
+	vectorEnabled := true
+
+	body, _ := json.Marshal(driving.UpdateCapabilityPreferencesRequest{
+		TextIndexingEnabled:      &textEnabled,
+		EmbeddingIndexingEnabled: &embeddingEnabled,
+		BM25SearchEnabled:        &bm25Enabled,
+		VectorSearchEnabled:      &vectorEnabled,
+	})
+	req := httptest.NewRequest("PUT", "/api/v1/capability-preferences", bytes.NewBuffer(body))
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response domain.CapabilityPreferences
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.TextIndexingEnabled {
+		t.Error("expected TextIndexingEnabled to be false")
+	}
+	if !response.EmbeddingIndexingEnabled {
+		t.Error("expected EmbeddingIndexingEnabled to be true")
+	}
+	if response.BM25SearchEnabled {
+		t.Error("expected BM25SearchEnabled to be false")
+	}
+	if !response.VectorSearchEnabled {
+		t.Error("expected VectorSearchEnabled to be true")
+	}
+}
+
+func TestHandleUpdateCapabilityPreferences_EmptyBody(t *testing.T) {
+	mockCapabilities := &mockCapabilitiesService{
+		updateCapabilityPreferencesFn: func(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error) {
+			// Empty request - all fields should be nil
+			return domain.DefaultCapabilityPreferences(teamID), nil
+		},
+	}
+
+	server := &Server{capabilitiesService: mockCapabilities}
+
+	// Empty JSON object
+	body, _ := json.Marshal(driving.UpdateCapabilityPreferencesRequest{})
+	req := httptest.NewRequest("PUT", "/api/v1/capability-preferences", bytes.NewBuffer(body))
+	authCtx := &domain.AuthContext{
+		UserID: "user-1",
+		TeamID: "team-123",
+		Role:   domain.RoleAdmin,
+	}
+	ctx := context.WithValue(req.Context(), authContextKey, authCtx)
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	server.handleUpdateCapabilityPreferences(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
 	}
 }

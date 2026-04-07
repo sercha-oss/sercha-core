@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { CheckCircle2, ArrowRight, Sparkles, Link2, FileText, Loader2 } from "lucide-react";
-import { getAISettings, listProviders, listSources } from "@/lib/api";
+import { CheckCircle2, ArrowRight, Sparkles, Link2, FileText, Loader2, Zap } from "lucide-react";
+import { getAISettings, listProviders, listSources, getCapabilityPreferences } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 interface StepCompleteProps {
@@ -12,6 +12,7 @@ interface StepCompleteProps {
 
 interface ActualStatus {
   aiConfigured: boolean;
+  capabilitiesConfigured: boolean;
   providerConfigured: boolean;
   sourceConnected: boolean;
 }
@@ -21,6 +22,7 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<ActualStatus>({
     aiConfigured: false,
+    capabilitiesConfigured: false,
     providerConfigured: false,
     sourceConnected: false,
   });
@@ -29,14 +31,24 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const [aiSettings, providers, sources] = await Promise.all([
+        const [aiSettings, capabilityPrefs, providers, sources] = await Promise.all([
           getAISettings().catch(() => null),
+          getCapabilityPreferences().catch(() => null),
           listProviders().catch(() => []),
           listSources().catch(() => []),
         ]);
 
+        // Check if any capabilities are enabled
+        const capabilitiesEnabled = capabilityPrefs
+          ? capabilityPrefs.text_indexing_enabled ||
+            capabilityPrefs.embedding_indexing_enabled ||
+            capabilityPrefs.bm25_search_enabled ||
+            capabilityPrefs.vector_search_enabled
+          : false;
+
         setStatus({
           aiConfigured: aiSettings?.embedding?.is_configured || aiSettings?.llm?.is_configured || false,
+          capabilitiesConfigured: capabilitiesEnabled,
           providerConfigured: providers.some((p) => p.configured),
           sourceConnected: sources.length > 0,
         });
@@ -44,8 +56,9 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
         // Fall back to completedSteps if API fails
         setStatus({
           aiConfigured: completedSteps.includes(2),
-          providerConfigured: completedSteps.includes(3),
-          sourceConnected: completedSteps.includes(3),
+          capabilitiesConfigured: completedSteps.includes(3),
+          providerConfigured: completedSteps.includes(4),
+          sourceConnected: completedSteps.includes(4),
         });
       } finally {
         setLoading(false);
@@ -60,6 +73,12 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
       title: "AI Configured",
       description: "Semantic search enabled",
       completed: status.aiConfigured,
+    },
+    {
+      icon: Zap,
+      title: "Capabilities Configured",
+      description: "Search capabilities enabled",
+      completed: status.capabilitiesConfigured,
     },
     {
       icon: Link2,

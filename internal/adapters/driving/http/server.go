@@ -253,6 +253,14 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("GET /api/v1/settings/ai/providers",
 		authMiddleware.Authenticate(http.HandlerFunc(s.handleGetAIProviders)))
 
+	// Capability preferences endpoints (admin-only)
+	s.router.Handle("GET /api/v1/capability-preferences",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleGetCapabilityPreferences))))
+	s.router.Handle("PUT /api/v1/capability-preferences",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleUpdateCapabilityPreferences))))
+
 	// Admin endpoints (admin-only)
 	s.router.Handle("GET /api/v1/admin/stats",
 		authMiddleware.Authenticate(

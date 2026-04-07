@@ -25,6 +25,12 @@ type Capabilities struct {
 	// AI providers available for LLM
 	LLMProviders []domain.AIProvider
 
+	// SearchEngineAvailable indicates if a search engine (e.g. OpenSearch) was initialized
+	SearchEngineAvailable bool
+
+	// VectorStoreAvailable indicates if a vector store (e.g. pgvector) was initialized
+	VectorStoreAvailable bool
+
 	// Operational boundaries from environment variables
 	Limits OperationalLimits
 }

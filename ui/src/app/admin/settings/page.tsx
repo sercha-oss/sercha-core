@@ -75,7 +75,7 @@ function SearchSettingsSection({
 }) {
   // Check if embedding is configured for semantic search features
   const isEmbeddingConfigured = aiSettings?.embedding?.is_configured ?? false;
-  // Schema upgrade required means embeddings are configured but Vespa schema isn't ready
+  // Schema upgrade required means embeddings are configured but search backend schema isn't ready
   const schemaUpgradeRequired = aiStatus?.schema_upgrade_required ?? false;
   // Can only use vector search if embedding is configured AND schema is ready
   const canUseVectorSearch = isEmbeddingConfigured && !schemaUpgradeRequired;

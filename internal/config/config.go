@@ -30,6 +30,10 @@ type Config struct {
 	PgvectorURL        string
 	PgvectorDimensions int
 
+	// Runtime backend availability (set by main.go after initialization)
+	SearchEngineAvailable bool // true if OpenSearch connected successfully
+	VectorStoreAvailable  bool // true if pgvector connected successfully
+
 	// OAuth provider credentials
 	oauthCredentials map[domain.ProviderType]*driven.OAuthCredentials
 
@@ -262,10 +266,12 @@ func (c *Config) IsAIConfigured(provider domain.AIProvider) bool {
 // GetCapabilities implements driven.ConfigProvider
 func (c *Config) GetCapabilities() *driven.Capabilities {
 	caps := &driven.Capabilities{
-		OAuthProviders:     make([]domain.ProviderType, 0),
-		EmbeddingProviders: make([]domain.AIProvider, 0),
-		LLMProviders:       make([]domain.AIProvider, 0),
-		Limits:             c.limits,
+		OAuthProviders:        make([]domain.ProviderType, 0),
+		EmbeddingProviders:    make([]domain.AIProvider, 0),
+		LLMProviders:          make([]domain.AIProvider, 0),
+		SearchEngineAvailable: c.SearchEngineAvailable,
+		VectorStoreAvailable:  c.VectorStoreAvailable,
+		Limits:                c.limits,
 	}
 
 	// OAuth providers

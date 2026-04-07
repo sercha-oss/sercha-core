@@ -183,6 +183,7 @@ func main() {
 			log.Printf("Warning: OpenSearch health check failed: %v", err)
 		} else {
 			searchEngine = osEngine
+			cfg.SearchEngineAvailable = true
 			log.Printf("OpenSearch connected: %s", cfg.OpenSearchURL)
 		}
 	} else {
@@ -209,6 +210,7 @@ func main() {
 			pgvectorAdapter = nil
 		} else {
 			vectorIndex = pgvectorAdapter
+			cfg.VectorStoreAvailable = true
 			log.Printf("pgvector connected: %s (dimensions: %d)", cfg.PgvectorURL, cfg.PgvectorDimensions)
 		}
 	} else {
@@ -231,7 +233,7 @@ func main() {
 	syncStore := postgres.NewSyncStateStore(db)
 	settingsStore := postgres.NewSettingsStore(db)
 	schedulerStore := postgres.NewSchedulerStore(db)
-	// capabilityStore := postgres.NewCapabilityStore(db) // TODO: Use in capability management service (#30)
+	capabilityStore := postgres.NewCapabilityStore(db)
 	searchQueryRepo := postgres.NewSearchQueryRepository(db)
 
 	// ===== Session Store (Redis if available, otherwise PostgreSQL) =====
@@ -465,7 +467,7 @@ func main() {
 	providerService := services.NewProviderService(cfg)
 
 	// Capabilities service
-	capabilitiesService := services.NewCapabilitiesService(cfg)
+	capabilitiesService := services.NewCapabilitiesService(cfg, capabilityStore)
 
 	// OAuth service (handles OAuth flows for connector installations)
 	oauthService := services.NewOAuthService(services.OAuthServiceConfig{

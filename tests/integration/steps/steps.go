@@ -883,11 +883,17 @@ func iShouldSeeFeatureFlagsInCapabilities() error {
 	if !ok {
 		return fmt.Errorf("features is not an object")
 	}
-	if _, ok := featuresMap["semantic_search"]; !ok {
-		return fmt.Errorf("features.semantic_search field missing")
+	if _, ok := featuresMap["text_indexing"]; !ok {
+		return fmt.Errorf("features.text_indexing field missing")
 	}
-	if _, ok := featuresMap["vector_indexing"]; !ok {
-		return fmt.Errorf("features.vector_indexing field missing")
+	if _, ok := featuresMap["embedding_indexing"]; !ok {
+		return fmt.Errorf("features.embedding_indexing field missing")
+	}
+	if _, ok := featuresMap["bm25_search"]; !ok {
+		return fmt.Errorf("features.bm25_search field missing")
+	}
+	if _, ok := featuresMap["vector_search"]; !ok {
+		return fmt.Errorf("features.vector_search field missing")
 	}
 	return nil
 }

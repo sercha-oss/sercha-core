@@ -12,7 +12,8 @@ interface Step {
 const SETUP_STEPS: Step[] = [
   { number: 1, label: "Account" },
   { number: 2, label: "AI", optional: true },
-  { number: 3, label: "Sources", optional: true },
+  { number: 3, label: "Capabilities", optional: true },
+  { number: 4, label: "Sources", optional: true },
 ];
 
 interface ProgressBarProps {
