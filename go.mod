@@ -8,6 +8,7 @@ require (
 	github.com/cucumber/godog v0.15.1
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/lib/pq v1.10.9
+	github.com/opensearch-project/opensearch-go/v4 v4.6.0
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/crypto v0.46.0
@@ -32,7 +33,6 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/spf13/pflag v1.0.7 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/net v0.47.0 // indirect

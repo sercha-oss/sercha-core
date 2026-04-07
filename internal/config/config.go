@@ -23,6 +23,9 @@ type Config struct {
 	MasterKey   []byte
 	BaseURL     string
 
+	// Optional infrastructure
+	OpenSearchURL string
+
 	// OAuth provider credentials
 	oauthCredentials map[domain.ProviderType]*driven.OAuthCredentials
 
@@ -85,6 +88,9 @@ func Load() (*Config, error) {
 		port := getEnvInt("PORT", 8080)
 		cfg.BaseURL = fmt.Sprintf("http://localhost:%d", port)
 	}
+
+	// OPENSEARCH_URL (optional)
+	cfg.OpenSearchURL = os.Getenv("OPENSEARCH_URL")
 
 	// Load OAuth credentials (all optional)
 	cfg.loadOAuthCredentials()

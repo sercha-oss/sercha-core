@@ -19,6 +19,22 @@ services:
       timeout: 5s
       retries: 5
 
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=admin
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   sercha:
     build:
       context: ../..
@@ -30,6 +46,7 @@ services:
       PORT: 8080
       UI_BASE_URL: http://localhost:3001
       CORS_ALLOWED_ORIGINS: http://localhost:3001
+      OPENSEARCH_URL: http://opensearch:9200
       LOCALFS_ALLOWED_ROOTS: /data
       # Optional: Configure AI providers
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -49,6 +66,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      opensearch:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  opensearch_data:

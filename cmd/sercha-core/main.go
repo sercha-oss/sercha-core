@@ -35,6 +35,7 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/github"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/localfs"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/opensearch"
 	pipelineexec "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/executor"
 	pipelinereg "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/registry"
 	indexingstages "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/stages/indexing"
@@ -166,10 +167,26 @@ func main() {
 		log.Println("Redis connected")
 	}
 
-	// ===== Search Engine (temporarily stubbed - no backend) =====
-	// TODO: Replace with OpenSearch/pgvector in subsequent tickets (#28, #29)
+	// ===== Search Engine (OpenSearch if configured) =====
 	var searchEngine driven.SearchEngine = nil
-	log.Println("Search engine: disabled (no backend configured)")
+	if cfg.OpenSearchURL != "" {
+		log.Println("Initializing OpenSearch search engine...")
+		osConfig := opensearch.DefaultConfig()
+		osConfig.URL = cfg.OpenSearchURL
+		osEngine, err := opensearch.NewSearchEngine(osConfig)
+		if err != nil {
+			log.Fatalf("Failed to initialize OpenSearch: %v", err)
+		}
+		// Verify connectivity
+		if err := osEngine.HealthCheck(ctx); err != nil {
+			log.Printf("Warning: OpenSearch health check failed: %v", err)
+		} else {
+			searchEngine = osEngine
+			log.Printf("OpenSearch connected: %s", cfg.OpenSearchURL)
+		}
+	} else {
+		log.Println("Search engine: disabled (OPENSEARCH_URL not configured)")
+	}
 
 	// ===== Driven adapters (infrastructure) =====
 	authAdapter := auth.NewAdapter(cfg.JWTSecret)
@@ -330,9 +347,6 @@ func main() {
 	}
 
 	// Register capability providers
-	// Vector store - disabled (no backend configured yet)
-	// TODO: Register OpenSearch/pgvector in tickets #28, #29
-
 	// Embedder - dynamically available via runtimeServices
 	// The instance is resolved at runtime when needed
 	if err := capabilityRegistry.Register(&capabilityProvider{
