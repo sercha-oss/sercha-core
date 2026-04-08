@@ -13,6 +13,39 @@ const (
 	AIProviderVoyage    AIProvider = "voyage"
 )
 
+// SyncExclusionSettings holds sync exclusion patterns configuration
+type SyncExclusionSettings struct {
+	// EnabledPatterns are the default patterns that are currently enabled
+	EnabledPatterns []string `json:"enabled_patterns"`
+
+	// DisabledPatterns are the default patterns that have been toggled off
+	DisabledPatterns []string `json:"disabled_patterns"`
+
+	// CustomPatterns are user-defined exclusion patterns
+	CustomPatterns []string `json:"custom_patterns"`
+}
+
+// GetActivePatterns returns all active exclusion patterns (enabled defaults + custom)
+func (s *SyncExclusionSettings) GetActivePatterns() []string {
+	if s == nil {
+		return []string{}
+	}
+
+	// Combine enabled patterns and custom patterns
+	active := make([]string, 0, len(s.EnabledPatterns)+len(s.CustomPatterns))
+	active = append(active, s.EnabledPatterns...)
+	active = append(active, s.CustomPatterns...)
+	return active
+}
+
+// HasPatterns returns true if there are any active exclusion patterns
+func (s *SyncExclusionSettings) HasPatterns() bool {
+	if s == nil {
+		return false
+	}
+	return len(s.EnabledPatterns) > 0 || len(s.CustomPatterns) > 0
+}
+
 // Settings holds team-wide configuration
 // Note: AI configuration (provider, model, API keys) is managed via AISettings
 // and the /settings/ai endpoint, not here.
@@ -26,15 +59,59 @@ type Settings struct {
 	MaxResultsPerPage int        `json:"max_results_per_page"`
 
 	// Sync Configuration
-	SyncIntervalMinutes int  `json:"sync_interval_minutes"`
-	SyncEnabled         bool `json:"sync_enabled"`
-
-	// Feature Flags
-	AutoSuggestEnabled bool `json:"auto_suggest_enabled"`
+	SyncIntervalMinutes int                     `json:"sync_interval_minutes"`
+	SyncEnabled         bool                    `json:"sync_enabled"`
+	SyncExclusions      *SyncExclusionSettings  `json:"sync_exclusions,omitempty"`
 
 	// Metadata
 	UpdatedAt time.Time `json:"updated_at"`
 	UpdatedBy string    `json:"updated_by"` // User ID
+}
+
+// DefaultSyncExclusions returns common file/folder patterns to exclude from sync
+func DefaultSyncExclusions() *SyncExclusionSettings {
+	return &SyncExclusionSettings{
+		EnabledPatterns: []string{
+			// Version control
+			".git/",
+			".svn/",
+			".hg/",
+			// Dependencies
+			"node_modules/",
+			"vendor/",
+			"venv/",
+			".venv/",
+			// Build artifacts
+			"build/",
+			"dist/",
+			"target/",
+			"out/",
+			"bin/",
+			// IDE/Editor
+			".idea/",
+			".vscode/",
+			".vs/",
+			// OS files
+			".DS_Store",
+			"Thumbs.db",
+			// Temporary files
+			"*.tmp",
+			"*.temp",
+			"*.log",
+			// Archives
+			"*.zip",
+			"*.tar.gz",
+			"*.rar",
+			// Media (large files)
+			"*.mp4",
+			"*.mov",
+			"*.avi",
+			"*.mp3",
+			"*.wav",
+		},
+		DisabledPatterns: []string{},
+		CustomPatterns:   []string{},
+	}
 }
 
 // DefaultSettings returns sensible defaults for a new team
@@ -46,7 +123,7 @@ func DefaultSettings(teamID string) *Settings {
 		MaxResultsPerPage:   100,
 		SyncIntervalMinutes: 60,
 		SyncEnabled:         true,
-		AutoSuggestEnabled:  true,
+		SyncExclusions:      DefaultSyncExclusions(),
 		UpdatedAt:           time.Now(),
 	}
 }

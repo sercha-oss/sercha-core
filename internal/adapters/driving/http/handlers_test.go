@@ -138,10 +138,6 @@ func (m *mockSearchService) SearchBySource(ctx context.Context, sourceID string,
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSearchService) Suggest(ctx context.Context, prefix string, limit int) ([]domain.SearchSuggestion, error) {
-	return nil, errors.New("not implemented")
-}
-
 type mockSourceService struct {
 	createFn           func(ctx context.Context, creatorID string, req driving.CreateSourceRequest) (*domain.Source, error)
 	getFn              func(ctx context.Context, id string) (*domain.Source, error)

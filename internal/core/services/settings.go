@@ -65,10 +65,9 @@ func (s *settingsService) Update(ctx context.Context, updaterID string, req driv
 	if req.SyncEnabled != nil {
 		settings.SyncEnabled = *req.SyncEnabled
 	}
-	if req.AutoSuggestEnabled != nil {
-		settings.AutoSuggestEnabled = *req.AutoSuggestEnabled
+	if req.SyncExclusions != nil {
+		settings.SyncExclusions = req.SyncExclusions
 	}
-
 	settings.UpdatedAt = time.Now()
 	settings.UpdatedBy = updaterID
 

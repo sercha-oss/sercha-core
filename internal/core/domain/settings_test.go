@@ -48,8 +48,8 @@ func TestDefaultSettings(t *testing.T) {
 	if !settings.SyncEnabled {
 		t.Error("expected SyncEnabled to be true")
 	}
-	if !settings.AutoSuggestEnabled {
-		t.Error("expected AutoSuggestEnabled to be true")
+	if settings.SyncExclusions == nil {
+		t.Error("expected SyncExclusions to be initialized")
 	}
 	if settings.UpdatedAt.IsZero() {
 		t.Error("expected UpdatedAt to be set")
@@ -66,7 +66,6 @@ func TestSettings(t *testing.T) {
 		MaxResultsPerPage:   50,
 		SyncIntervalMinutes: 30,
 		SyncEnabled:         false,
-		AutoSuggestEnabled:  true,
 	}
 
 	if settings.DefaultSearchMode != SearchModeTextOnly {
@@ -389,5 +388,172 @@ func TestAIProviderInfo(t *testing.T) {
 	}
 	if provider.APIKeyURL != "https://platform.openai.com/api-keys" {
 		t.Errorf("unexpected APIKeyURL: %s", provider.APIKeyURL)
+	}
+}
+
+func TestDefaultSyncExclusions(t *testing.T) {
+	exclusions := DefaultSyncExclusions()
+
+	if exclusions == nil {
+		t.Fatal("expected DefaultSyncExclusions to return non-nil value")
+	}
+
+	if len(exclusions.EnabledPatterns) == 0 {
+		t.Error("expected EnabledPatterns to have default values")
+	}
+
+	if len(exclusions.DisabledPatterns) != 0 {
+		t.Errorf("expected DisabledPatterns to be empty, got %d", len(exclusions.DisabledPatterns))
+	}
+
+	if len(exclusions.CustomPatterns) != 0 {
+		t.Errorf("expected CustomPatterns to be empty, got %d", len(exclusions.CustomPatterns))
+	}
+
+	// Check for some common patterns
+	hasGit := false
+	hasNodeModules := false
+	for _, pattern := range exclusions.EnabledPatterns {
+		if pattern == ".git/" {
+			hasGit = true
+		}
+		if pattern == "node_modules/" {
+			hasNodeModules = true
+		}
+	}
+
+	if !hasGit {
+		t.Error("expected EnabledPatterns to include .git/")
+	}
+	if !hasNodeModules {
+		t.Error("expected EnabledPatterns to include node_modules/")
+	}
+}
+
+func TestSyncExclusionSettings_GetActivePatterns(t *testing.T) {
+	tests := []struct {
+		name      string
+		exclusion *SyncExclusionSettings
+		expected  int
+	}{
+		{
+			name:      "nil settings",
+			exclusion: nil,
+			expected:  0,
+		},
+		{
+			name: "empty settings",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{},
+				DisabledPatterns: []string{},
+				CustomPatterns:   []string{},
+			},
+			expected: 0,
+		},
+		{
+			name: "only enabled patterns",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{".git/", "node_modules/"},
+				DisabledPatterns: []string{},
+				CustomPatterns:   []string{},
+			},
+			expected: 2,
+		},
+		{
+			name: "only custom patterns",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{},
+				DisabledPatterns: []string{},
+				CustomPatterns:   []string{"*.secret", "private/"},
+			},
+			expected: 2,
+		},
+		{
+			name: "enabled and custom patterns",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{".git/", "node_modules/"},
+				DisabledPatterns: []string{"build/"},
+				CustomPatterns:   []string{"*.secret", "private/"},
+			},
+			expected: 4, // 2 enabled + 2 custom (disabled patterns not included)
+		},
+		{
+			name: "default settings",
+			exclusion: DefaultSyncExclusions(),
+			expected:  len(DefaultSyncExclusions().EnabledPatterns),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			active := tt.exclusion.GetActivePatterns()
+			if len(active) != tt.expected {
+				t.Errorf("expected %d active patterns, got %d", tt.expected, len(active))
+			}
+		})
+	}
+}
+
+func TestSyncExclusionSettings_HasPatterns(t *testing.T) {
+	tests := []struct {
+		name      string
+		exclusion *SyncExclusionSettings
+		expected  bool
+	}{
+		{
+			name:      "nil settings",
+			exclusion: nil,
+			expected:  false,
+		},
+		{
+			name: "empty settings",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{},
+				DisabledPatterns: []string{},
+				CustomPatterns:   []string{},
+			},
+			expected: false,
+		},
+		{
+			name: "has enabled patterns",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{".git/"},
+				DisabledPatterns: []string{},
+				CustomPatterns:   []string{},
+			},
+			expected: true,
+		},
+		{
+			name: "has custom patterns only",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{},
+				DisabledPatterns: []string{},
+				CustomPatterns:   []string{"*.secret"},
+			},
+			expected: true,
+		},
+		{
+			name: "has disabled patterns only",
+			exclusion: &SyncExclusionSettings{
+				EnabledPatterns:  []string{},
+				DisabledPatterns: []string{"build/"},
+				CustomPatterns:   []string{},
+			},
+			expected: false, // Disabled patterns don't count as active
+		},
+		{
+			name:      "default settings",
+			exclusion: DefaultSyncExclusions(),
+			expected:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.exclusion.HasPatterns()
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
 	}
 }

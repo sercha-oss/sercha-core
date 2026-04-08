@@ -295,7 +295,6 @@ export interface Settings {
   max_results_per_page: number;
   sync_interval_minutes: number;
   sync_enabled: boolean;
-  auto_suggest_enabled: boolean;
   sync_exclusions?: SyncExclusionSettings;
   updated_at: string;
   updated_by: string;
@@ -306,7 +305,6 @@ export interface UpdateSettingsRequest {
   results_per_page?: number;
   sync_interval_minutes?: number;
   sync_enabled?: boolean;
-  auto_suggest_enabled?: boolean;
   sync_exclusions?: SyncExclusionSettings;
 }
 

@@ -193,14 +193,11 @@ func TestSettingsService_Update_AllFields(t *testing.T) {
 	resultsPerPage := 30
 	syncInterval := 120
 	syncEnabled := false
-	autoSuggest := true
-
 	req := driving.UpdateSettingsRequest{
 		DefaultSearchMode:   &searchMode,
 		ResultsPerPage:      &resultsPerPage,
 		SyncIntervalMinutes: &syncInterval,
 		SyncEnabled:         &syncEnabled,
-		AutoSuggestEnabled:  &autoSuggest,
 	}
 
 	settings, err := svc.Update(context.Background(), "admin", req)
@@ -707,5 +704,229 @@ func TestSettingsService_GetAIProviders_ModelsHaveMetadata(t *testing.T) {
 				t.Errorf("provider %s has model with empty name", p.ID)
 			}
 		}
+	}
+}
+
+// TestSettingsService_UpdateWithSyncExclusions validates acceptance criteria:
+// - Settings update handles `SyncExclusions` field
+func TestSettingsService_UpdateWithSyncExclusions(t *testing.T) {
+	tests := []struct {
+		name            string
+		initialSettings *domain.Settings
+		updateRequest   driving.UpdateSettingsRequest
+		validate        func(*testing.T, *domain.Settings)
+	}{
+		{
+			name:            "update sync exclusions with enabled and custom patterns",
+			initialSettings: domain.DefaultSettings("team-1"),
+			updateRequest: driving.UpdateSettingsRequest{
+				SyncExclusions: &domain.SyncExclusionSettings{
+					EnabledPatterns:  []string{".git/", "node_modules/", "*.log"},
+					DisabledPatterns: []string{"build/"},
+					CustomPatterns:   []string{"*.secret", "private/"},
+				},
+			},
+			validate: func(t *testing.T, s *domain.Settings) {
+				if s.SyncExclusions == nil {
+					t.Fatal("expected SyncExclusions to be set")
+				}
+				if len(s.SyncExclusions.EnabledPatterns) != 3 {
+					t.Errorf("expected 3 enabled patterns, got %d", len(s.SyncExclusions.EnabledPatterns))
+				}
+				if len(s.SyncExclusions.CustomPatterns) != 2 {
+					t.Errorf("expected 2 custom patterns, got %d", len(s.SyncExclusions.CustomPatterns))
+				}
+				if len(s.SyncExclusions.DisabledPatterns) != 1 {
+					t.Errorf("expected 1 disabled pattern, got %d", len(s.SyncExclusions.DisabledPatterns))
+				}
+			},
+		},
+		{
+			name: "update sync exclusions to empty",
+			initialSettings: func() *domain.Settings {
+				s := domain.DefaultSettings("team-1")
+				s.SyncExclusions = &domain.SyncExclusionSettings{
+					EnabledPatterns: []string{".git/"},
+					CustomPatterns:  []string{"*.secret"},
+				}
+				return s
+			}(),
+			updateRequest: driving.UpdateSettingsRequest{
+				SyncExclusions: &domain.SyncExclusionSettings{
+					EnabledPatterns:  []string{},
+					DisabledPatterns: []string{},
+					CustomPatterns:   []string{},
+				},
+			},
+			validate: func(t *testing.T, s *domain.Settings) {
+				if s.SyncExclusions == nil {
+					t.Fatal("expected SyncExclusions to be set")
+				}
+				if len(s.SyncExclusions.EnabledPatterns) != 0 {
+					t.Errorf("expected 0 enabled patterns, got %d", len(s.SyncExclusions.EnabledPatterns))
+				}
+				if len(s.SyncExclusions.CustomPatterns) != 0 {
+					t.Errorf("expected 0 custom patterns, got %d", len(s.SyncExclusions.CustomPatterns))
+				}
+			},
+		},
+		{
+			name:            "update only custom patterns",
+			initialSettings: domain.DefaultSettings("team-1"),
+			updateRequest: driving.UpdateSettingsRequest{
+				SyncExclusions: &domain.SyncExclusionSettings{
+					EnabledPatterns:  []string{".git/"},
+					DisabledPatterns: []string{},
+					CustomPatterns:   []string{"my-pattern/", "*.custom"},
+				},
+			},
+			validate: func(t *testing.T, s *domain.Settings) {
+				if s.SyncExclusions == nil {
+					t.Fatal("expected SyncExclusions to be set")
+				}
+				if len(s.SyncExclusions.CustomPatterns) != 2 {
+					t.Errorf("expected 2 custom patterns, got %d", len(s.SyncExclusions.CustomPatterns))
+				}
+				hasCustomPattern := false
+				for _, p := range s.SyncExclusions.CustomPatterns {
+					if p == "my-pattern/" {
+						hasCustomPattern = true
+						break
+					}
+				}
+				if !hasCustomPattern {
+					t.Error("expected custom pattern 'my-pattern/' to be present")
+				}
+			},
+		},
+		{
+			name: "nil sync exclusions in request - no update",
+			initialSettings: func() *domain.Settings {
+				s := domain.DefaultSettings("team-1")
+				s.SyncExclusions = &domain.SyncExclusionSettings{
+					EnabledPatterns: []string{".git/"},
+					CustomPatterns:  []string{"*.secret"},
+				}
+				return s
+			}(),
+			updateRequest: driving.UpdateSettingsRequest{
+				// SyncExclusions is nil, should not modify existing
+			},
+			validate: func(t *testing.T, s *domain.Settings) {
+				if s.SyncExclusions == nil {
+					t.Fatal("expected SyncExclusions to remain set")
+				}
+				if len(s.SyncExclusions.EnabledPatterns) != 1 {
+					t.Errorf("expected original enabled patterns to be preserved, got %d", len(s.SyncExclusions.EnabledPatterns))
+				}
+				if len(s.SyncExclusions.CustomPatterns) != 1 {
+					t.Errorf("expected original custom patterns to be preserved, got %d", len(s.SyncExclusions.CustomPatterns))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &mockSettingsStore{
+				settings: tt.initialSettings,
+			}
+			config := domain.NewRuntimeConfig("postgres")
+			services := runtime.NewServices(config)
+			configProvider := newMockConfigProvider()
+			svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+
+			result, err := svc.Update(context.Background(), "user-1", tt.updateRequest)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result == nil {
+				t.Fatal("expected result to be returned")
+			}
+
+			// Validate the result
+			tt.validate(t, result)
+
+			// Verify settings were saved
+			if store.settings == nil {
+				t.Fatal("expected settings to be saved")
+			}
+			tt.validate(t, store.settings)
+
+			// Verify UpdatedBy is set
+			if store.settings.UpdatedBy != "user-1" {
+				t.Errorf("expected UpdatedBy to be 'user-1', got %s", store.settings.UpdatedBy)
+			}
+
+			// Verify UpdatedAt is set
+			if store.settings.UpdatedAt.IsZero() {
+				t.Error("expected UpdatedAt to be set")
+			}
+		})
+	}
+}
+
+// TestSettingsService_UpdateMultipleFieldsWithSyncExclusions validates that
+// multiple settings fields can be updated together including sync exclusions
+func TestSettingsService_UpdateMultipleFieldsWithSyncExclusions(t *testing.T) {
+	store := &mockSettingsStore{
+		settings: domain.DefaultSettings("team-1"),
+	}
+	config := domain.NewRuntimeConfig("postgres")
+	services := runtime.NewServices(config)
+	configProvider := newMockConfigProvider()
+	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+
+	defaultMode := domain.SearchModeTextOnly
+	resultsPerPage := 25
+	syncInterval := 45
+	syncEnabled := false
+
+	req := driving.UpdateSettingsRequest{
+		DefaultSearchMode:   &defaultMode,
+		ResultsPerPage:      &resultsPerPage,
+		SyncIntervalMinutes: &syncInterval,
+		SyncEnabled:         &syncEnabled,
+		SyncExclusions: &domain.SyncExclusionSettings{
+			EnabledPatterns: []string{".git/"},
+			CustomPatterns:  []string{"*.private"},
+		},
+	}
+
+	result, err := svc.Update(context.Background(), "user-1", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify all fields were updated
+	if result.DefaultSearchMode != domain.SearchModeTextOnly {
+		t.Errorf("expected DefaultSearchMode text, got %s", result.DefaultSearchMode)
+	}
+	if result.ResultsPerPage != 25 {
+		t.Errorf("expected ResultsPerPage 25, got %d", result.ResultsPerPage)
+	}
+	if result.SyncIntervalMinutes != 45 {
+		t.Errorf("expected SyncIntervalMinutes 45, got %d", result.SyncIntervalMinutes)
+	}
+	if result.SyncEnabled {
+		t.Error("expected SyncEnabled to be false")
+	}
+	if result.SyncExclusions == nil {
+		t.Fatal("expected SyncExclusions to be set")
+	}
+	if len(result.SyncExclusions.EnabledPatterns) != 1 {
+		t.Errorf("expected 1 enabled pattern, got %d", len(result.SyncExclusions.EnabledPatterns))
+	}
+	if len(result.SyncExclusions.CustomPatterns) != 1 {
+		t.Errorf("expected 1 custom pattern, got %d", len(result.SyncExclusions.CustomPatterns))
+	}
+
+	// Verify saved settings match
+	if store.settings.DefaultSearchMode != result.DefaultSearchMode {
+		t.Error("saved settings don't match result")
+	}
+	if store.settings.SyncExclusions == nil {
+		t.Error("saved settings should have SyncExclusions")
 	}
 }

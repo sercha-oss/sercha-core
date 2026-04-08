@@ -22,6 +22,8 @@ type searchService struct {
 	services        *runtime.Services           // Dynamic AI services
 	searchExecutor  pipelineport.SearchExecutor // Required pipeline executor
 	capabilityStore driven.CapabilityStore      // For fetching capability preferences
+	settingsStore   driven.SettingsStore        // For loading team settings
+	teamID          string                      // Team ID for settings lookup
 }
 
 // NewSearchService creates a new SearchService
@@ -32,6 +34,8 @@ func NewSearchService(
 	services *runtime.Services,
 	searchExecutor pipelineport.SearchExecutor, // Required pipeline executor
 	capabilityStore driven.CapabilityStore, // For fetching capability preferences
+	settingsStore driven.SettingsStore, // For loading team settings
+	teamID string, // Team ID for settings lookup
 ) driving.SearchService {
 	// SearchExecutor is now required
 	if searchExecutor == nil {
@@ -44,6 +48,8 @@ func NewSearchService(
 		services:        services,
 		searchExecutor:  searchExecutor,
 		capabilityStore: capabilityStore,
+		settingsStore:   settingsStore,
+		teamID:          teamID,
 	}
 }
 
@@ -51,12 +57,25 @@ func NewSearchService(
 func (s *searchService) Search(ctx context.Context, query string, opts domain.SearchOptions) (*domain.SearchResult, error) {
 	start := time.Now()
 
-	// Apply defaults
-	if opts.Limit <= 0 {
-		opts.Limit = 20
+	// Load settings to apply defaults
+	settings, err := s.loadSettings(ctx)
+	if err != nil {
+		// If settings can't be loaded, use hardcoded defaults
+		settings = domain.DefaultSettings(s.teamID)
 	}
-	if opts.Limit > 100 {
-		opts.Limit = 100
+
+	// Apply settings-based defaults
+	if opts.Limit <= 0 {
+		opts.Limit = settings.ResultsPerPage
+	}
+	// Enforce max limit from settings
+	if opts.Limit > settings.MaxResultsPerPage {
+		opts.Limit = settings.MaxResultsPerPage
+	}
+
+	// Apply default search mode if not specified
+	if opts.Mode == "" {
+		opts.Mode = settings.DefaultSearchMode
 	}
 
 	// Use pipeline executor (required)
@@ -165,13 +184,11 @@ func (s *searchService) SearchBySource(ctx context.Context, sourceID string, que
 	return s.Search(ctx, query, opts)
 }
 
-// Suggest provides search suggestions/autocomplete
-func (s *searchService) Suggest(_ context.Context, _ string, _ int) ([]domain.SearchSuggestion, error) {
-	// TODO: Implement autocomplete/suggestions
-	// This could use:
-	// 1. Recent search history
-	// 2. Popular terms from indexed content
-	// 3. Prefix matching on document titles
-	return []domain.SearchSuggestion{}, nil
+// loadSettings loads team settings for the search service
+func (s *searchService) loadSettings(ctx context.Context) (*domain.Settings, error) {
+	if s.settingsStore == nil {
+		return domain.DefaultSettings(s.teamID), nil
+	}
+	return s.settingsStore.GetSettings(ctx, s.teamID)
 }
 

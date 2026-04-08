@@ -66,8 +66,4 @@ type RankedChunk struct {
 	Highlights []string  `json:"highlights,omitempty"`
 }
 
-// SearchSuggestion represents a search autocomplete suggestion
-type SearchSuggestion struct {
-	Text  string  `json:"text"`
-	Score float64 `json:"score"`
-}
+

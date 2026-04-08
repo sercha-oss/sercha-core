@@ -235,15 +235,20 @@ func (s *ScheduledTask) UpdateNextRun() {
 	s.NextRun = now.Add(s.Interval)
 }
 
-// DefaultSchedulerConfig returns the default scheduled tasks
-func DefaultSchedulerConfig(teamID string) []*ScheduledTask {
+// DefaultSchedulerConfig returns the default scheduled tasks with custom interval
+// If intervalMinutes is 0, defaults to 60 minutes
+func DefaultSchedulerConfig(teamID string, intervalMinutes int) []*ScheduledTask {
+	if intervalMinutes <= 0 {
+		intervalMinutes = 60
+	}
+
 	return []*ScheduledTask{
 		NewScheduledTask(
 			"document-sync",
 			"Document Sync",
 			TaskTypeSyncAll,
 			teamID,
-			60*time.Minute, // Sync all sources every hour
+			time.Duration(intervalMinutes)*time.Minute,
 		),
 	}
 }

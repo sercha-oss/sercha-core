@@ -363,31 +363,69 @@ func TestNewScheduledTask(t *testing.T) {
 }
 
 func TestDefaultSchedulerConfig(t *testing.T) {
-	teamID := "team-123"
-	configs := DefaultSchedulerConfig(teamID)
-
-	if len(configs) == 0 {
-		t.Error("expected at least one default config")
+	tests := []struct {
+		name             string
+		teamID           string
+		intervalMinutes  int
+		expectedInterval time.Duration
+	}{
+		{
+			name:             "default interval (0 defaults to 60)",
+			teamID:           "team-123",
+			intervalMinutes:  0,
+			expectedInterval: 60 * time.Minute,
+		},
+		{
+			name:             "custom interval 30 minutes",
+			teamID:           "team-123",
+			intervalMinutes:  30,
+			expectedInterval: 30 * time.Minute,
+		},
+		{
+			name:             "custom interval 120 minutes",
+			teamID:           "team-456",
+			intervalMinutes:  120,
+			expectedInterval: 120 * time.Minute,
+		},
+		{
+			name:             "negative interval defaults to 60",
+			teamID:           "team-789",
+			intervalMinutes:  -10,
+			expectedInterval: 60 * time.Minute,
+		},
 	}
 
-	// Check the document sync config
-	found := false
-	for _, config := range configs {
-		if config.ID == "document-sync" {
-			found = true
-			if config.Type != TaskTypeSyncAll {
-				t.Errorf("expected type %s, got %s", TaskTypeSyncAll, config.Type)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configs := DefaultSchedulerConfig(tt.teamID, tt.intervalMinutes)
+
+			if len(configs) == 0 {
+				t.Error("expected at least one default config")
 			}
-			if config.TeamID != teamID {
-				t.Errorf("expected team ID %s, got %s", teamID, config.TeamID)
+
+			// Check the document sync config
+			found := false
+			for _, config := range configs {
+				if config.ID == "document-sync" {
+					found = true
+					if config.Type != TaskTypeSyncAll {
+						t.Errorf("expected type %s, got %s", TaskTypeSyncAll, config.Type)
+					}
+					if config.TeamID != tt.teamID {
+						t.Errorf("expected team ID %s, got %s", tt.teamID, config.TeamID)
+					}
+					if config.Interval != tt.expectedInterval {
+						t.Errorf("expected interval %v, got %v", tt.expectedInterval, config.Interval)
+					}
+					if !config.Enabled {
+						t.Error("expected Enabled to be true")
+					}
+				}
 			}
-			if config.Interval != 60*time.Minute {
-				t.Errorf("expected interval 60m, got %v", config.Interval)
+			if !found {
+				t.Error("expected to find document-sync config")
 			}
-		}
-	}
-	if !found {
-		t.Error("expected to find document-sync config")
+		})
 	}
 }
 

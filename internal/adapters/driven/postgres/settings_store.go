@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
@@ -29,13 +30,14 @@ func (s *SettingsStore) GetSettings(ctx context.Context, teamID string) (*domain
 	query := `
 		SELECT team_id, default_search_mode, results_per_page, max_results_per_page,
 			   sync_interval_minutes, sync_enabled,
-			   auto_suggest_enabled, updated_at, updated_by
+			   sync_exclusions, updated_at, updated_by
 		FROM settings
 		WHERE team_id = $1
 	`
 
 	var settings domain.Settings
 	var updatedBy sql.NullString
+	var syncExclusionsJSON []byte
 
 	err := s.db.QueryRowContext(ctx, query, teamID).Scan(
 		&settings.TeamID,
@@ -44,7 +46,7 @@ func (s *SettingsStore) GetSettings(ctx context.Context, teamID string) (*domain
 		&settings.MaxResultsPerPage,
 		&settings.SyncIntervalMinutes,
 		&settings.SyncEnabled,
-		&settings.AutoSuggestEnabled,
+		&syncExclusionsJSON,
 		&settings.UpdatedAt,
 		&updatedBy,
 	)
@@ -58,6 +60,15 @@ func (s *SettingsStore) GetSettings(ctx context.Context, teamID string) (*domain
 
 	settings.UpdatedBy = updatedBy.String
 
+	// Unmarshal sync_exclusions JSON if present
+	if len(syncExclusionsJSON) > 0 && string(syncExclusionsJSON) != "{}" {
+		var exclusions domain.SyncExclusionSettings
+		if err := json.Unmarshal(syncExclusionsJSON, &exclusions); err != nil {
+			return nil, err
+		}
+		settings.SyncExclusions = &exclusions
+	}
+
 	return &settings, nil
 }
 
@@ -68,7 +79,7 @@ func (s *SettingsStore) SaveSettings(ctx context.Context, settings *domain.Setti
 	query := `
 		INSERT INTO settings (team_id, default_search_mode, results_per_page, max_results_per_page,
 							  sync_interval_minutes, sync_enabled,
-							  auto_suggest_enabled, updated_at, updated_by)
+							  sync_exclusions, updated_at, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (team_id) DO UPDATE SET
 			default_search_mode = EXCLUDED.default_search_mode,
@@ -76,21 +87,34 @@ func (s *SettingsStore) SaveSettings(ctx context.Context, settings *domain.Setti
 			max_results_per_page = EXCLUDED.max_results_per_page,
 			sync_interval_minutes = EXCLUDED.sync_interval_minutes,
 			sync_enabled = EXCLUDED.sync_enabled,
-			auto_suggest_enabled = EXCLUDED.auto_suggest_enabled,
+			sync_exclusions = EXCLUDED.sync_exclusions,
 			updated_at = EXCLUDED.updated_at,
 			updated_by = EXCLUDED.updated_by
 	`
 
 	settings.UpdatedAt = time.Now()
 
-	_, err := s.db.ExecContext(ctx, query,
+	// Marshal sync_exclusions to JSON
+	var syncExclusionsJSON []byte
+	var err error
+	if settings.SyncExclusions != nil {
+		syncExclusionsJSON, err = json.Marshal(settings.SyncExclusions)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Empty JSON object if nil
+		syncExclusionsJSON = []byte("{}")
+	}
+
+	_, err = s.db.ExecContext(ctx, query,
 		settings.TeamID,
 		string(settings.DefaultSearchMode),
 		settings.ResultsPerPage,
 		settings.MaxResultsPerPage,
 		settings.SyncIntervalMinutes,
 		settings.SyncEnabled,
-		settings.AutoSuggestEnabled,
+		syncExclusionsJSON,
 		settings.UpdatedAt,
 		settings.UpdatedBy,
 	)

@@ -13,7 +13,4 @@ type SearchService interface {
 
 	// SearchBySource performs a search within a specific source
 	SearchBySource(ctx context.Context, sourceID string, query string, opts domain.SearchOptions) (*domain.SearchResult, error)
-
-	// Suggest provides search suggestions/autocomplete
-	Suggest(ctx context.Context, prefix string, limit int) ([]domain.SearchSuggestion, error)
 }

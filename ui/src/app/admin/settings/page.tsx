@@ -81,7 +81,6 @@ function SearchSettingsSection({
   const canUseVectorSearch = isEmbeddingConfigured && !schemaUpgradeRequired;
   const [searchMode, setSearchMode] = useState<"hybrid" | "text" | "semantic">("hybrid");
   const [resultsPerPage, setResultsPerPage] = useState(20);
-  const [autoSuggestEnabled, setAutoSuggestEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +90,6 @@ function SearchSettingsSection({
     if (settings) {
       setSearchMode(settings.default_search_mode);
       setResultsPerPage(settings.results_per_page);
-      setAutoSuggestEnabled(settings.auto_suggest_enabled);
     }
   }, [settings]);
 
@@ -113,7 +111,6 @@ function SearchSettingsSection({
       await onSave({
         default_search_mode: searchMode,
         results_per_page: resultsPerPage,
-        auto_suggest_enabled: autoSuggestEnabled,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -189,22 +186,6 @@ function SearchSettingsSection({
             <p className="mt-1 text-xs text-sercha-fog-grey">
               Number of results shown per page (5-100)
             </p>
-          </div>
-        </div>
-
-        {/* Feature Toggles */}
-        <div className="border-t border-sercha-mist pt-6">
-          <h3 className="mb-4 text-sm font-medium text-sercha-ink-slate">Features</h3>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-sercha-ink-slate">Auto-Suggest</p>
-                <p className="text-xs text-sercha-fog-grey">
-                  Show search suggestions as you type
-                </p>
-              </div>
-              <Toggle enabled={autoSuggestEnabled} onChange={setAutoSuggestEnabled} />
-            </div>
           </div>
         </div>
 

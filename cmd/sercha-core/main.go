@@ -461,7 +461,7 @@ func main() {
 	userService := services.NewUserService(userStore, sessionStore, authAdapter, teamID)
 	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine)
 	documentService := services.NewDocumentService(documentStore, chunkStore)
-	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, capabilityStore)
+	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, capabilityStore, settingsStore, teamID)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)
 
 	// Restore AI services from saved settings (embedding, LLM)
@@ -532,6 +532,8 @@ func main() {
 		IndexingExecutor: indexingExecutor,
 		CapabilitySet:    nil, // Built per-execution by executor
 		CapabilityStore:  capabilityStore,
+		SettingsStore:    settingsStore,
+		TeamID:           teamID,
 	})
 
 	// Create scheduler for worker mode (if enabled)

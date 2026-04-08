@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS settings (
     sync_enabled BOOLEAN NOT NULL DEFAULT true,
     semantic_search_enabled BOOLEAN NOT NULL DEFAULT true, -- DEPRECATED: use capability_preferences table
     auto_suggest_enabled BOOLEAN NOT NULL DEFAULT true,
+    sync_exclusions JSONB DEFAULT '{}' NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_by TEXT
 );
@@ -245,6 +246,17 @@ BEGIN
         WHERE table_name = 'sources' AND column_name = 'selected_containers'
     ) THEN
         ALTER TABLE sources ADD COLUMN selected_containers JSONB DEFAULT '[]';
+    END IF;
+END $$;
+
+-- Add sync_exclusions column to settings if it doesn't exist (migration)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'settings' AND column_name = 'sync_exclusions'
+    ) THEN
+        ALTER TABLE settings ADD COLUMN sync_exclusions JSONB DEFAULT '{}' NOT NULL;
     END IF;
 END $$;
 

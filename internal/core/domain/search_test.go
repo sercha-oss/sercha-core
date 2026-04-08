@@ -158,17 +158,3 @@ func TestRankedChunk(t *testing.T) {
 		t.Errorf("expected 1 highlight, got %d", len(ranked.Highlights))
 	}
 }
-
-func TestSearchSuggestion(t *testing.T) {
-	suggestion := SearchSuggestion{
-		Text:  "suggested query",
-		Score: 0.9,
-	}
-
-	if suggestion.Text != "suggested query" {
-		t.Errorf("expected text 'suggested query', got %s", suggestion.Text)
-	}
-	if suggestion.Score != 0.9 {
-		t.Errorf("expected score 0.9, got %f", suggestion.Score)
-	}
-}

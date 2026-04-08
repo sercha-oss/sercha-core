@@ -39,6 +39,8 @@ type SyncOrchestrator struct {
 	indexingExecutor pipelineport.IndexingExecutor // Required pipeline executor
 	capabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 	capabilityStore  driven.CapabilityStore        // For fetching capability preferences
+	settingsStore    driven.SettingsStore          // For loading team settings
+	teamID           string                        // Team ID for settings lookup
 }
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
@@ -56,6 +58,8 @@ type SyncOrchestratorConfig struct {
 	IndexingExecutor pipelineport.IndexingExecutor // Required pipeline executor
 	CapabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 	CapabilityStore  driven.CapabilityStore        // For fetching capability preferences
+	SettingsStore    driven.SettingsStore          // For loading team settings
+	TeamID           string                        // Team ID for settings lookup
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
@@ -84,6 +88,8 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		indexingExecutor: cfg.IndexingExecutor,
 		capabilitySet:    cfg.CapabilitySet,
 		capabilityStore:  cfg.CapabilityStore,
+		settingsStore:    cfg.SettingsStore,
+		teamID:           cfg.TeamID,
 	}
 }
 
@@ -94,6 +100,18 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 	startTime := time.Now()
 
 	o.logger.Info("starting sync", "source_id", sourceID)
+
+	// Check if sync is enabled in settings
+	settings, err := o.loadSettings(ctx)
+	if err == nil && !settings.SyncEnabled {
+		o.logger.Info("sync disabled in settings", "source_id", sourceID)
+		return &domain.SyncResult{
+			SourceID: sourceID,
+			Success:  false,
+			Error:    "sync is disabled in team settings",
+			Duration: time.Since(startTime).Seconds(),
+		}, nil
+	}
 
 	// Step 1: Get source config
 	source, err := o.sourceStore.Get(ctx, sourceID)
@@ -484,7 +502,15 @@ func (o *SyncOrchestrator) processAddOrUpdate(
 		doc.CreatedAt = existingDoc.CreatedAt
 	}
 
-	// Step 6a: Check exclusion rules (TODO: implement exclusion rules)
+	// Step 6a: Check exclusion rules
+	if o.shouldExclude(ctx, doc) {
+		o.logger.Debug("document excluded by sync exclusion pattern",
+			"source_id", source.ID,
+			"path", doc.Path,
+		)
+		// Don't count as error, just skip
+		return nil
+	}
 
 	// Step 6b: Normalise content
 	normalizedContent := content
@@ -671,4 +697,91 @@ func (o *SyncOrchestrator) CancelSync(ctx context.Context, sourceID string) erro
 	state.Error = "cancelled by user"
 
 	return o.syncStore.Save(ctx, state)
+}
+
+// loadSettings loads team settings for the sync orchestrator
+func (o *SyncOrchestrator) loadSettings(ctx context.Context) (*domain.Settings, error) {
+	if o.settingsStore == nil {
+		return domain.DefaultSettings(o.teamID), nil
+	}
+	return o.settingsStore.GetSettings(ctx, o.teamID)
+}
+
+// shouldExclude checks if a document should be excluded based on sync exclusion patterns
+func (o *SyncOrchestrator) shouldExclude(ctx context.Context, doc *domain.Document) bool {
+	settings, err := o.loadSettings(ctx)
+	if err != nil || settings.SyncExclusions == nil || !settings.SyncExclusions.HasPatterns() {
+		return false
+	}
+
+	activePatterns := settings.SyncExclusions.GetActivePatterns()
+	return o.matchesExclusionPattern(doc.Path, activePatterns)
+}
+
+// matchesExclusionPattern checks if a path matches any exclusion pattern
+func (o *SyncOrchestrator) matchesExclusionPattern(path string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if o.matchPattern(path, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchPattern matches a path against a pattern
+// Supports:
+// - Exact matches
+// - Glob patterns (*.txt, *.log)
+// - Folder patterns (.git/, node_modules/)
+// - Prefix matching for folder patterns
+func (o *SyncOrchestrator) matchPattern(path, pattern string) bool {
+	// Handle folder patterns (ending with /)
+	if len(pattern) > 0 && pattern[len(pattern)-1] == '/' {
+		// Prefix match for folder patterns
+		// Check if path starts with pattern or contains it as a path component
+		if len(path) >= len(pattern) && path[:len(pattern)] == pattern {
+			return true
+		}
+		// Check if pattern appears as a path component
+		// e.g., pattern ".git/" matches "foo/.git/bar"
+		if len(path) > len(pattern) {
+			for i := 0; i < len(path)-len(pattern); i++ {
+				if path[i] == '/' && path[i+1:i+1+len(pattern)] == pattern {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// Handle exact filename matches (e.g., ".DS_Store", "Thumbs.db")
+	// Extract filename from path
+	lastSlash := -1
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' {
+			lastSlash = i
+			break
+		}
+	}
+	filename := path
+	if lastSlash >= 0 {
+		filename = path[lastSlash+1:]
+	}
+
+	// Exact match on filename
+	if filename == pattern {
+		return true
+	}
+
+	// Glob pattern matching (*.txt, *.log, etc)
+	if len(pattern) > 2 && pattern[0] == '*' && pattern[1] == '.' {
+		// Extract extension from pattern
+		ext := pattern[1:] // e.g., ".txt"
+		// Check if filename ends with this extension
+		if len(filename) >= len(ext) && filename[len(filename)-len(ext):] == ext {
+			return true
+		}
+	}
+
+	return false
 }

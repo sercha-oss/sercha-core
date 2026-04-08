@@ -61,7 +61,7 @@ func createTestSearchService(searchEngine *mocks.MockSearchEngine, documentStore
 			}, nil
 		},
 	}
-	return NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil).(*searchService)
+	return NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default").(*searchService)
 }
 
 func TestSearchService_Search(t *testing.T) {
@@ -304,23 +304,6 @@ func TestSearchService_Search_HybridMode(t *testing.T) {
 	}
 }
 
-
-func TestSearchService_Suggest(t *testing.T) {
-	searchEngine := mocks.NewMockSearchEngine()
-	embeddingService := mocks.NewMockEmbeddingService()
-	documentStore := mocks.NewMockDocumentStore()
-	runtimeServices := createTestServices(embeddingService)
-	svc := createTestSearchService(searchEngine, documentStore, runtimeServices)
-
-	// Suggest should return empty for now (not implemented)
-	suggestions, err := svc.Suggest(context.Background(), "test", 10)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if suggestions == nil {
-		t.Error("expected suggestions to be non-nil")
-	}
-}
 
 func TestSearchService_Search_Timing(t *testing.T) {
 	searchEngine := mocks.NewMockSearchEngine()

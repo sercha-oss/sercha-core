@@ -50,7 +50,7 @@ func TestSearchService_WithSearchExecutor(t *testing.T) {
 	// Create mock search executor
 	executor := &mockSearchExecutor{}
 
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	// Save a document for enrichment
 	doc := &domain.Document{
@@ -128,7 +128,7 @@ func TestSearchWithPipeline_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	// Save documents for enrichment
 	doc1 := &domain.Document{ID: "doc-1", SourceID: "source-1", Title: "Document 1"}
@@ -192,7 +192,7 @@ func TestSearchWithPipeline_SourceFilter(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	// Search with source filter
 	_, err := svc.Search(context.Background(), "test", domain.SearchOptions{
@@ -232,7 +232,7 @@ func TestSearchWithPipeline_Pagination(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	// Search with pagination
 	_, err := svc.Search(context.Background(), "test", domain.SearchOptions{
@@ -277,7 +277,7 @@ func TestSearchWithPipeline_DocumentEnrichment(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	// Save document
 	doc := &domain.Document{
@@ -328,7 +328,7 @@ func TestSearchWithPipeline_ContextPassing(t *testing.T) {
 		},
 	}
 
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	_, err := svc.Search(context.Background(), "test", domain.SearchOptions{
 		Mode:  domain.SearchModeHybrid,
@@ -367,7 +367,7 @@ func TestSearchWithPipeline_EmptyResults(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	result, err := svc.Search(context.Background(), "nonexistent", domain.SearchOptions{
 		Mode:  domain.SearchModeHybrid,
@@ -416,7 +416,7 @@ func TestSearchBySource_WithPipeline(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	// Save document for enrichment
 	_ = documentStore.Save(context.Background(), &domain.Document{ID: "doc-1", SourceID: "source-1", Title: "Doc 1"})
@@ -473,7 +473,7 @@ func TestSearchWithPipeline_ResultMapping(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil)
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
 
 	// Save document for enrichment
 	_ = documentStore.Save(context.Background(), &domain.Document{ID: "doc-123", SourceID: "source-789", Title: "Test Title"})
