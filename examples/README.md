@@ -12,7 +12,7 @@ Docker Compose configurations for different deployment scenarios.
 ## Prerequisites
 
 - Docker and Docker Compose
-- 4GB+ RAM (Vespa requires ~2GB)
+- 4GB+ RAM recommended
 
 ## Quick Start
 

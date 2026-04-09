@@ -3986,10 +3986,6 @@ const docTemplate = `{
         "github_com_sercha-oss_sercha-core_internal_core_domain.Settings": {
             "type": "object",
             "properties": {
-                "auto_suggest_enabled": {
-                    "description": "Feature Flags",
-                    "type": "boolean"
-                },
                 "default_search_mode": {
                     "description": "Search Defaults",
                     "allOf": [
@@ -4006,6 +4002,9 @@ const docTemplate = `{
                 },
                 "sync_enabled": {
                     "type": "boolean"
+                },
+                "sync_exclusions": {
+                    "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.SyncExclusionSettings"
                 },
                 "sync_interval_minutes": {
                     "description": "Sync Configuration",
@@ -4158,6 +4157,32 @@ const docTemplate = `{
                 },
                 "sync_status": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_sercha-oss_sercha-core_internal_core_domain.SyncExclusionSettings": {
+            "type": "object",
+            "properties": {
+                "custom_patterns": {
+                    "description": "CustomPatterns are user-defined exclusion patterns",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "disabled_patterns": {
+                    "description": "DisabledPatterns are the default patterns that have been toggled off",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "enabled_patterns": {
+                    "description": "EnabledPatterns are the default patterns that are currently enabled",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -4886,9 +4911,6 @@ const docTemplate = `{
         "github_com_sercha-oss_sercha-core_internal_core_ports_driving.UpdateSettingsRequest": {
             "type": "object",
             "properties": {
-                "auto_suggest_enabled": {
-                    "type": "boolean"
-                },
                 "default_search_mode": {
                     "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.SearchMode"
                 },
@@ -4897,6 +4919,9 @@ const docTemplate = `{
                 },
                 "sync_enabled": {
                     "type": "boolean"
+                },
+                "sync_exclusions": {
+                    "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.SyncExclusionSettings"
                 },
                 "sync_interval_minutes": {
                     "type": "integer"
