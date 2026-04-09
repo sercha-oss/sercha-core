@@ -8,11 +8,11 @@ Local development setup that builds sercha-core from source.
 # Start all services (builds from source)
 docker compose up -d --build
 
-# Run FTUE setup (creates admin, connects Vespa)
-./setup.sh
+# Wait for services to be healthy
+docker compose ps
 
 # Run integration tests (from repo root)
-go test ./tests/integration/... -v
+cd tests/integration && make test
 ```
 
 ## Services
@@ -20,8 +20,8 @@ go test ./tests/integration/... -v
 | Service | Port | Description |
 |---------|------|-------------|
 | sercha | 8080 | API server (built from source) |
-| postgres | 5432 | PostgreSQL database |
-| vespa | 19071/8080 | Vespa config/query servers |
+| postgres | 5432 | PostgreSQL with pgvector |
+| opensearch | 9200 | OpenSearch for BM25 search |
 
 ## UI Development
 
@@ -38,9 +38,9 @@ The Next.js dev server proxies `/api/*` to `localhost:8080` automatically.
 
 ## Default Credentials
 
-After running `setup.sh`:
-- **Email**: `admin@test.com`
-- **Password**: `password123`
+Set via environment or create via `/api/v1/setup`:
+- Use `.env` file for `JWT_SECRET` and `MASTER_KEY`
+- First user to hit `/api/v1/setup` becomes admin
 
 ## Integration Tests
 
@@ -59,7 +59,7 @@ go test ./tests/integration/... -v -godog.paths=tests/integration/features/ftue.
 
 ### Features
 
-- `ftue.feature` - First-time user setup (register, login, connect Vespa)
+- `ftue.feature` - First-time user setup (register, login, AI providers)
 - `localfs.feature` - LocalFS sync flow (install, source, sync, search)
 
 ### Test Requirements
@@ -132,7 +132,9 @@ The sercha service uses these environment variables (set in docker-compose.yml):
 | Variable | Value | Description |
 |----------|-------|-------------|
 | DATABASE_URL | postgres://sercha:... | PostgreSQL connection |
-| VESPA_CONFIG_URL | http://vespa:19071 | Vespa config server |
-| VESPA_CONTAINER_URL | http://vespa:8080 | Vespa query endpoint |
-| JWT_SECRET | change-me-in-production | JWT signing secret |
+| OPENSEARCH_URL | http://opensearch:9200 | OpenSearch for BM25 search |
+| PGVECTOR_URL | postgres://sercha:... | pgvector for semantic search |
+| PGVECTOR_DIMENSIONS | 1536 | Vector dimensions (OpenAI default) |
+| JWT_SECRET | (from .env) | JWT signing secret (64 hex chars) |
+| MASTER_KEY | (from .env) | Encryption key (64 hex chars) |
 | LOCALFS_ALLOWED_ROOTS | /data | Allowed paths for localfs connector |

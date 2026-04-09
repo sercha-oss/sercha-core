@@ -15,12 +15,13 @@ Single container deployment with all dependencies. Ideal for development and sma
 │   └──────────────┘         │          :8080               │ │
 │                            └──────────────┬───────────────┘ │
 │                                           │                  │
-│                                  ┌────────┴────────┐        │
-│                                  │                 │        │
-│                            ┌─────▼─────┐     ┌─────▼─────┐  │
-│                            │ PostgreSQL │     │   Vespa   │  │
-│                            │   :5432    │     │  :19071   │  │
-│                            └───────────┘     └───────────┘  │
+│                         ┌─────────────────┼─────────────────┐│
+│                         │                 │                 ││
+│                   ┌─────▼─────┐     ┌─────▼─────┐          ││
+│                   │ PostgreSQL │     │ OpenSearch│          ││
+│                   │   :5432    │     │   :9200   │          ││
+│                   │ + pgvector │     │   (BM25)  │          ││
+│                   └───────────┘     └───────────┘          ││
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -33,7 +34,7 @@ Single container deployment with all dependencies. Ideal for development and sma
 # Start all services including Admin UI
 docker compose --profile ui up -d
 
-# Wait for services to be healthy (1-2 minutes for Vespa)
+# Wait for services to be healthy (1-2 minutes)
 docker compose --profile ui ps
 
 # Access the Admin UI
@@ -48,37 +49,22 @@ docker compose up -d
 
 # Wait for services to be healthy
 docker compose ps
-
-# Use the interactive setup script
-./quickstart.sh
 ```
 
-The `quickstart.sh` script will guide you through:
-- Creating an admin user
-- Configuring GitHub OAuth
-- Connecting a repository
-- Running your first search
-
-### Environment Variables
-
-You can pre-set these to skip the prompts:
-
-```bash
-export GITHUB_CLIENT_ID="your-client-id"
-export GITHUB_CLIENT_SECRET="your-client-secret"
-export ADMIN_EMAIL="admin@example.com"
-export ADMIN_PASSWORD="your-password"
-./quickstart.sh
-```
+Then use the API to:
+- Create an admin user via `POST /api/v1/setup`
+- Login via `POST /api/v1/auth/login`
+- Configure OAuth providers
+- Connect repositories and search
 
 ## Services
 
 | Service | Port | Purpose |
 |---------|------|---------|
 | Admin UI (nginx) | 3000 | Web interface for managing sources and search |
-| sercha | 8080 | API server |
-| postgres | 5432 | Database |
-| vespa | 19071 | Search engine |
+| sercha | 8080 | API server (API + Worker + Scheduler) |
+| postgres | 5432 | PostgreSQL with pgvector for vectors |
+| opensearch | 9200 | OpenSearch for BM25 text search |
 
 > **Note:** Admin UI is only available when started with `--profile ui`
 

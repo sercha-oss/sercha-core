@@ -48,7 +48,6 @@ Feature: LocalFS Source Indexing
 
   Background:
     Given I am logged in as admin
-    And Vespa is fully ready
 
   Scenario: Index local directory and search
     When I create a localfs installation with path "/data/test-docs"
@@ -135,9 +134,8 @@ Tests run against the dev Docker environment:
 | Service | Port | Purpose |
 |---------|------|---------|
 | API | 8080 | Sercha Core API |
-| PostgreSQL | 5432 | Database |
-| Vespa | 19071, 8081 | Search engine |
-| Redis | 6379 | Cache/queue |
+| PostgreSQL | 5432 | Database with pgvector |
+| OpenSearch | 9200 | BM25 text search |
 
 The Makefile handles starting/stopping these containers.
 
@@ -170,7 +168,7 @@ make teardown  # When done
 ```bash
 cd examples/dev
 docker compose logs -f sercha
-docker compose logs -f vespa
+docker compose logs -f opensearch
 ```
 
 ### Run single scenario

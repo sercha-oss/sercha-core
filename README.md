@@ -75,7 +75,7 @@ Sercha Core is a self-hosted, team-wide search platform that connects your organ
 * **Self-Hosted**: Your data stays on your infrastructure - full control and privacy
 * **Team-Oriented**: Shared sources, team management, and role-based access
 * **11+ Connectors**: GitHub, GitLab, Slack, Notion, Confluence, Jira, Google Drive, and more
-* **Hybrid Search**: Semantic search powered by Vespa with optional AI enhancements
+* **Hybrid Search**: BM25 + semantic search with OpenSearch and pgvector
 * **Admin UI Included**: Full-featured web interface for managing sources and search
 * **Horizontally Scalable**: Deploy as a single container or scale to multiple nodes
 
@@ -97,8 +97,8 @@ Sercha Core is a self-hosted, team-wide search platform that connects your organ
 ### Built With
 
 * [![Go][Go-badge]][Go-url] - Go 1.24+
-* [![PostgreSQL][Postgres-badge]][Postgres-url] - Database
-* [![Vespa][Vespa-badge]][Vespa-url] - Search engine
+* [![PostgreSQL][Postgres-badge]][Postgres-url] - Database + pgvector
+* [![OpenSearch][OpenSearch-badge]][OpenSearch-url] - BM25 search
 * [![Docker][Docker-badge]][Docker-url] - Containerization
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -109,8 +109,8 @@ Sercha Core is a self-hosted, team-wide search platform that connects your organ
 ### Prerequisites
 
 - Docker and Docker Compose
-- 4GB+ RAM (Vespa requires memory)
-- Ports: 8080 (API), 3000 (UI), 5432 (Postgres), 19071 (Vespa)
+- 4GB+ RAM recommended
+- Ports: 8080 (API), 3000 (UI), 5432 (Postgres), 9200 (OpenSearch)
 
 ### Quick Start
 
@@ -121,11 +121,11 @@ The fastest way to get started is using the quickstart example:
 git clone https://github.com/sercha-oss/sercha-core.git
 cd sercha-core/examples/quickstart
 
-# Start services
-docker compose up -d
+# Start services (with Admin UI)
+docker compose --profile ui up -d
 ```
 
-Wait 1-2 minutes for Vespa to initialize, then:
+Wait for services to initialize, then:
 
 - **API**: http://localhost:8080
 - **API Docs**: http://localhost:8080/swagger/index.html
@@ -156,12 +156,12 @@ Sercha Core uses a hexagonal (ports and adapters) architecture:
 │                    │  (Business Logic) │                    │
 │                    └─────────┬─────────┘                    │
 │                              │                              │
-│          ┌───────────────────┼───────────────────┐          │
-│          │                   │                   │          │
-│   ┌──────▼──────┐     ┌──────▼──────┐     ┌──────▼──────┐  │
-│   │  PostgreSQL │     │    Vespa    │     │ Connectors  │  │
-│   │  (Storage)  │     │  (Search)   │     │  (OAuth)    │  │
-│   └─────────────┘     └─────────────┘     └─────────────┘  │
+│      ┌────────────────────┼────────────────────┐            │
+│      │                    │                    │            │
+│ ┌────▼────┐     ┌─────────▼─────────┐    ┌────▼─────┐      │
+│ │PostgreSQL│     │    OpenSearch    │    │Connectors│      │
+│ │+pgvector │     │     (BM25)       │    │ (OAuth)  │      │
+│ └──────────┘     └──────────────────┘    └──────────┘      │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -204,9 +204,10 @@ Sercha Core is configured via environment variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | Required |
-| `VESPA_CONFIG_URL` | Vespa config server URL | `http://localhost:19071` |
-| `VESPA_CONTAINER_URL` | Vespa container URL | `http://localhost:8080` |
-| `JWT_SECRET` | Secret for JWT token signing | Required |
+| `JWT_SECRET` | Secret for JWT token signing (64 hex chars) | Required |
+| `MASTER_KEY` | Encryption key for secrets (64 hex chars) | Required |
+| `OPENSEARCH_URL` | OpenSearch URL for BM25 search | `http://localhost:9200` |
+| `PGVECTOR_URL` | PostgreSQL URL for vector search | Same as DATABASE_URL |
 | `PORT` | HTTP server port | `8080` |
 | `UI_BASE_URL` | Admin UI URL (for OAuth redirects) | `http://localhost:3000` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins | `http://localhost:3000` |
@@ -334,7 +335,7 @@ Distributed under the Apache 2.0 License. See [LICENSE](LICENSE) for details.
 [Go-url]: https://go.dev/
 [Postgres-badge]: https://img.shields.io/badge/PostgreSQL-316192?style=flat&logo=postgresql&logoColor=white
 [Postgres-url]: https://www.postgresql.org/
-[Vespa-badge]: https://img.shields.io/badge/Vespa-000000?style=flat&logo=vespa&logoColor=white
-[Vespa-url]: https://vespa.ai/
+[OpenSearch-badge]: https://img.shields.io/badge/OpenSearch-005EB8?style=flat&logo=opensearch&logoColor=white
+[OpenSearch-url]: https://opensearch.org/
 [Docker-badge]: https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white
 [Docker-url]: https://www.docker.com/
