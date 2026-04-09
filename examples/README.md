@@ -36,7 +36,7 @@ docker compose up -d
 
 # Start UI dev server (from ui/)
 cd ui
-npm run dev   # Runs on http://localhost:3001
+npm run dev   # Runs on http://localhost:3000
 ```
 
-The Next.js dev server automatically proxies `/api/*` requests to the backend at `localhost:8080`.
+The UI connects to the backend at `localhost:8080` via the `NEXT_PUBLIC_API_URL` environment variable.

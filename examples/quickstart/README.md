@@ -1,92 +1,55 @@
 # Quickstart
 
-Single container deployment with all dependencies. Ideal for development and small teams.
+Try Sercha with pre-built images. No configuration needed.
 
-## Architecture
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) with at least 4GB RAM.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     With --profile ui                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   ┌──────────────┐         ┌──────────────────────────────┐ │
-│   │   Admin UI   │────────▶│       sercha (combined)      │ │
-│   │ :3000 (nginx)│         │    API + Worker + Scheduler  │ │
-│   └──────────────┘         │          :8080               │ │
-│                            └──────────────┬───────────────┘ │
-│                                           │                  │
-│                         ┌─────────────────┼─────────────────┐│
-│                         │                 │                 ││
-│                   ┌─────▼─────┐     ┌─────▼─────┐          ││
-│                   │ PostgreSQL │     │ OpenSearch│          ││
-│                   │   :5432    │     │   :9200   │          ││
-│                   │ + pgvector │     │   (BM25)  │          ││
-│                   └───────────┘     └───────────┘          ││
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Quick Start
-
-### With Admin UI (Recommended)
+## Start
 
 ```bash
-# Start all services including Admin UI
 docker compose --profile ui up -d
-
-# Wait for services to be healthy (1-2 minutes)
-docker compose --profile ui ps
-
-# Access the Admin UI
-open http://localhost:3000
 ```
 
-### API Only
+Wait for services to be healthy, then open [http://localhost:3000](http://localhost:3000).
+
+To run without the Admin UI:
 
 ```bash
-# Start services without UI
 docker compose up -d
-
-# Wait for services to be healthy
-docker compose ps
 ```
-
-Then use the API to:
-- Create an admin user via `POST /api/v1/setup`
-- Login via `POST /api/v1/auth/login`
-- Configure OAuth providers
-- Connect repositories and search
 
 ## Services
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| Admin UI (nginx) | 3000 | Web interface for managing sources and search |
-| sercha | 8080 | API server (API + Worker + Scheduler) |
-| postgres | 5432 | PostgreSQL with pgvector for vectors |
-| opensearch | 9200 | OpenSearch for BM25 text search |
+| Service | Port | Description |
+|---------|------|-------------|
+| Admin UI | 3000 | Web interface for managing sources and search |
+| API | 8080 | REST API (includes worker and scheduler) |
+| PostgreSQL | 5432 | Database with pgvector |
+| OpenSearch | 9200 | BM25 text search |
 
-> **Note:** Admin UI is only available when started with `--profile ui`
+## OAuth Setup
 
-## OAuth Configuration
-
-When configuring OAuth providers (GitHub, GitLab, etc.) for use with the Admin UI:
+When configuring OAuth providers (e.g. GitHub), use these values:
 
 | Setting | Value |
 |---------|-------|
-| Callback URL | `http://localhost:3000/oauth/callback` |
+| Callback URL | `http://localhost:8080/api/v1/oauth/callback` |
 | Homepage URL | `http://localhost:3000` |
 
-## Full Documentation
+See the [GitHub Connector guide](https://docs.sercha.dev/connectors/github) for step-by-step instructions.
 
-For detailed documentation including API reference, see the **[Quickstart Guide](https://docs.sercha.dev/core/quickstart)**.
-
-## Stopping Services
+## Stop
 
 ```bash
-# Stop services (preserves data)
+# Preserve data
 docker compose --profile ui down
 
-# Stop and remove all data
+# Remove all data
 docker compose --profile ui down -v
 ```
+
+## Next Steps
+
+- [Documentation](https://docs.sercha.dev/docs/quickstart)
+- [API Reference](https://docs.sercha.dev/api/sercha-core-api)
+- [Development Setup](../dev/)

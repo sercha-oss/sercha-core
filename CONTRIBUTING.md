@@ -102,12 +102,10 @@ docker compose up -d
 # Terminal 2: Start UI with hot reload
 cd ui
 npm install
-npm run dev   # http://localhost:3001
+npm run dev   # http://localhost:3000
 ```
 
-The Next.js dev server automatically proxies `/api/*` requests to `localhost:8080`.
-
-Wait 1-2 minutes for Vespa to initialize on first run.
+The UI connects to the backend at `localhost:8080` via the `NEXT_PUBLIC_API_URL` environment variable.
 
 ### Daily Development
 
@@ -417,10 +415,10 @@ npm install
 
 ```bash
 # Start the UI dev server with hot reload
-npm run dev   # http://localhost:3001
+npm run dev   # http://localhost:3000
 ```
 
-The dev server automatically proxies `/api/*` requests to `localhost:8080` (configured in `next.config.ts`).
+The UI connects to the backend at `localhost:8080` via the `NEXT_PUBLIC_API_URL` environment variable in `.env.local`.
 
 ### Building
 
