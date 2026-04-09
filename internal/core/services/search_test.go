@@ -333,3 +333,339 @@ func TestSearchService_Search_Timing(t *testing.T) {
 		t.Error("expected Took to be positive")
 	}
 }
+
+// TestSearchService_Pagination_LimitOnly tests that limit is applied correctly
+func TestSearchService_Pagination_LimitOnly(t *testing.T) {
+	documentStore := mocks.NewMockDocumentStore()
+	embeddingService := mocks.NewMockEmbeddingService()
+	runtimeServices := createTestServices(embeddingService)
+
+	// Create mock executor that returns 10 results
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			results := make([]pipeline.PresentedResult, 10)
+			for i := 0; i < 10; i++ {
+				results[i] = pipeline.PresentedResult{
+					DocumentID: "doc-123",
+					ChunkID:    generateID(),
+					SourceID:   "source-456",
+					Snippet:    "Test snippet",
+					Score:      0.9,
+				}
+			}
+			return &pipeline.SearchOutput{
+				Results:    results,
+				TotalCount: 10,
+			}, nil
+		},
+	}
+
+	svc := NewSearchService(nil, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	// Save document for enrichment
+	_ = documentStore.Save(context.Background(), &domain.Document{
+		ID:       "doc-123",
+		SourceID: "source-456",
+		Title:    "Test Document",
+	})
+
+	// Search with limit=3
+	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
+		Mode:  domain.SearchModeTextOnly,
+		Limit: 3,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify limit is applied: should return exactly 3 results
+	if len(result.Results) != 3 {
+		t.Errorf("expected 3 results with limit=3, got %d", len(result.Results))
+	}
+
+	// Verify TotalCount reflects pre-pagination count
+	if result.TotalCount != 10 {
+		t.Errorf("expected TotalCount=10 (pre-pagination), got %d", result.TotalCount)
+	}
+}
+
+// TestSearchService_Pagination_OffsetOnly tests that offset is applied correctly
+func TestSearchService_Pagination_OffsetOnly(t *testing.T) {
+	documentStore := mocks.NewMockDocumentStore()
+	embeddingService := mocks.NewMockEmbeddingService()
+	runtimeServices := createTestServices(embeddingService)
+
+	// Create mock executor that returns 10 results
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			results := make([]pipeline.PresentedResult, 10)
+			for i := 0; i < 10; i++ {
+				results[i] = pipeline.PresentedResult{
+					DocumentID: "doc-123",
+					ChunkID:    generateID(),
+					SourceID:   "source-456",
+					Snippet:    "Test snippet",
+					Score:      0.9,
+				}
+			}
+			return &pipeline.SearchOutput{
+				Results:    results,
+				TotalCount: 10,
+			}, nil
+		},
+	}
+
+	svc := NewSearchService(nil, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	// Save document for enrichment
+	_ = documentStore.Save(context.Background(), &domain.Document{
+		ID:       "doc-123",
+		SourceID: "source-456",
+		Title:    "Test Document",
+	})
+
+	// Search with offset=2
+	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
+		Mode:   domain.SearchModeTextOnly,
+		Offset: 2,
+		Limit:  20, // Set a high limit so we can verify offset behavior
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify offset is applied: should skip first 2 results, return 8
+	if len(result.Results) != 8 {
+		t.Errorf("expected 8 results with offset=2, got %d", len(result.Results))
+	}
+
+	// Verify TotalCount reflects pre-pagination count
+	if result.TotalCount != 10 {
+		t.Errorf("expected TotalCount=10 (pre-pagination), got %d", result.TotalCount)
+	}
+}
+
+// TestSearchService_Pagination_LimitAndOffset tests that limit and offset work together
+func TestSearchService_Pagination_LimitAndOffset(t *testing.T) {
+	documentStore := mocks.NewMockDocumentStore()
+	embeddingService := mocks.NewMockEmbeddingService()
+	runtimeServices := createTestServices(embeddingService)
+
+	// Create mock executor that returns 10 results
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			results := make([]pipeline.PresentedResult, 10)
+			for i := 0; i < 10; i++ {
+				results[i] = pipeline.PresentedResult{
+					DocumentID: "doc-123",
+					ChunkID:    generateID(),
+					SourceID:   "source-456",
+					Snippet:    "Test snippet",
+					Score:      0.9,
+				}
+			}
+			return &pipeline.SearchOutput{
+				Results:    results,
+				TotalCount: 10,
+			}, nil
+		},
+	}
+
+	svc := NewSearchService(nil, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	// Save document for enrichment
+	_ = documentStore.Save(context.Background(), &domain.Document{
+		ID:       "doc-123",
+		SourceID: "source-456",
+		Title:    "Test Document",
+	})
+
+	// Search with offset=2, limit=3
+	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
+		Mode:   domain.SearchModeTextOnly,
+		Offset: 2,
+		Limit:  3,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify offset and limit together: skip 2, then take 3
+	if len(result.Results) != 3 {
+		t.Errorf("expected 3 results with offset=2, limit=3, got %d", len(result.Results))
+	}
+
+	// Verify TotalCount reflects pre-pagination count
+	if result.TotalCount != 10 {
+		t.Errorf("expected TotalCount=10 (pre-pagination), got %d", result.TotalCount)
+	}
+}
+
+// TestSearchService_Pagination_OffsetBeyondTotal tests offset beyond total results
+func TestSearchService_Pagination_OffsetBeyondTotal(t *testing.T) {
+	documentStore := mocks.NewMockDocumentStore()
+	embeddingService := mocks.NewMockEmbeddingService()
+	runtimeServices := createTestServices(embeddingService)
+
+	// Create mock executor that returns 5 results
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			results := make([]pipeline.PresentedResult, 5)
+			for i := 0; i < 5; i++ {
+				results[i] = pipeline.PresentedResult{
+					DocumentID: "doc-123",
+					ChunkID:    generateID(),
+					SourceID:   "source-456",
+					Snippet:    "Test snippet",
+					Score:      0.9,
+				}
+			}
+			return &pipeline.SearchOutput{
+				Results:    results,
+				TotalCount: 5,
+			}, nil
+		},
+	}
+
+	svc := NewSearchService(nil, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	// Save document for enrichment
+	_ = documentStore.Save(context.Background(), &domain.Document{
+		ID:       "doc-123",
+		SourceID: "source-456",
+		Title:    "Test Document",
+	})
+
+	// Search with offset=10 (beyond total of 5)
+	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
+		Mode:   domain.SearchModeTextOnly,
+		Offset: 10,
+		Limit:  3,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify empty results when offset is beyond total
+	if len(result.Results) != 0 {
+		t.Errorf("expected 0 results with offset=10 beyond total=5, got %d", len(result.Results))
+	}
+
+	// Verify TotalCount still reflects pre-pagination count
+	if result.TotalCount != 5 {
+		t.Errorf("expected TotalCount=5 (pre-pagination), got %d", result.TotalCount)
+	}
+}
+
+// TestSearchService_Pagination_DefaultBehavior tests default behavior with no pagination params
+func TestSearchService_Pagination_DefaultBehavior(t *testing.T) {
+	documentStore := mocks.NewMockDocumentStore()
+	embeddingService := mocks.NewMockEmbeddingService()
+	runtimeServices := createTestServices(embeddingService)
+
+	// Create mock executor that returns 10 results
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			results := make([]pipeline.PresentedResult, 10)
+			for i := 0; i < 10; i++ {
+				results[i] = pipeline.PresentedResult{
+					DocumentID: "doc-123",
+					ChunkID:    generateID(),
+					SourceID:   "source-456",
+					Snippet:    "Test snippet",
+					Score:      0.9,
+				}
+			}
+			return &pipeline.SearchOutput{
+				Results:    results,
+				TotalCount: 10,
+			}, nil
+		},
+	}
+
+	svc := NewSearchService(nil, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	// Save document for enrichment
+	_ = documentStore.Save(context.Background(), &domain.Document{
+		ID:       "doc-123",
+		SourceID: "source-456",
+		Title:    "Test Document",
+	})
+
+	// Search with limit=0, offset=0 (defaults)
+	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
+		Mode:   domain.SearchModeTextOnly,
+		Limit:  0,
+		Offset: 0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// With limit=0, should apply default limit (20)
+	// Since we have 10 results, all should be returned
+	if len(result.Results) != 10 {
+		t.Errorf("expected all 10 results with default limit, got %d", len(result.Results))
+	}
+
+	// Verify TotalCount reflects total results
+	if result.TotalCount != 10 {
+		t.Errorf("expected TotalCount=10, got %d", result.TotalCount)
+	}
+}
+
+// TestSearchService_Pagination_OffsetAtBoundary tests offset exactly at the boundary
+func TestSearchService_Pagination_OffsetAtBoundary(t *testing.T) {
+	documentStore := mocks.NewMockDocumentStore()
+	embeddingService := mocks.NewMockEmbeddingService()
+	runtimeServices := createTestServices(embeddingService)
+
+	// Create mock executor that returns 5 results
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			results := make([]pipeline.PresentedResult, 5)
+			for i := 0; i < 5; i++ {
+				results[i] = pipeline.PresentedResult{
+					DocumentID: "doc-123",
+					ChunkID:    generateID(),
+					SourceID:   "source-456",
+					Snippet:    "Test snippet",
+					Score:      0.9,
+				}
+			}
+			return &pipeline.SearchOutput{
+				Results:    results,
+				TotalCount: 5,
+			}, nil
+		},
+	}
+
+	svc := NewSearchService(nil, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	// Save document for enrichment
+	_ = documentStore.Save(context.Background(), &domain.Document{
+		ID:       "doc-123",
+		SourceID: "source-456",
+		Title:    "Test Document",
+	})
+
+	// Search with offset=5 (exactly at total count)
+	result, err := svc.Search(context.Background(), "Test", domain.SearchOptions{
+		Mode:   domain.SearchModeTextOnly,
+		Offset: 5,
+		Limit:  3,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify empty results when offset equals total
+	if len(result.Results) != 0 {
+		t.Errorf("expected 0 results with offset=5 at boundary of total=5, got %d", len(result.Results))
+	}
+
+	// Verify TotalCount still reflects pre-pagination count
+	if result.TotalCount != 5 {
+		t.Errorf("expected TotalCount=5 (pre-pagination), got %d", result.TotalCount)
+	}
+}

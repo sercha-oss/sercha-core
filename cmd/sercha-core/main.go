@@ -438,7 +438,7 @@ func main() {
 			{StageID: "bm25-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
 			{StageID: "vector-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
 			{StageID: "hybrid-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
-			{StageID: "ranker", Enabled: true, Parameters: map[string]any{"limit": 20}},
+			{StageID: "ranker", Enabled: true, Parameters: map[string]any{"limit": 100}},
 			{StageID: "presenter", Enabled: true, Parameters: map[string]any{"snippet_length": 200}},
 		},
 	}

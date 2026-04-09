@@ -167,11 +167,24 @@ func (s *searchService) searchWithPipeline(
 		})
 	}
 
+	// Apply pagination (offset/limit) to the full result set
+	totalCount := len(items)
+	if opts.Offset > 0 {
+		if opts.Offset >= len(items) {
+			items = nil
+		} else {
+			items = items[opts.Offset:]
+		}
+	}
+	if opts.Limit > 0 && opts.Limit < len(items) {
+		items = items[:opts.Limit]
+	}
+
 	return &domain.SearchResult{
 		Query:      query,
 		Mode:       opts.Mode,
 		Results:    items,
-		TotalCount: len(items),
+		TotalCount: totalCount,
 		Took:       time.Since(start),
 	}, nil
 }
