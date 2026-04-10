@@ -1786,14 +1786,11 @@ func TestHandleTriggerSync_MissingID(t *testing.T) {
 
 func TestHandleGetDocument_Success(t *testing.T) {
 	mockDoc := &mockDocumentService{
-		getWithChunksFn: func(ctx context.Context, id string) (*domain.DocumentWithChunks, error) {
+		getFn: func(ctx context.Context, id string) (*domain.Document, error) {
 			if id == "doc-1" {
-				return &domain.DocumentWithChunks{
-					Document: &domain.Document{
-						ID:    id,
-						Title: "Test Document",
-					},
-					Chunks: []*domain.Chunk{},
+				return &domain.Document{
+					ID:    id,
+					Title: "Test Document",
 				}, nil
 			}
 			return nil, domain.ErrNotFound
@@ -1812,18 +1809,18 @@ func TestHandleGetDocument_Success(t *testing.T) {
 		t.Errorf("expected status 200, got %d", rr.Code)
 	}
 
-	var response domain.DocumentWithChunks
+	var response domain.Document
 	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if response.Document.Title != "Test Document" {
-		t.Errorf("expected title 'Test Document', got %s", response.Document.Title)
+	if response.Title != "Test Document" {
+		t.Errorf("expected title 'Test Document', got %s", response.Title)
 	}
 }
 
 func TestHandleGetDocument_NotFound(t *testing.T) {
 	mockDoc := &mockDocumentService{
-		getWithChunksFn: func(ctx context.Context, id string) (*domain.DocumentWithChunks, error) {
+		getFn: func(ctx context.Context, id string) (*domain.Document, error) {
 			return nil, domain.ErrNotFound
 		},
 	}
@@ -1856,7 +1853,7 @@ func TestHandleGetDocument_MissingID(t *testing.T) {
 
 func TestHandleGetDocument_InternalError(t *testing.T) {
 	mockDoc := &mockDocumentService{
-		getWithChunksFn: func(ctx context.Context, id string) (*domain.DocumentWithChunks, error) {
+		getFn: func(ctx context.Context, id string) (*domain.Document, error) {
 			return nil, errors.New("database error")
 		},
 	}

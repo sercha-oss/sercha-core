@@ -705,12 +705,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 // handleGetDocument godoc
 // @Summary      Get document
-// @Description  Get a document by ID with all its chunks
+// @Description  Get document metadata by ID
 // @Tags         Documents
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id   path      string  true  "Document ID"
-// @Success      200  {object}  domain.DocumentWithChunks
+// @Success      200  {object}  domain.Document
 // @Failure      400  {object}  ErrorResponse  "Missing document ID"
 // @Failure      401  {object}  ErrorResponse  "Unauthorized"
 // @Failure      404  {object}  ErrorResponse  "Document not found"
@@ -723,7 +723,7 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc, err := s.docService.GetWithChunks(r.Context(), id)
+	doc, err := s.docService.Get(r.Context(), id)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
