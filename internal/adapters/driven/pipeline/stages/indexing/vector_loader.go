@@ -95,12 +95,14 @@ func (s *VectorLoaderStage) Process(ctx context.Context, input any) (any, error)
 	// Filter to only chunks that have embeddings
 	var ids []string
 	var documentIDs []string
+	var sourceIDs []string
 	var contents []string
 	var embeddings [][]float32
 	for _, chunk := range chunks {
 		if len(chunk.Embedding) > 0 {
 			ids = append(ids, chunk.ID)
 			documentIDs = append(documentIDs, chunk.DocumentID)
+			sourceIDs = append(sourceIDs, chunk.SourceID)
 			contents = append(contents, chunk.Content)
 			embeddings = append(embeddings, chunk.Embedding)
 		}
@@ -125,7 +127,7 @@ func (s *VectorLoaderStage) Process(ctx context.Context, input any) (any, error)
 	}
 
 	// Index embeddings to vector store
-	if err := s.vectorIndex.IndexBatch(ctx, ids, documentIDs, contents, embeddings); err != nil {
+	if err := s.vectorIndex.IndexBatch(ctx, ids, documentIDs, sourceIDs, contents, embeddings); err != nil {
 		return nil, &StageError{Stage: s.descriptor.ID, Message: "failed to index embeddings", Err: err}
 	}
 

@@ -19,6 +19,7 @@ func (v *VectorIndex) EnsureTable(ctx context.Context) error {
 		CREATE TABLE IF NOT EXISTS embeddings (
 			chunk_id TEXT PRIMARY KEY,
 			document_id TEXT NOT NULL,
+			source_id TEXT NOT NULL DEFAULT '',
 			content TEXT NOT NULL DEFAULT '',
 			embedding vector(%d) NOT NULL
 		)
@@ -28,13 +29,20 @@ func (v *VectorIndex) EnsureTable(ctx context.Context) error {
 		return fmt.Errorf("failed to create embeddings table: %w", err)
 	}
 
-	// Migration: add content column if table existed before this change
+	// Migrations: add columns if table existed before these changes
 	_, _ = v.pool.Exec(ctx, `ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT ''`)
+	_, _ = v.pool.Exec(ctx, `ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS source_id TEXT NOT NULL DEFAULT ''`)
 
 	// Create index on document_id for deletion queries
 	_, err := v.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_embeddings_document_id ON embeddings(document_id)`)
 	if err != nil {
 		return fmt.Errorf("failed to create document_id index: %w", err)
+	}
+
+	// Create index on source_id for source filtering
+	_, err = v.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_embeddings_source_id ON embeddings(source_id)`)
+	if err != nil {
+		return fmt.Errorf("failed to create source_id index: %w", err)
 	}
 
 	// Create HNSW vector index for similarity search
@@ -71,7 +79,8 @@ func (v *VectorIndex) Index(ctx context.Context, id string, documentID string, e
 }
 
 // SearchWithContent finds similar vectors and returns chunk content alongside IDs/distances.
-func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int) ([]driven.VectorSearchResult, error) {
+// sourceIDs optionally filters results to specific sources (nil or empty = no filter).
+func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string) ([]driven.VectorSearchResult, error) {
 	if len(embedding) != v.dimensions {
 		return nil, fmt.Errorf("embedding dimension mismatch: expected %d, got %d", v.dimensions, len(embedding))
 	}
@@ -82,14 +91,27 @@ func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32
 
 	vec := pgvector.NewVector(embedding)
 
-	query := fmt.Sprintf(`
-		SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance
-		FROM embeddings
-		ORDER BY distance
-		LIMIT $2
-	`, v.distOp)
+	var rows pgx.Rows
+	var err error
 
-	rows, err := v.pool.Query(ctx, query, vec, k)
+	if len(sourceIDs) > 0 {
+		query := fmt.Sprintf(`
+			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance
+			FROM embeddings
+			WHERE source_id = ANY($3)
+			ORDER BY distance
+			LIMIT $2
+		`, v.distOp)
+		rows, err = v.pool.Query(ctx, query, vec, k, sourceIDs)
+	} else {
+		query := fmt.Sprintf(`
+			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance
+			FROM embeddings
+			ORDER BY distance
+			LIMIT $2
+		`, v.distOp)
+		rows, err = v.pool.Query(ctx, query, vec, k)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("search query failed: %w", err)
 	}
@@ -112,12 +134,15 @@ func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32
 }
 
 // IndexBatch inserts or updates multiple embeddings with their chunk content using batch operations
-func (v *VectorIndex) IndexBatch(ctx context.Context, ids []string, documentIDs []string, contents []string, embeddings [][]float32) error {
+func (v *VectorIndex) IndexBatch(ctx context.Context, ids []string, documentIDs []string, sourceIDs []string, contents []string, embeddings [][]float32) error {
 	if len(ids) != len(embeddings) {
 		return fmt.Errorf("ids and embeddings count mismatch: %d vs %d", len(ids), len(embeddings))
 	}
 	if len(ids) != len(documentIDs) {
 		return fmt.Errorf("ids and documentIDs count mismatch: %d vs %d", len(ids), len(documentIDs))
+	}
+	if len(ids) != len(sourceIDs) {
+		return fmt.Errorf("ids and sourceIDs count mismatch: %d vs %d", len(ids), len(sourceIDs))
 	}
 	if len(ids) != len(contents) {
 		return fmt.Errorf("ids and contents count mismatch: %d vs %d", len(ids), len(contents))
@@ -136,14 +161,14 @@ func (v *VectorIndex) IndexBatch(ctx context.Context, ids []string, documentIDs 
 
 	batch := &pgx.Batch{}
 	query := `
-		INSERT INTO embeddings (chunk_id, document_id, content, embedding)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (chunk_id) DO UPDATE SET content = EXCLUDED.content, embedding = EXCLUDED.embedding
+		INSERT INTO embeddings (chunk_id, document_id, source_id, content, embedding)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (chunk_id) DO UPDATE SET source_id = EXCLUDED.source_id, content = EXCLUDED.content, embedding = EXCLUDED.embedding
 	`
 
 	for i, id := range ids {
 		vec := pgvector.NewVector(embeddings[i])
-		batch.Queue(query, id, documentIDs[i], contents[i], vec)
+		batch.Queue(query, id, documentIDs[i], sourceIDs[i], contents[i], vec)
 	}
 
 	br := v.pool.SendBatch(ctx, batch)

@@ -62,8 +62,9 @@ func TestMockVectorIndex_IndexBatch(t *testing.T) {
 	}
 
 	docIDs := []string{"doc1", "doc2", "doc3"}
+	sourceIDs := []string{"src1", "src2", "src3"}
 	contents := []string{"content1", "content2", "content3"}
-	err := mock.IndexBatch(ctx, ids, docIDs, contents, embeddings)
+	err := mock.IndexBatch(ctx, ids, docIDs, sourceIDs, contents, embeddings)
 	if err != nil {
 		t.Errorf("IndexBatch() error = %v", err)
 	}
@@ -98,9 +99,10 @@ func TestMockVectorIndex_IndexBatch_UnequalLength(t *testing.T) {
 	}
 
 	docIDs := []string{"doc1", "doc2", "doc3"}
+	sourceIDs := []string{"src1", "src2", "src3"}
 	contents := []string{"content1", "content2", "content3"}
 	// The mock silently handles this - it only stores what it can
-	err := mock.IndexBatch(ctx, ids, docIDs, contents, embeddings)
+	err := mock.IndexBatch(ctx, ids, docIDs, sourceIDs, contents, embeddings)
 	if err != nil {
 		t.Errorf("IndexBatch() error = %v", err)
 	}

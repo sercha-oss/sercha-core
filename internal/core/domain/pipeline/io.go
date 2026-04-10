@@ -89,9 +89,10 @@ type Candidate struct {
 
 // ParsedQuery represents a parsed search query with extracted components.
 type ParsedQuery struct {
-	Original   string   `json:"original"`
-	Terms      []string `json:"terms"`
-	Phrases    []string `json:"phrases,omitempty"`
-	Filters    []string `json:"filters,omitempty"` // Extracted filter expressions
-	Intent     string   `json:"intent,omitempty"`  // Detected intent
+	Original      string        `json:"original"`
+	Terms         []string      `json:"terms"`
+	Phrases       []string      `json:"phrases,omitempty"`
+	Filters       []string      `json:"filters,omitempty"`        // Extracted filter expressions from query text
+	SearchFilters SearchFilters `json:"search_filters,omitempty"` // Structured backend filters (source_ids, etc.)
+	Intent        string        `json:"intent,omitempty"`         // Detected intent
 }

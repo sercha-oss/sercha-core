@@ -223,6 +223,7 @@ type MockVectorIndex struct {
 	mu          sync.RWMutex
 	embeddings  map[string][]float32
 	documentIDs map[string]string // chunk_id -> document_id
+	sourceIDs   map[string]string // chunk_id -> source_id
 	contents    map[string]string // chunk_id -> content
 }
 
@@ -231,6 +232,7 @@ func NewMockVectorIndex() *MockVectorIndex {
 	return &MockVectorIndex{
 		embeddings:  make(map[string][]float32),
 		documentIDs: make(map[string]string),
+		sourceIDs:   make(map[string]string),
 		contents:    make(map[string]string),
 	}
 }
@@ -243,7 +245,7 @@ func (m *MockVectorIndex) Index(ctx context.Context, id string, documentID strin
 	return nil
 }
 
-func (m *MockVectorIndex) IndexBatch(ctx context.Context, ids []string, documentIDs []string, contents []string, embeddings [][]float32) error {
+func (m *MockVectorIndex) IndexBatch(ctx context.Context, ids []string, documentIDs []string, sourceIDs []string, contents []string, embeddings [][]float32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, id := range ids {
@@ -252,6 +254,9 @@ func (m *MockVectorIndex) IndexBatch(ctx context.Context, ids []string, document
 		}
 		if i < len(documentIDs) {
 			m.documentIDs[id] = documentIDs[i]
+		}
+		if i < len(sourceIDs) {
+			m.sourceIDs[id] = sourceIDs[i]
 		}
 		if i < len(contents) {
 			m.contents[id] = contents[i]
@@ -276,12 +281,26 @@ func (m *MockVectorIndex) Search(ctx context.Context, embedding []float32, k int
 	return ids, distances, nil
 }
 
-func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int) ([]driven.VectorSearchResult, error) {
+func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string) ([]driven.VectorSearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var results []driven.VectorSearchResult
 	for id := range m.embeddings {
+		// Apply source filter if specified
+		if len(sourceIDs) > 0 {
+			chunkSourceID := m.sourceIDs[id]
+			found := false
+			for _, sid := range sourceIDs {
+				if chunkSourceID == sid {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
 		results = append(results, driven.VectorSearchResult{
 			ChunkID:    id,
 			DocumentID: m.documentIDs[id],
@@ -354,6 +373,7 @@ func (m *MockVectorIndex) Reset() {
 	defer m.mu.Unlock()
 	m.embeddings = make(map[string][]float32)
 	m.documentIDs = make(map[string]string)
+	m.sourceIDs = make(map[string]string)
 	m.contents = make(map[string]string)
 }
 
