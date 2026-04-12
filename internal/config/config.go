@@ -129,16 +129,16 @@ func Load() (*Config, error) {
 // loadOAuthCredentials loads OAuth credentials for all supported providers
 func (c *Config) loadOAuthCredentials() {
 	providers := []struct {
-		platform    domain.PlatformType
-		clientIDKey string
-		secretKey   string
+		platform        domain.PlatformType
+		clientIDEnvVar  string
+		clientSecEnvVar string
 	}{
 		{domain.PlatformGitHub, "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"},
 	}
 
 	for _, p := range providers {
-		clientID := os.Getenv(p.clientIDKey)
-		clientSecret := os.Getenv(p.secretKey)
+		clientID := os.Getenv(p.clientIDEnvVar)
+		clientSecret := os.Getenv(p.clientSecEnvVar)
 
 		// Skip if not configured
 		if clientID == "" && clientSecret == "" {
@@ -148,7 +148,7 @@ func (c *Config) loadOAuthCredentials() {
 		// Warn if partially configured
 		if clientID == "" || clientSecret == "" {
 			log.Printf("Warning: %s partially configured (missing %s or %s), skipping",
-				p.platform, p.clientIDKey, p.secretKey)
+				p.platform, p.clientIDEnvVar, p.clientSecEnvVar)
 			continue
 		}
 

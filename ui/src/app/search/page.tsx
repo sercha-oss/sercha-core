@@ -297,7 +297,14 @@ function SearchResultsContent() {
           {!loading &&
             results.map((result) => {
               const FileIcon = getFileIcon(result.mime_type);
-              const isGitHub = result.path?.includes("github.com");
+              const isGitHub = (() => {
+                try {
+                  const host = new URL(result.path ?? "").hostname;
+                  return host === "github.com" || host.endsWith(".github.com");
+                } catch {
+                  return false;
+                }
+              })();
 
               return (
                 <article
