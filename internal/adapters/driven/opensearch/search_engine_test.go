@@ -1116,6 +1116,165 @@ func TestGetInt(t *testing.T) {
 	}
 }
 
+// TestSearchEngine_GetDocument validates document retrieval by ID
+func TestSearchEngine_GetDocument(t *testing.T) {
+	tests := []struct {
+		name        string
+		documentID  string
+		setupServer func() *httptest.Server
+		wantErr     bool
+		errContains string
+		validate    func(*testing.T, *domain.DocumentContent)
+	}{
+		{
+			name:       "successful retrieval",
+			documentID: "doc-1",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "GET" && strings.Contains(r.URL.Path, "/sercha_chunks/_doc/doc-1") {
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"_index":   "sercha_chunks",
+							"_id":      "doc-1",
+							"found":    true,
+							"_source": map[string]any{
+								"document_id": "doc-1",
+								"source_id":   "source-1",
+								"title":       "Test Document",
+								"content":     "Full document body text",
+								"path":        "/test/path.md",
+								"mime_type":   "text/markdown",
+							},
+						})
+						return
+					}
+					w.WriteHeader(http.StatusNotFound)
+				}))
+			},
+			wantErr: false,
+			validate: func(t *testing.T, doc *domain.DocumentContent) {
+				if doc.DocumentID != "doc-1" {
+					t.Errorf("DocumentID = %q, want doc-1", doc.DocumentID)
+				}
+				if doc.SourceID != "source-1" {
+					t.Errorf("SourceID = %q, want source-1", doc.SourceID)
+				}
+				if doc.Title != "Test Document" {
+					t.Errorf("Title = %q, want Test Document", doc.Title)
+				}
+				if doc.Body != "Full document body text" {
+					t.Errorf("Body = %q, want Full document body text", doc.Body)
+				}
+				if doc.Path != "/test/path.md" {
+					t.Errorf("Path = %q, want /test/path.md", doc.Path)
+				}
+				if doc.MimeType != "text/markdown" {
+					t.Errorf("MimeType = %q, want text/markdown", doc.MimeType)
+				}
+			},
+		},
+		{
+			name:       "document not found",
+			documentID: "non-existent",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "GET" && strings.Contains(r.URL.Path, "_doc") {
+						w.WriteHeader(http.StatusNotFound)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"found": false,
+						})
+						return
+					}
+					w.WriteHeader(http.StatusOK)
+				}))
+			},
+			wantErr:     true,
+			errContains: "not found",
+		},
+		{
+			name:       "server error",
+			documentID: "doc-1",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "GET" && strings.Contains(r.URL.Path, "_doc") {
+						w.WriteHeader(http.StatusInternalServerError)
+						_, _ = w.Write([]byte(`{"error": "internal error"}`))
+						return
+					}
+					w.WriteHeader(http.StatusOK)
+				}))
+			},
+			wantErr:     true,
+			errContains: "get document failed",
+		},
+		{
+			name:       "document with empty fields",
+			documentID: "doc-empty",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "GET" && strings.Contains(r.URL.Path, "_doc") {
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"_id":   "doc-empty",
+							"found": true,
+							"_source": map[string]any{
+								"document_id": "doc-empty",
+								"source_id":   "",
+								"title":       "",
+								"content":     "",
+							},
+						})
+						return
+					}
+					w.WriteHeader(http.StatusOK)
+				}))
+			},
+			wantErr: false,
+			validate: func(t *testing.T, doc *domain.DocumentContent) {
+				if doc.DocumentID != "doc-empty" {
+					t.Errorf("DocumentID = %q, want doc-empty", doc.DocumentID)
+				}
+				if doc.Body != "" {
+					t.Errorf("Body should be empty, got %q", doc.Body)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := tt.setupServer()
+			defer ts.Close()
+
+			cfg := Config{
+				URL:       ts.URL,
+				IndexName: "sercha_chunks",
+				Timeout:   5 * time.Second,
+			}
+
+			engine, err := NewSearchEngine(cfg)
+			if err != nil {
+				t.Fatalf("NewSearchEngine() error = %v", err)
+			}
+
+			doc, err := engine.GetDocument(context.Background(), tt.documentID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetDocument() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && err != nil && tt.errContains != "" {
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("GetDocument() error = %v, want error containing %q", err, tt.errContains)
+				}
+				return
+			}
+			if !tt.wantErr && tt.validate != nil {
+				tt.validate(t, doc)
+			}
+		})
+	}
+}
+
 // TestSearchEngine_InterfaceCompliance validates interface implementation
 func TestSearchEngine_InterfaceCompliance(t *testing.T) {
 	// This test verifies that SearchEngine implements the driven.SearchEngine interface
@@ -1145,6 +1304,7 @@ func TestSearchEngine_InterfaceCompliance(t *testing.T) {
 	_ = engine.DeleteBySource(ctx, "source-1")
 	_ = engine.HealthCheck(ctx)
 	_, _ = engine.Count(ctx)
+	_, _ = engine.GetDocument(ctx, "doc-1")
 }
 
 // TestSearchEngine_ContextCancellation validates context cancellation handling

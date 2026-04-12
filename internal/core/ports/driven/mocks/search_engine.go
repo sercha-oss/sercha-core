@@ -210,6 +210,26 @@ func (m *MockSearchEngine) Count(ctx context.Context) (int64, error) {
 	return int64(len(m.docs)), nil
 }
 
+func (m *MockSearchEngine) GetDocument(ctx context.Context, documentID string) (*domain.DocumentContent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	doc, ok := m.docs[documentID]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+
+	return &domain.DocumentContent{
+		DocumentID: doc.DocumentID,
+		SourceID:   doc.SourceID,
+		Title:      doc.Title,
+		Body:       doc.Content,
+		Path:       doc.Path,
+		MimeType:   doc.MimeType,
+		Metadata:   map[string]string{},
+	}, nil
+}
+
 // Helper methods for testing
 
 func (m *MockSearchEngine) Reset() {

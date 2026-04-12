@@ -14,17 +14,17 @@ var _ driving.DocumentService = (*documentService)(nil)
 // documentService implements the DocumentService interface
 type documentService struct {
 	documentStore driven.DocumentStore
-	chunkStore    driven.ChunkStore
+	searchEngine  driven.SearchEngine
 }
 
 // NewDocumentService creates a new DocumentService
 func NewDocumentService(
 	documentStore driven.DocumentStore,
-	chunkStore driven.ChunkStore,
+	searchEngine driven.SearchEngine,
 ) driving.DocumentService {
 	return &documentService{
 		documentStore: documentStore,
-		chunkStore:    chunkStore,
+		searchEngine:  searchEngine,
 	}
 }
 
@@ -33,49 +33,26 @@ func (s *documentService) Get(ctx context.Context, id string) (*domain.Document,
 	return s.documentStore.Get(ctx, id)
 }
 
-// GetWithChunks retrieves a document with its chunks
+// GetWithChunks retrieves a document with its chunks.
+// Note: This method is deprecated. It returns the document with empty chunks
+// since we no longer use ChunkStore for content retrieval. Use GetContent instead.
 func (s *documentService) GetWithChunks(ctx context.Context, id string) (*domain.DocumentWithChunks, error) {
 	doc, err := s.documentStore.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	chunks, err := s.chunkStore.GetByDocument(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
 	return &domain.DocumentWithChunks{
 		Document: doc,
-		Chunks:   chunks,
+		Chunks:   []*domain.Chunk{},
 	}, nil
 }
 
-// GetContent retrieves the full content of a document
+// GetContent retrieves the full content of a document from the search index.
+// This uses OpenSearch to fetch the already-indexed full-text content instead of
+// reconstructing from chunks. Returns domain.ErrNotFound if not in search index.
 func (s *documentService) GetContent(ctx context.Context, id string) (*domain.DocumentContent, error) {
-	doc, err := s.documentStore.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get all chunks and reconstruct content
-	chunks, err := s.chunkStore.GetByDocument(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	// Reconstruct body from chunks
-	var body string
-	for _, chunk := range chunks {
-		body += chunk.Content
-	}
-
-	return &domain.DocumentContent{
-		DocumentID: doc.ID,
-		Title:      doc.Title,
-		Body:       body,
-		Metadata:   doc.Metadata,
-	}, nil
+	return s.searchEngine.GetDocument(ctx, id)
 }
 
 // GetBySource retrieves all documents for a source

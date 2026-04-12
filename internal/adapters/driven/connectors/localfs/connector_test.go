@@ -113,6 +113,88 @@ func TestConnector_ShouldExcludeDir(t *testing.T) {
 	}
 }
 
+func TestConnector_FetchDocument(t *testing.T) {
+	// Create temp directory with test files
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "test.md")
+	if err := os.WriteFile(testFile, []byte("# Test\n\nThis is a test file."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	goFile := filepath.Join(tmpDir, "main.go")
+	if err := os.WriteFile(goFile, []byte("package main\n\nfunc main() {}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewConnector(tmpDir, "test-container", nil)
+
+	// First, fetch changes to discover external IDs
+	changes, _, err := c.FetchChanges(context.Background(), nil, "")
+	if err != nil {
+		t.Fatalf("FetchChanges() error = %v", err)
+	}
+	if len(changes) == 0 {
+		t.Fatal("expected at least one change")
+	}
+
+	// Find the external ID for test.md
+	var testExternalID string
+	for _, change := range changes {
+		if change.Document != nil && change.Document.Title == "test.md" {
+			testExternalID = change.ExternalID
+			break
+		}
+	}
+	if testExternalID == "" {
+		t.Fatal("could not find external ID for test.md")
+	}
+
+	t.Run("fetch existing document", func(t *testing.T) {
+		doc, contentHash, err := c.FetchDocument(context.Background(), nil, testExternalID)
+		if err != nil {
+			t.Fatalf("FetchDocument() error = %v", err)
+		}
+		if doc == nil {
+			t.Fatal("expected document, got nil")
+		}
+		if doc.Title != "test.md" {
+			t.Errorf("Title = %q, want test.md", doc.Title)
+		}
+		if contentHash == "" {
+			t.Error("expected non-empty content hash")
+		}
+	})
+
+	t.Run("fetch non-existent document", func(t *testing.T) {
+		_, _, err := c.FetchDocument(context.Background(), nil, "file-0000000000000000")
+		if err == nil {
+			t.Error("expected error for non-existent document")
+		}
+	})
+
+	t.Run("invalid external ID format", func(t *testing.T) {
+		_, _, err := c.FetchDocument(context.Background(), nil, "invalid-format")
+		if err == nil {
+			t.Error("expected error for invalid external ID format")
+		}
+	})
+
+	t.Run("content hash is deterministic", func(t *testing.T) {
+		_, hash1, err := c.FetchDocument(context.Background(), nil, testExternalID)
+		if err != nil {
+			t.Fatalf("first FetchDocument() error = %v", err)
+		}
+		_, hash2, err := c.FetchDocument(context.Background(), nil, testExternalID)
+		if err != nil {
+			t.Fatalf("second FetchDocument() error = %v", err)
+		}
+		if hash1 != hash2 {
+			t.Errorf("content hash not deterministic: %q != %q", hash1, hash2)
+		}
+	})
+}
+
 func TestGuessMimeType(t *testing.T) {
 	tests := []struct {
 		path     string

@@ -467,7 +467,7 @@ func main() {
 	authService := services.NewAuthService(userStore, sessionStore, authAdapter)
 	userService := services.NewUserService(userStore, sessionStore, authAdapter, teamID)
 	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine)
-	documentService := services.NewDocumentService(documentStore, chunkStore)
+	documentService := services.NewDocumentService(documentStore, searchEngine)
 	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, capabilityStore, settingsStore, teamID)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)
 

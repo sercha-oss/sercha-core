@@ -347,6 +347,66 @@ func (c *Client) GetFileContent(ctx context.Context, owner, repo, path string) (
 	return &content, nil
 }
 
+// GetIssue gets a single issue by number.
+func (c *Client) GetIssue(ctx context.Context, owner, repo string, number int) (*Issue, error) {
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d", owner, repo, number)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var issue Issue
+	if err := json.NewDecoder(resp.Body).Decode(&issue); err != nil {
+		return nil, fmt.Errorf("decode issue: %w", err)
+	}
+
+	return &issue, nil
+}
+
+// GetPullRequest gets a single pull request by number.
+func (c *Client) GetPullRequest(ctx context.Context, owner, repo string, number int) (*PullRequest, error) {
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", owner, repo, number)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var pr PullRequest
+	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+		return nil, fmt.Errorf("decode pull request: %w", err)
+	}
+
+	return &pr, nil
+}
+
+// BlobContent represents a git blob from GitHub.
+type BlobContent struct {
+	SHA      string `json:"sha"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+	Size     int64  `json:"size"`
+	URL      string `json:"url"`
+}
+
+// GetBlob gets a git blob by SHA (raw file content).
+func (c *Client) GetBlob(ctx context.Context, owner, repo, sha string) (*BlobContent, error) {
+	path := fmt.Sprintf("/repos/%s/%s/git/blobs/%s", owner, repo, sha)
+	resp, err := c.doRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var blob BlobContent
+	if err := json.NewDecoder(resp.Body).Decode(&blob); err != nil {
+		return nil, fmt.Errorf("decode blob: %w", err)
+	}
+
+	return &blob, nil
+}
+
 // GetUser gets the authenticated user's information.
 func (c *Client) GetUser(ctx context.Context) (*User, error) {
 	resp, err := c.doRequest(ctx, "GET", "/user", nil)

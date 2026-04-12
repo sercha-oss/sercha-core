@@ -552,6 +552,50 @@ func (s *SearchEngine) deleteByQuery(ctx context.Context, query map[string]any) 
 	return nil
 }
 
+// GetDocument retrieves a document by its document ID
+func (s *SearchEngine) GetDocument(ctx context.Context, documentID string) (*domain.DocumentContent, error) {
+	// Use low-level client to avoid typed response issues
+	resp, err := s.client.Client.Do(ctx, opensearchapi.DocumentGetReq{
+		Index:      s.indexName,
+		DocumentID: documentID,
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get document: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// Handle 404 - document not found
+	if resp.StatusCode == 404 {
+		return nil, domain.ErrNotFound
+	}
+
+	// Handle other HTTP errors
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get document failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response body
+	var result struct {
+		Source map[string]any `json:"_source"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Map OpenSearch _source fields to domain.DocumentContent
+	doc := &domain.DocumentContent{
+		DocumentID: getString(result.Source, "document_id"),
+		SourceID:   getString(result.Source, "source_id"),
+		Title:      getString(result.Source, "title"),
+		Body:       getString(result.Source, "content"),
+		Path:       getString(result.Source, "path"),
+		MimeType:   getString(result.Source, "mime_type"),
+	}
+
+	return doc, nil
+}
+
 // Helper functions to extract values from source map
 
 func getString(m map[string]any, key string) string {

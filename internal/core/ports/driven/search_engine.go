@@ -55,6 +55,10 @@ type SearchEngine interface {
 
 	// Count returns the total number of indexed documents
 	Count(ctx context.Context) (int64, error)
+
+	// GetDocument retrieves a document's full indexed content by document ID.
+	// Returns domain.ErrNotFound if the document is not in the search index.
+	GetDocument(ctx context.Context, documentID string) (*domain.DocumentContent, error)
 }
 
 // VectorIndex handles vector similarity search using a standalone embeddings table.

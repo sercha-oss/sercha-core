@@ -2,9 +2,12 @@ package github
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -308,14 +311,64 @@ func (c *Connector) FetchDocument(ctx context.Context, source *domain.Source, ex
 
 	switch docType {
 	case "issue":
-		// Fetch single issue - would need GetIssue method
-		return nil, "", fmt.Errorf("single issue fetch not implemented")
+		number, err := strconv.Atoi(identifier)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid issue number: %s", identifier)
+		}
+		issue, err := c.client.GetIssue(ctx, c.owner, c.repo, number)
+		if err != nil {
+			return nil, "", fmt.Errorf("fetch issue %d: %w", number, err)
+		}
+		doc := c.issueToDocument(issue)
+		content := c.formatIssueContent(issue)
+		contentHash := computeContentHash(content)
+		return doc, contentHash, nil
+
 	case "pr":
-		// Fetch single PR - would need GetPullRequest method
-		return nil, "", fmt.Errorf("single PR fetch not implemented")
+		number, err := strconv.Atoi(identifier)
+		if err != nil {
+			return nil, "", fmt.Errorf("invalid PR number: %s", identifier)
+		}
+		pr, err := c.client.GetPullRequest(ctx, c.owner, c.repo, number)
+		if err != nil {
+			return nil, "", fmt.Errorf("fetch PR %d: %w", number, err)
+		}
+		doc := c.prToDocument(pr)
+		content := c.formatPRContent(pr)
+		contentHash := computeContentHash(content)
+		return doc, contentHash, nil
+
 	case "file":
-		// Fetch single file - would need GetBlob method
-		return nil, "", fmt.Errorf("single file fetch not implemented: %s", identifier)
+		blob, err := c.client.GetBlob(ctx, c.owner, c.repo, identifier)
+		if err != nil {
+			return nil, "", fmt.Errorf("fetch file blob %s: %w", identifier, err)
+		}
+		// Decode base64 content
+		decodedContent := ""
+		if blob.Encoding == "base64" {
+			decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(blob.Content, "\n", ""))
+			if err != nil {
+				return nil, "", fmt.Errorf("decode blob content: %w", err)
+			}
+			decodedContent = string(decoded)
+		} else {
+			decodedContent = blob.Content
+		}
+		// Build document - we don't have the file path from just a SHA,
+		// so use the SHA as the title and build minimal metadata
+		doc := &domain.Document{
+			Title:    fmt.Sprintf("file-%s", identifier[:8]),
+			Path:     fmt.Sprintf("https://github.com/%s/%s/blob/HEAD/%s", c.owner, c.repo, identifier),
+			MimeType: "application/octet-stream",
+			Metadata: map[string]string{
+				"sha":  identifier,
+				"size": fmt.Sprintf("%d", blob.Size),
+				"repo": FormatContainerID(c.owner, c.repo),
+			},
+		}
+		contentHash := computeContentHash(decodedContent)
+		return doc, contentHash, nil
+
 	default:
 		return nil, "", fmt.Errorf("unknown document type: %s", docType)
 	}
@@ -442,4 +495,10 @@ func (c *Connector) formatPRContent(pr *PullRequest) string {
 	}
 
 	return sb.String()
+}
+
+// computeContentHash computes a SHA256 hash of content for change detection.
+func computeContentHash(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
 }

@@ -11,8 +11,8 @@ import (
 
 func TestDocumentService_Get(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	svc := NewDocumentService(documentStore, chunkStore)
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewDocumentService(documentStore, searchEngine)
 
 	// Create a document
 	doc := &domain.Document{
@@ -45,10 +45,10 @@ func TestDocumentService_Get(t *testing.T) {
 
 func TestDocumentService_GetWithChunks(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	svc := NewDocumentService(documentStore, chunkStore)
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewDocumentService(documentStore, searchEngine)
 
-	// Create a document with chunks
+	// Create a document
 	doc := &domain.Document{
 		ID:       "doc-123",
 		SourceID: "source-456",
@@ -56,27 +56,7 @@ func TestDocumentService_GetWithChunks(t *testing.T) {
 	}
 	_ = documentStore.Save(context.Background(), doc)
 
-	chunks := []*domain.Chunk{
-		{
-			ID:         "chunk-1",
-			DocumentID: "doc-123",
-			SourceID:   "source-456",
-			Content:    "First chunk content",
-			Position:   0,
-		},
-		{
-			ID:         "chunk-2",
-			DocumentID: "doc-123",
-			SourceID:   "source-456",
-			Content:    "Second chunk content",
-			Position:   1,
-		},
-	}
-	for _, chunk := range chunks {
-		_ = chunkStore.Save(context.Background(), chunk)
-	}
-
-	// Get document with chunks
+	// GetWithChunks returns document with empty chunks (deprecated)
 	result, err := svc.GetWithChunks(context.Background(), "doc-123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -84,69 +64,54 @@ func TestDocumentService_GetWithChunks(t *testing.T) {
 	if result.Document.ID != doc.ID {
 		t.Errorf("expected document ID %s, got %s", doc.ID, result.Document.ID)
 	}
-	if len(result.Chunks) != 2 {
-		t.Errorf("expected 2 chunks, got %d", len(result.Chunks))
+	if len(result.Chunks) != 0 {
+		t.Errorf("expected 0 chunks (deprecated), got %d", len(result.Chunks))
 	}
 }
 
 func TestDocumentService_GetContent(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	svc := NewDocumentService(documentStore, chunkStore)
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewDocumentService(documentStore, searchEngine)
 
-	// Create a document with chunks
-	doc := &domain.Document{
-		ID:       "doc-123",
-		SourceID: "source-456",
-		Title:    "Test Document",
-		Metadata: map[string]string{
-			"author": "test-user",
-		},
+	// Index a document into the search engine
+	docContent := &domain.DocumentContent{
+		DocumentID: "doc-123",
+		SourceID:   "source-456",
+		Title:      "Test Document",
+		Body:       "Full document content from OpenSearch",
+		Path:       "/test/path",
+		MimeType:   "text/markdown",
+		Metadata:   map[string]string{"author": "test-user"},
 	}
-	_ = documentStore.Save(context.Background(), doc)
+	_ = searchEngine.IndexDocument(context.Background(), docContent)
 
-	chunks := []*domain.Chunk{
-		{
-			ID:         "chunk-1",
-			DocumentID: "doc-123",
-			Content:    "First part of the content. ",
-			Position:   0,
-		},
-		{
-			ID:         "chunk-2",
-			DocumentID: "doc-123",
-			Content:    "Second part of the content.",
-			Position:   1,
-		},
-	}
-	for _, chunk := range chunks {
-		_ = chunkStore.Save(context.Background(), chunk)
-	}
-
-	// Get document content
+	// Get document content (should come from search engine)
 	content, err := svc.GetContent(context.Background(), "doc-123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if content.DocumentID != doc.ID {
-		t.Errorf("expected document ID %s, got %s", doc.ID, content.DocumentID)
+	if content.DocumentID != "doc-123" {
+		t.Errorf("expected document ID doc-123, got %s", content.DocumentID)
 	}
-	if content.Title != doc.Title {
-		t.Errorf("expected title %s, got %s", doc.Title, content.Title)
+	if content.Title != "Test Document" {
+		t.Errorf("expected title 'Test Document', got %s", content.Title)
 	}
-	expectedBody := "First part of the content. Second part of the content."
-	if content.Body != expectedBody {
-		t.Errorf("expected body %s, got %s", expectedBody, content.Body)
+	if content.Body != "Full document content from OpenSearch" {
+		t.Errorf("expected body from search engine, got %s", content.Body)
 	}
-	if content.Metadata["author"] != "test-user" {
-		t.Errorf("expected author test-user, got %s", content.Metadata["author"])
+
+	// Get content for non-existent document
+	_, err = svc.GetContent(context.Background(), "non-existent")
+	if err != domain.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
 
 func TestDocumentService_GetBySource(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	svc := NewDocumentService(documentStore, chunkStore)
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewDocumentService(documentStore, searchEngine)
 
 	// Create documents for a source
 	for i := 0; i < 5; i++ {
@@ -197,8 +162,8 @@ func TestDocumentService_GetBySource(t *testing.T) {
 
 func TestDocumentService_GetBySource_LimitValidation(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	svc := NewDocumentService(documentStore, chunkStore)
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewDocumentService(documentStore, searchEngine)
 
 	// Create documents
 	for i := 0; i < 10; i++ {
@@ -231,8 +196,8 @@ func TestDocumentService_GetBySource_LimitValidation(t *testing.T) {
 
 func TestDocumentService_Count(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	svc := NewDocumentService(documentStore, chunkStore)
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewDocumentService(documentStore, searchEngine)
 
 	// Create documents
 	for i := 0; i < 10; i++ {
@@ -256,8 +221,8 @@ func TestDocumentService_Count(t *testing.T) {
 
 func TestDocumentService_CountBySource(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
-	svc := NewDocumentService(documentStore, chunkStore)
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewDocumentService(documentStore, searchEngine)
 
 	// Create documents for source-123
 	for i := 0; i < 5; i++ {

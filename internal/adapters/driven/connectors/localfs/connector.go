@@ -152,10 +152,78 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 }
 
 // FetchDocument fetches a single document by external ID.
+// Since external IDs are SHA256 hashes of relative paths, we walk the directory
+// to find the file whose path matches the given ID.
 func (c *Connector) FetchDocument(ctx context.Context, source *domain.Source, externalID string) (*domain.Document, string, error) {
-	// External ID format: "file-<path-hash>"
-	// We'd need to store path mapping to resolve this
-	return nil, "", fmt.Errorf("single document fetch not implemented for localfs")
+	// Validate external ID format
+	if !strings.HasPrefix(externalID, "file-") {
+		return nil, "", fmt.Errorf("invalid external ID format: %s", externalID)
+	}
+
+	var foundDoc *domain.Document
+	var foundContent string
+
+	err := filepath.WalkDir(c.rootPath, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil // Skip inaccessible files
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if d.IsDir() {
+			if c.shouldExcludeDir(path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if !c.shouldIncludeFile(path) {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(c.rootPath, path)
+		if err != nil {
+			return nil
+		}
+
+		// Check if this file's external ID matches
+		if c.generateExternalID(relPath) != externalID {
+			return nil
+		}
+
+		// Found the file - read it
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("get file info: %w", err)
+		}
+
+		content, err := c.readFileContent(path)
+		if err != nil {
+			return fmt.Errorf("read file: %w", err)
+		}
+
+		foundDoc = c.fileToDocument(path, relPath, info)
+		foundContent = content
+
+		// Use a sentinel error to stop walking
+		return filepath.SkipAll
+	})
+
+	if err != nil && err != context.Canceled {
+		return nil, "", fmt.Errorf("walk directory: %w", err)
+	}
+
+	if foundDoc == nil {
+		return nil, "", fmt.Errorf("document not found: %s", externalID)
+	}
+
+	// Compute content hash for change detection
+	contentHash := computeContentHash(foundContent)
+	return foundDoc, contentHash, nil
 }
 
 // TestConnection tests if the directory is accessible.
@@ -301,5 +369,11 @@ func (c *Connector) fileToDocument(fullPath, relPath string, info os.FileInfo) *
 		CreatedAt: info.ModTime(), // Use mod time as we can't get creation time portably
 		UpdatedAt: info.ModTime(),
 	}
+}
+
+// computeContentHash computes a SHA256 hash of content for change detection.
+func computeContentHash(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
 }
 
