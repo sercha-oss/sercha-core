@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	stdhttp "net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -47,6 +48,7 @@ import (
 	redisqueue "github.com/sercha-oss/sercha-core/internal/adapters/driven/queue/redis"
 	redisadapter "github.com/sercha-oss/sercha-core/internal/adapters/driven/redis"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driving/http"
+	mcpadapter "github.com/sercha-oss/sercha-core/internal/adapters/driving/mcp"
 	"github.com/sercha-oss/sercha-core/internal/config"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
@@ -266,6 +268,11 @@ func main() {
 	// Create stores
 	installationStore = postgres.NewConnectionStore(db.DB, encryptor)
 	oauthStateStore = postgres.NewOAuthStateStore(db.DB)
+
+	// ===== OAuth 2.0 Authorization Server Stores =====
+	oauthClientStore := postgres.NewOAuthClientStore(db.DB)
+	authCodeStore := postgres.NewAuthorizationCodeStore(db.DB)
+	oauthTokenStore := postgres.NewOAuthTokenStore(db.DB)
 
 	// Create token provider factory
 	tokenProviderFactory := auth.NewTokenProviderFactory(installationStore)
@@ -510,6 +517,36 @@ func main() {
 		sourceStore,
 	)
 
+	// ===== OAuth 2.0 Authorization Server + MCP =====
+	mcpServerURL := getEnv("MCP_SERVER_URL", cfg.BaseURL+"/mcp")
+	mcpEnabled := getEnvBool("MCP_ENABLED", true)
+
+	var oauthServerService driving.OAuthServerService
+	var mcpHandler stdhttp.Handler
+	if mcpEnabled {
+		oauthServerService = services.NewOAuthServerService(services.OAuthServerServiceConfig{
+			ClientStore:  oauthClientStore,
+			CodeStore:    authCodeStore,
+			TokenStore:   oauthTokenStore,
+			JWTSecret:    cfg.JWTSecret,
+			MCPServerURL: mcpServerURL,
+		})
+
+		mcpServer := mcpadapter.NewMCPServer(mcpadapter.MCPServerConfig{
+			SearchService:   searchService,
+			DocumentService: documentService,
+			SourceService:   sourceService,
+			OAuthService:    oauthServerService,
+			MCPServerURL:    mcpServerURL,
+			Version:         version,
+		})
+
+		mcpHandler = mcpadapter.NewHTTPHandler(mcpServer, oauthServerService, mcpServerURL)
+		log.Printf("MCP server enabled at %s", mcpServerURL)
+	} else {
+		log.Println("MCP server disabled via MCP_ENABLED=false")
+	}
+
 	// Log startup configuration
 	log.Printf("Runtime config: session_backend=%s, embedding=%t, llm=%t, search_mode=%s",
 		runtimeConfig.SessionBackend,
@@ -561,7 +598,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing, oauthServerService, mcpHandler)
 
 	case "worker":
 		// Worker-only mode: Task processing, scheduler, no HTTP server
@@ -576,7 +613,7 @@ func main() {
 		if redisClient != nil {
 			redisPing = &redisPinger{client: redisClient}
 		}
-		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing)
+		runAPI(port, authService, userService, searchService, sourceService, documentService, settingsService, providerService, oauthService, connectionService, syncOrchestrator, capabilitiesService, setupService, adminService, taskQueue, searchQueryRepo, db, redisPing, oauthServerService, mcpHandler)
 
 	default:
 		log.Fatalf("Unknown mode: %s (use: api, worker, or all)", mode)
@@ -602,6 +639,8 @@ func runAPI(
 	searchQueryRepo driven.SearchQueryRepository,
 	db http.Pinger,
 	redisClient http.Pinger, // can be nil
+	oauthServerService driving.OAuthServerService, // can be nil
+	mcpHandler stdhttp.Handler, // can be nil
 ) {
 	// Parse CORS origins from environment variable
 	corsOrigins := parseCORSOrigins(getEnv("CORS_ORIGINS", "*"))
@@ -611,6 +650,7 @@ func runAPI(
 		Port:        port,
 		Version:     version,
 		CORSOrigins: corsOrigins,
+		UIBaseURL:   getEnv("UI_BASE_URL", "http://localhost:3000"),
 	}
 
 	server := http.NewServer(
@@ -632,6 +672,8 @@ func runAPI(
 		searchQueryRepo,
 		db,
 		redisClient,
+		oauthServerService,
+		mcpHandler,
 	)
 
 	log.Printf("API server starting on :%d", port)

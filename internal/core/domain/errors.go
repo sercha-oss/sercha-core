@@ -54,4 +54,36 @@ var (
 
 	// ErrInUse indicates the resource is in use and cannot be deleted
 	ErrInUse = errors.New("resource in use")
+
+	// OAuth 2.0 Authorization Server errors
+
+	// ErrInvalidClient indicates the client authentication failed
+	ErrInvalidClient = errors.New("invalid client")
+
+	// ErrInvalidGrant indicates the authorization grant is invalid, expired, or revoked
+	ErrInvalidGrant = errors.New("invalid grant")
+
+	// ErrInvalidScope indicates the requested scope is invalid or unauthorized
+	ErrInvalidScope = errors.New("invalid scope")
+
+	// ErrExpiredCode indicates the authorization code has expired
+	ErrExpiredCode = errors.New("authorization code expired")
+
+	// ErrCodeAlreadyUsed indicates the authorization code has already been used
+	ErrCodeAlreadyUsed = errors.New("authorization code already used")
+
+	// ErrInvalidRedirectURI indicates the redirect URI does not match registered URIs
+	ErrInvalidRedirectURI = errors.New("invalid redirect uri")
+
+	// ErrUnsupportedGrantType indicates the grant type is not supported
+	ErrUnsupportedGrantType = errors.New("unsupported grant type")
+
+	// ErrUnsupportedResponseType indicates the response type is not supported
+	ErrUnsupportedResponseType = errors.New("unsupported response type")
+
+	// ErrInvalidCodeChallenge indicates the PKCE code challenge is invalid
+	ErrInvalidCodeChallenge = errors.New("invalid code challenge")
+
+	// ErrTokenRevoked indicates the token has been revoked
+	ErrTokenRevoked = errors.New("token revoked")
 )

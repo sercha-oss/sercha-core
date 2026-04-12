@@ -139,6 +139,21 @@ export interface OAuthAuthorizeResponse {
   state: string;
 }
 
+export interface OAuthAuthorizeParams {
+  response_type: string;
+  client_id: string;
+  redirect_uri: string;
+  scope?: string;
+  state?: string;
+  code_challenge?: string;
+  code_challenge_method?: string;
+  resource?: string;
+}
+
+export interface OAuthAuthorizeCompleteResponse {
+  redirect_url: string;
+}
+
 export interface ConnectionSummary {
   id: string;
   name: string;
@@ -652,6 +667,13 @@ export async function startOAuth(
       installation_name: installationName,
       return_context: returnContext,
     }),
+  });
+}
+
+export async function completeOAuthAuthorize(params: OAuthAuthorizeParams): Promise<OAuthAuthorizeCompleteResponse> {
+  return apiFetch<OAuthAuthorizeCompleteResponse>("/oauth/authorize/complete", {
+    method: "POST",
+    body: JSON.stringify(params),
   });
 }
 

@@ -32,7 +32,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ["/login", "/setup", "/oauth/callback", "/oauth/complete"];
+const PUBLIC_ROUTES = ["/login", "/setup", "/oauth/callback", "/oauth/complete", "/oauth/authorize"];
 
 // Check if a path is public
 function isPublicRoute(path: string): boolean {

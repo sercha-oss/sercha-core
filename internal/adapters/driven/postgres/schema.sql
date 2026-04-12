@@ -328,3 +328,73 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_installations_platform ON connector_installations(platform);
+
+-- ===== OAuth 2.0 Authorization Server Tables =====
+
+-- OAuth Clients table (registered third-party applications)
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    id              TEXT PRIMARY KEY,
+    secret_hash     TEXT,
+    name            TEXT NOT NULL,
+    redirect_uris   TEXT[] NOT NULL,
+    grant_types     TEXT[] NOT NULL DEFAULT '{authorization_code}',
+    response_types  TEXT[] NOT NULL DEFAULT '{code}',
+    scopes          TEXT[] NOT NULL,
+    application_type TEXT NOT NULL DEFAULT 'native',
+    token_endpoint_auth_method TEXT NOT NULL DEFAULT 'none',
+    active          BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Authorization Codes table (short-lived codes for auth code flow)
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+    code            TEXT PRIMARY KEY,
+    client_id       TEXT NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+    user_id         TEXT NOT NULL REFERENCES users(id),
+    redirect_uri    TEXT NOT NULL,
+    scopes          TEXT[] NOT NULL,
+    code_challenge  TEXT NOT NULL,
+    resource        TEXT,
+    used            BOOLEAN NOT NULL DEFAULT false,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_authz_codes_expires ON oauth_authorization_codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_oauth_authz_codes_client ON oauth_authorization_codes(client_id);
+
+-- Access Tokens table (short-lived access tokens)
+CREATE TABLE IF NOT EXISTS oauth_access_tokens (
+    id          TEXT PRIMARY KEY,
+    client_id   TEXT NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+    user_id     TEXT NOT NULL REFERENCES users(id),
+    scopes      TEXT[] NOT NULL,
+    audience    TEXT,
+    revoked     BOOLEAN NOT NULL DEFAULT false,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_client ON oauth_access_tokens(client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_user ON oauth_access_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_expires ON oauth_access_tokens(expires_at);
+
+-- Refresh Tokens table (long-lived refresh tokens with rotation support)
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+    id              TEXT PRIMARY KEY,
+    access_token_id TEXT NOT NULL REFERENCES oauth_access_tokens(id) ON DELETE CASCADE,
+    client_id       TEXT NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+    user_id         TEXT NOT NULL REFERENCES users(id),
+    scopes          TEXT[] NOT NULL,
+    audience        TEXT,
+    revoked         BOOLEAN NOT NULL DEFAULT false,
+    rotated_to      TEXT,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_access ON oauth_refresh_tokens(access_token_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_client ON oauth_refresh_tokens(client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_user ON oauth_refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires ON oauth_refresh_tokens(expires_at);

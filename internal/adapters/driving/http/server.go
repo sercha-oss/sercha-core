@@ -45,11 +45,18 @@ type Server struct {
 	settingsService     driving.SettingsService
 	providerService     driving.ProviderService
 	oauthService        driving.OAuthService
+	oauthServerService  driving.OAuthServerService // OAuth 2.0 Authorization Server
 	connectionService   driving.ConnectionService
 	syncOrchestrator    driving.SyncOrchestrator
 	capabilitiesService driving.CapabilitiesService
 	setupService        driving.SetupService
 	adminService        driving.AdminService
+
+	// MCP Handler
+	mcpHandler http.Handler // MCP StreamableHTTPHandler with auth
+
+	// Config
+	uiBaseURL string // Frontend URL for OAuth redirects
 
 	// Infrastructure
 	taskQueue           driven.TaskQueue
@@ -64,6 +71,7 @@ type Config struct {
 	Port        int
 	Version     string
 	CORSOrigins []string
+	UIBaseURL   string // Frontend URL for OAuth redirects (default: http://localhost:3000)
 }
 
 // DefaultConfig returns sensible defaults
@@ -95,10 +103,18 @@ func NewServer(
 	searchQueryRepo driven.SearchQueryRepository,
 	db Pinger,
 	redisClient Pinger, // can be nil
+	oauthServerService driving.OAuthServerService, // can be nil
+	mcpHandler http.Handler, // can be nil
 ) *Server {
+	uiBaseURL := cfg.UIBaseURL
+	if uiBaseURL == "" {
+		uiBaseURL = "http://localhost:3000"
+	}
+
 	s := &Server{
 		router:              http.NewServeMux(),
 		version:             cfg.Version,
+		uiBaseURL:           uiBaseURL,
 		authService:         authService,
 		userService:         userService,
 		searchService:       searchService,
@@ -107,11 +123,13 @@ func NewServer(
 		settingsService:     settingsService,
 		providerService:     providerService,
 		oauthService:        oauthService,
+		oauthServerService:  oauthServerService,
 		connectionService:   connectionService,
 		syncOrchestrator:    syncOrchestrator,
 		capabilitiesService: capabilitiesService,
 		setupService:        setupService,
 		adminService:        adminService,
+		mcpHandler:          mcpHandler,
 		taskQueue:           taskQueue,
 		searchQueryRepo:     searchQueryRepo,
 		db:                  db,
@@ -332,6 +350,44 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("PUT /api/v1/sources/{id}/containers",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleUpdateSourceContainers))))
+
+	// OAuth 2.0 Authorization Server endpoints (if configured)
+	if s.oauthServerService != nil {
+		// OAuth Server Metadata (public)
+		s.router.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleOAuthServerMetadata)
+
+		// Dynamic Client Registration (public)
+		s.router.HandleFunc("POST /oauth/register", s.handleDynamicClientRegistration)
+
+		// Authorization endpoint (public — redirects to frontend if not authenticated)
+		s.router.HandleFunc("GET /oauth/authorize", s.handleOAuthServerAuthorize)
+
+		// Authorization completion (frontend calls with JWT after user login + consent)
+		s.router.Handle("POST /oauth/authorize/complete",
+			authMiddleware.Authenticate(http.HandlerFunc(s.handleOAuthServerAuthorizeComplete)))
+
+		// Token endpoint (public - client auth via credentials)
+		s.router.HandleFunc("POST /oauth/token", s.handleOAuthServerToken)
+
+		// Revocation endpoint (public - client auth via credentials)
+		s.router.HandleFunc("POST /oauth/revoke", s.handleOAuthServerRevoke)
+
+		// Protected Resource Metadata (public)
+		s.router.HandleFunc("GET /.well-known/oauth-protected-resource", s.handleProtectedResourceMetadata)
+	}
+
+	// MCP endpoint (if configured)
+	if s.mcpHandler != nil {
+		// MCP server handles its own auth via bearer token middleware
+		s.router.Handle("POST /mcp", s.mcpHandler)
+		s.router.Handle("GET /mcp", s.mcpHandler)
+		s.router.Handle("DELETE /mcp", s.mcpHandler)
+
+		// Protected Resource Metadata under /mcp path (SDK advertises this in WWW-Authenticate)
+		if s.oauthServerService != nil {
+			s.router.HandleFunc("GET /mcp/.well-known/oauth-protected-resource", s.handleProtectedResourceMetadata)
+		}
+	}
 }
 
 // Start starts the HTTP server with graceful shutdown
