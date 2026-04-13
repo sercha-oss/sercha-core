@@ -141,25 +141,59 @@ func (s *RankerStage) Process(ctx context.Context, input any) (any, error) {
 		}
 	}
 
-	// Compute theoretical maximum: a document at rank 1 in every source
 	numSources := len(docBySource)
-	theoreticalMax := float64(numSources) * (1.0 / float64(s.rrfK+1))
-
-	// Build result slice and assign normalized percentage scores
 	results := make([]*pipeline.Candidate, 0, len(merged))
-	for _, entry := range merged {
-		c := entry.candidate
-		if theoreticalMax > 0 {
-			c.Score = (entry.rrfScore / theoreticalMax) * 100.0
-		} else {
-			c.Score = entry.rrfScore
+
+	if numSources == 1 {
+		// Single-source: use min-max normalization of original retriever scores.
+		// This preserves actual relevance differences (BM25 magnitude or cosine similarity)
+		// instead of the fixed staircase that RRF produces with one source group.
+		var maxScore, minScore float64
+		first := true
+		for _, entry := range merged {
+			score := entry.candidate.Score
+			if first || score > maxScore {
+				maxScore = score
+			}
+			if first || score < minScore {
+				minScore = score
+			}
+			first = false
 		}
-		if c.Metadata == nil {
-			c.Metadata = make(map[string]any)
+
+		scoreRange := maxScore - minScore
+		for _, entry := range merged {
+			c := entry.candidate
+			if scoreRange > 0 {
+				c.Score = ((c.Score - minScore) / scoreRange) * 100.0
+			} else {
+				c.Score = 100.0
+			}
+			if c.Metadata == nil {
+				c.Metadata = make(map[string]any)
+			}
+			c.Metadata["rrf_sources"] = entry.sources
+			c.Metadata["rrf_raw_score"] = entry.rrfScore
+			results = append(results, c)
 		}
-		c.Metadata["rrf_sources"] = entry.sources
-		c.Metadata["rrf_raw_score"] = entry.rrfScore
-		results = append(results, c)
+	} else {
+		// Multi-source: RRF normalization relative to theoretical maximum.
+		// A document at rank 1 in every source scores 100%.
+		theoreticalMax := float64(numSources) * (1.0 / float64(s.rrfK+1))
+		for _, entry := range merged {
+			c := entry.candidate
+			if theoreticalMax > 0 {
+				c.Score = (entry.rrfScore / theoreticalMax) * 100.0
+			} else {
+				c.Score = entry.rrfScore
+			}
+			if c.Metadata == nil {
+				c.Metadata = make(map[string]any)
+			}
+			c.Metadata["rrf_sources"] = entry.sources
+			c.Metadata["rrf_raw_score"] = entry.rrfScore
+			results = append(results, c)
+		}
 	}
 
 	// Sort by RRF score descending

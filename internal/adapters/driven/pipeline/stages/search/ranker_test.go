@@ -100,10 +100,15 @@ func TestRankerStage_SingleSource(t *testing.T) {
 		t.Errorf("scores not descending: %v >= %v", ranked[0].Score, ranked[1].Score)
 	}
 
-	// With normalization: rank 1 in single source = 100%
-	expectedRank1 := 100.0
-	if math.Abs(ranked[0].Score-expectedRank1) > 0.01 {
-		t.Errorf("ranked[0].Score = %v, want ~%v (100%% for rank 1 in single source)", ranked[0].Score, expectedRank1)
+	// With min-max normalization: scores 0.9, 0.7, 0.5 → 100%, 50%, 0%
+	if math.Abs(ranked[0].Score-100.0) > 0.01 {
+		t.Errorf("ranked[0].Score = %v, want ~100 (max score)", ranked[0].Score)
+	}
+	if math.Abs(ranked[1].Score-50.0) > 0.01 {
+		t.Errorf("ranked[1].Score = %v, want ~50 (mid score)", ranked[1].Score)
+	}
+	if math.Abs(ranked[2].Score-0.0) > 0.01 {
+		t.Errorf("ranked[2].Score = %v, want ~0 (min score)", ranked[2].Score)
 	}
 }
 
@@ -376,6 +381,18 @@ func TestRankerStage_ScoreNormalization(t *testing.T) {
 				{DocumentID: "d1", Score: 0.9, Source: "bm25", Metadata: make(map[string]any)},
 				{DocumentID: "d2", Score: 0.7, Source: "bm25", Metadata: make(map[string]any)},
 			},
+			wantScore:  100.0,
+			wantNumSrc: 1,
+		},
+		{
+			name: "single source preserves score gaps",
+			rrfK: 60,
+			candidates: []*pipeline.Candidate{
+				{DocumentID: "d1", Score: 10.0, Source: "bm25", Metadata: make(map[string]any)},
+				{DocumentID: "d2", Score: 5.0, Source: "bm25", Metadata: make(map[string]any)},
+				{DocumentID: "d3", Score: 1.0, Source: "bm25", Metadata: make(map[string]any)},
+			},
+			// min-max: d1=(10-1)/(10-1)*100=100, d2=(5-1)/(10-1)*100≈44.4, d3=0
 			wantScore:  100.0,
 			wantNumSrc: 1,
 		},

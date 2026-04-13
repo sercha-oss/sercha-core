@@ -1,0 +1,74 @@
+package indexing
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestIsLikelyNonText(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name:    "normal english text",
+			content: "This is a normal piece of English text with spaces and punctuation. It should not be filtered out.",
+			want:    false,
+		},
+		{
+			name:    "markdown content",
+			content: "# Heading\n\nThis is a paragraph with **bold** and *italic* text.\n\n- List item one\n- List item two\n",
+			want:    false,
+		},
+		{
+			name:    "JSON content",
+			content: `{"name": "test", "value": 42, "nested": {"key": "value"}, "array": [1, 2, 3]}`,
+			want:    false,
+		},
+		{
+			name:    "code content",
+			content: "func main() {\n\tfmt.Println(\"hello world\")\n\tfor i := 0; i < 10; i++ {\n\t\tfmt.Println(i)\n\t}\n}\n",
+			want:    false,
+		},
+		{
+			name:    "base64 encoded blob",
+			content: "eJztWG1vGjkQ/ivWfmolXvJyJ1V8IzS9Sy9tokJ00qURMl4DTrz2nu0loYj/3hnbC4aF6vqlukqVomDGL/PMeOaZMass55YZUTqhVdbLBoZTxwklij8ToayjUlKcI1NtiNKqfdOv3JwwrRRnThtLXvVvr8gTX7ZISd28PaGW56875A4+/KZkqRRPnEjNqJzaTtbKDP+34tZd6HyZ9VYZrHRcORzSspSCec3dR4vQVpllc15QHO1i/hROIU4TVsOPSmvgESKB4RZkggywlEaX3DjBbdAvxrChqQxO+gsOEpa4",
+			want:    true,
+		},
+		{
+			name:    "compact encoded data no whitespace",
+			content: strings.Repeat("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", 3),
+			want:    true,
+		},
+		{
+			name:    "binary content with control chars",
+			content: "normal start\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\x0e\x0f" + strings.Repeat("\x00\x01binary", 20),
+			want:    true,
+		},
+		{
+			name:    "short content below threshold",
+			content: "short",
+			want:    false,
+		},
+		{
+			name:    "empty content",
+			content: "",
+			want:    false,
+		},
+		{
+			name:    "base64 blob at minimum detectable length",
+			content: "eJztWG1vGjkQivWfmolXvJyJ1V8IzS9Sy9tokJ00qURMl4DTrz2nu0leJztWG1vGjkQ",
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isLikelyNonText(tt.content)
+			if got != tt.want {
+				t.Errorf("isLikelyNonText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

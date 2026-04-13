@@ -2,6 +2,7 @@ package indexing
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
@@ -121,7 +122,12 @@ func (s *ChunkerStage) chunkText(documentID, sourceID, text string) []*pipeline.
 		}
 
 		chunkContent := strings.TrimSpace(text[offset:end])
-		if len(chunkContent) > 0 {
+		if len(chunkContent) > 0 && isLikelyNonText(chunkContent) {
+			slog.Debug("skipping non-text chunk",
+				"document_id", documentID,
+				"position", position,
+				"content_length", len(chunkContent))
+		} else if len(chunkContent) > 0 {
 			chunks = append(chunks, &pipeline.Chunk{
 				ID:          domain.GenerateID(),
 				DocumentID:  documentID,
