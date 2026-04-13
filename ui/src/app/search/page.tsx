@@ -332,7 +332,7 @@ function SearchResultsContent() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="rounded-full bg-sercha-indigo-soft px-2.5 py-0.5 text-xs font-medium text-sercha-indigo">
-                        {result.score.toFixed(2)}
+                        {Math.round(result.score)}%
                       </span>
                       {isGitHub && (
                         <div className="flex items-center gap-1.5 rounded-full bg-sercha-mist px-2.5 py-1 text-xs font-medium text-sercha-fog-grey">

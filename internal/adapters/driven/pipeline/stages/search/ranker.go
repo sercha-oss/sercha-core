@@ -141,15 +141,24 @@ func (s *RankerStage) Process(ctx context.Context, input any) (any, error) {
 		}
 	}
 
-	// Build result slice and assign fused scores
+	// Compute theoretical maximum: a document at rank 1 in every source
+	numSources := len(docBySource)
+	theoreticalMax := float64(numSources) * (1.0 / float64(s.rrfK+1))
+
+	// Build result slice and assign normalized percentage scores
 	results := make([]*pipeline.Candidate, 0, len(merged))
 	for _, entry := range merged {
 		c := entry.candidate
-		c.Score = entry.rrfScore
+		if theoreticalMax > 0 {
+			c.Score = (entry.rrfScore / theoreticalMax) * 100.0
+		} else {
+			c.Score = entry.rrfScore
+		}
 		if c.Metadata == nil {
 			c.Metadata = make(map[string]any)
 		}
 		c.Metadata["rrf_sources"] = entry.sources
+		c.Metadata["rrf_raw_score"] = entry.rrfScore
 		results = append(results, c)
 	}
 
