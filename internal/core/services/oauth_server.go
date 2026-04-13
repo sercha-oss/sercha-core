@@ -584,6 +584,25 @@ func (s *oauthServerService) GetServerMetadata(baseURL string) *driving.OAuthSer
 	}
 }
 
+// GetClientPublicInfo returns non-sensitive public info about an OAuth client
+func (s *oauthServerService) GetClientPublicInfo(ctx context.Context, clientID string) (*driving.ClientPublicInfo, error) {
+	client, err := s.clientStore.Get(ctx, clientID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Treat inactive clients as not found
+	if !client.Active {
+		return nil, domain.ErrNotFound
+	}
+
+	return &driving.ClientPublicInfo{
+		ClientID:        client.ID,
+		Name:            client.Name,
+		ApplicationType: client.ApplicationType,
+	}, nil
+}
+
 // Helper functions
 
 // generateAccessToken creates a signed JWT access token

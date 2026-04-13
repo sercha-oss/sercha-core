@@ -8,6 +8,7 @@ import {
   login as apiLogin,
   completeOAuthAuthorize,
   getCurrentUser,
+  getOAuthClientInfo,
   setTokens,
   clearTokens,
   ApiError,
@@ -58,6 +59,7 @@ function OAuthAuthorizeContent() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [clientName, setClientName] = useState<string | null>(null);
 
   useEffect(() => {
     // Read OAuth params from URL
@@ -89,6 +91,13 @@ function OAuthAuthorizeContent() {
     };
 
     setOAuthParams(params);
+
+    // Fetch client display name
+    getOAuthClientInfo(client_id)
+      .then((info) => setClientName(info.name))
+      .catch(() => {
+        // Silently fail — UI will fall back to showing client_id
+      });
 
     // Check if user is logged in with a valid token
     const token = typeof window !== "undefined" ? localStorage.getItem("sercha_token") : null;
@@ -362,7 +371,7 @@ function OAuthAuthorizeContent() {
 
   if (state === "consent") {
     const scopes = getScopes();
-    const clientId = oauthParams?.client_id || "Unknown Application";
+    const displayName = clientName || oauthParams?.client_id || "Unknown Application";
 
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-sercha-snow to-sercha-mist px-4">
@@ -389,7 +398,7 @@ function OAuthAuthorizeContent() {
                 Authorize Application
               </h1>
               <p className="mt-2 text-sm text-sercha-fog-grey">
-                <span className="font-medium text-sercha-ink-slate">{clientId}</span>
+                <span className="font-medium text-sercha-ink-slate">{displayName}</span>
                 {" "}is requesting access to your Sercha account
               </p>
             </div>

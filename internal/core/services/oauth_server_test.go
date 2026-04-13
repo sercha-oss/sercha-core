@@ -1435,3 +1435,67 @@ func TestValidatePKCE(t *testing.T) {
 		})
 	}
 }
+
+// Tests for GetClientPublicInfo
+
+func TestGetClientPublicInfo_Success(t *testing.T) {
+	svc, clientStore, _, _ := createTestService()
+
+	client := &domain.OAuthClient{
+		ID:              "test-client-id",
+		Name:            "My MCP Client",
+		ApplicationType: "native",
+		Active:          true,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	_ = clientStore.Save(context.Background(), client)
+
+	info, err := svc.GetClientPublicInfo(context.Background(), "test-client-id")
+	if err != nil {
+		t.Fatalf("GetClientPublicInfo() error = %v", err)
+	}
+	if info.ClientID != "test-client-id" {
+		t.Errorf("ClientID = %s, want test-client-id", info.ClientID)
+	}
+	if info.Name != "My MCP Client" {
+		t.Errorf("Name = %s, want My MCP Client", info.Name)
+	}
+	if info.ApplicationType != "native" {
+		t.Errorf("ApplicationType = %s, want native", info.ApplicationType)
+	}
+}
+
+func TestGetClientPublicInfo_NotFound(t *testing.T) {
+	svc, _, _, _ := createTestService()
+
+	_, err := svc.GetClientPublicInfo(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent client")
+	}
+	if err != domain.ErrNotFound {
+		t.Errorf("error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestGetClientPublicInfo_InactiveClient(t *testing.T) {
+	svc, clientStore, _, _ := createTestService()
+
+	client := &domain.OAuthClient{
+		ID:              "inactive-client",
+		Name:            "Deactivated App",
+		ApplicationType: "web",
+		Active:          false,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+	_ = clientStore.Save(context.Background(), client)
+
+	_, err := svc.GetClientPublicInfo(context.Background(), "inactive-client")
+	if err == nil {
+		t.Fatal("expected error for inactive client")
+	}
+	if err != domain.ErrNotFound {
+		t.Errorf("error = %v, want ErrNotFound", err)
+	}
+}

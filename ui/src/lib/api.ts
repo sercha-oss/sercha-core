@@ -677,6 +677,16 @@ export async function completeOAuthAuthorize(params: OAuthAuthorizeParams): Prom
   });
 }
 
+export interface OAuthClientInfo {
+  client_id: string;
+  name: string;
+  application_type: string;
+}
+
+export async function getOAuthClientInfo(clientId: string): Promise<OAuthClientInfo> {
+  return apiFetch<OAuthClientInfo>(`/oauth/clients/${encodeURIComponent(clientId)}`);
+}
+
 // ========== Connections API ==========
 
 export async function listConnections(): Promise<ConnectionSummary[]> {

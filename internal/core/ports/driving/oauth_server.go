@@ -39,6 +39,11 @@ type OAuthServerService interface {
 	// GetServerMetadata returns OAuth Authorization Server Metadata (RFC 8414).
 	// The baseURL parameter is used to construct absolute endpoint URLs.
 	GetServerMetadata(baseURL string) *OAuthServerMetadata
+
+	// GetClientPublicInfo returns non-sensitive public info about an OAuth client.
+	// Used by the consent screen to display the application name.
+	// Returns domain.ErrNotFound if the client doesn't exist or is inactive.
+	GetClientPublicInfo(ctx context.Context, clientID string) (*ClientPublicInfo, error)
 }
 
 // OAuthTokenInfo contains validated token information for middleware use
@@ -62,4 +67,11 @@ type OAuthServerMetadata struct {
 	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 	ScopesSupported                   []string `json:"scopes_supported,omitempty"`
 	ResourceIndicatorsSupported       bool     `json:"resource_indicators_supported,omitempty"` // For client discovery
+}
+
+// ClientPublicInfo contains non-sensitive client information for display on consent screens
+type ClientPublicInfo struct {
+	ClientID        string `json:"client_id"`
+	Name            string `json:"name"`
+	ApplicationType string `json:"application_type"`
 }
