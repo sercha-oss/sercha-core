@@ -158,6 +158,42 @@ func TestChunkerStage_FiltersNonTextChunks(t *testing.T) {
 	}
 }
 
+func TestChunkerStage_AllNonTextContent(t *testing.T) {
+	factory := NewChunkerFactory()
+	config := pipeline.StageConfig{
+		StageID:    ChunkerStageID,
+		Enabled:    true,
+		Parameters: map[string]any{"chunk_size": float64(100), "chunk_overlap": float64(10)},
+	}
+	stage, _ := factory.Create(config, nil)
+
+	// Document where ALL content is base64 — every chunk window will be non-text.
+	// Previously this would panic with index out of bounds on chunks[len(chunks)-1]
+	// because no chunks were appended but the overlap logic still accessed the slice.
+	base64Only := strings.Repeat("eJztWG1vGjkQivWfmolXvJyJ1V8IzS9Sy9tokJ00qURMl4DTrz2nu0loY", 5)
+
+	input := &pipeline.IndexingInput{
+		DocumentID: "doc-all-base64",
+		SourceID:   "src-1",
+		Content:    base64Only,
+	}
+
+	result, err := stage.Process(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Process() should not panic or error, got: %v", err)
+	}
+
+	chunks, ok := result.([]*pipeline.Chunk)
+	if !ok {
+		t.Fatal("expected []*pipeline.Chunk")
+	}
+
+	// All content is non-text, so no chunks should survive
+	if len(chunks) != 0 {
+		t.Errorf("expected 0 chunks for all-base64 content, got %d", len(chunks))
+	}
+}
+
 func TestChunkerStage_InvalidInput(t *testing.T) {
 	factory := NewChunkerFactory()
 	stage, _ := factory.Create(pipeline.StageConfig{}, nil)

@@ -122,10 +122,14 @@ export function StepCapabilities({ onComplete, onSkip }: StepCapabilitiesProps) 
         setPreferences(prefsData); // Store for potential future use
         setCapabilities(capsData);
 
-        // Initialize local state from preferences
+        // Initialize local state from preferences if available
         if (prefsData) {
           setTextIndexing(prefsData.text_indexing_enabled);
           setEmbeddingIndexing(prefsData.embedding_indexing_enabled);
+        } else if (capsData) {
+          // No saved preferences — default based on actual backend availability
+          setTextIndexing(capsData.features?.text_indexing?.available ?? false);
+          setEmbeddingIndexing(capsData.features?.embedding_indexing?.available ?? false);
         }
       } catch (err) {
         console.error("Failed to load capability preferences:", err);

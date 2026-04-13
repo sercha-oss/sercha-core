@@ -143,7 +143,7 @@ func (s *ChunkerStage) chunkText(documentID, sourceID, text string) []*pipeline.
 
 		// Move forward with overlap
 		offset = end - s.chunkOverlap
-		if offset <= chunks[len(chunks)-1].StartOffset {
+		if len(chunks) == 0 || offset <= chunks[len(chunks)-1].StartOffset {
 			offset = end
 		}
 	}

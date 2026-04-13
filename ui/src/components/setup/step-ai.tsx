@@ -166,6 +166,12 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
   };
 
   const handleSubmit = async () => {
+    // If nothing is configured, treat as skip
+    if (!embeddingProvider && !llmProvider) {
+      onSkip();
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
