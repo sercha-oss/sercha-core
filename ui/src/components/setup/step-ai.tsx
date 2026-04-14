@@ -129,6 +129,7 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
     } else {
       setLlmModel("");
     }
+    setTestStatus("idle");
   };
 
   const handleTest = async () => {
@@ -212,6 +213,10 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
     (embeddingProvider && embeddingModel) ||
     (llmProvider && llmModel);
 
+  // "Save & Continue" requires a successful test when providers are configured
+  const hasProviderConfigured = !!(embeddingProvider || llmProvider);
+  const canSave = !hasProviderConfigured || testStatus === "success";
+
   if (loadingProviders) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -290,7 +295,10 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
                 </label>
                 <select
                   value={embeddingModel}
-                  onChange={(e) => setEmbeddingModel(e.target.value)}
+                  onChange={(e) => {
+                    setEmbeddingModel(e.target.value);
+                    setTestStatus("idle");
+                  }}
                   className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 text-sm text-sercha-ink-slate focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
                 >
                   {selectedEmbeddingProvider?.models.map((m: AIModelMeta) => (
@@ -374,7 +382,10 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
                 </label>
                 <select
                   value={llmModel}
-                  onChange={(e) => setLlmModel(e.target.value)}
+                  onChange={(e) => {
+                    setLlmModel(e.target.value);
+                    setTestStatus("idle");
+                  }}
                   className="w-full rounded-lg border border-sercha-silverline bg-white px-4 py-2.5 text-sm text-sercha-ink-slate focus:border-sercha-indigo focus:outline-none focus:ring-2 focus:ring-sercha-indigo/20"
                 >
                   {selectedLlmProvider?.models.map((m: AIModelMeta) => (
@@ -455,7 +466,7 @@ export function StepAI({ onComplete, onSkip }: StepAIProps) {
           </button>
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || !canSave}
             className="flex flex-1 items-center justify-center rounded-lg bg-sercha-indigo px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sercha-indigo/90 focus:outline-none focus:ring-2 focus:ring-sercha-indigo/50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? (
