@@ -557,3 +557,157 @@ func TestSyncExclusionSettings_HasPatterns(t *testing.T) {
 		})
 	}
 }
+
+func TestSyncExclusionSettings_GetActiveMimeExclusions(t *testing.T) {
+	tests := []struct {
+		name      string
+		exclusion *SyncExclusionSettings
+		expected  int
+	}{
+		{
+			name:      "nil settings",
+			exclusion: nil,
+			expected:  0,
+		},
+		{
+			name: "empty mime exclusions",
+			exclusion: &SyncExclusionSettings{
+				MimeExclusions: []string{},
+			},
+			expected: 0,
+		},
+		{
+			name: "with mime exclusions",
+			exclusion: &SyncExclusionSettings{
+				MimeExclusions: []string{"image/*", "font/*"},
+			},
+			expected: 2,
+		},
+		{
+			name: "with multiple mime exclusions",
+			exclusion: &SyncExclusionSettings{
+				MimeExclusions: []string{
+					"image/*",
+					"font/*",
+					"audio/*",
+					"video/*",
+					"application/zip",
+				},
+			},
+			expected: 5,
+		},
+		{
+			name:      "default settings",
+			exclusion: DefaultSyncExclusions(),
+			expected:  len(DefaultSyncExclusions().MimeExclusions),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			active := tt.exclusion.GetActiveMimeExclusions()
+			if len(active) != tt.expected {
+				t.Errorf("expected %d active MIME exclusions, got %d", tt.expected, len(active))
+			}
+		})
+	}
+}
+
+func TestSyncExclusionSettings_HasMimeExclusions(t *testing.T) {
+	tests := []struct {
+		name      string
+		exclusion *SyncExclusionSettings
+		expected  bool
+	}{
+		{
+			name:      "nil settings",
+			exclusion: nil,
+			expected:  false,
+		},
+		{
+			name: "empty mime exclusions",
+			exclusion: &SyncExclusionSettings{
+				MimeExclusions: []string{},
+			},
+			expected: false,
+		},
+		{
+			name: "with mime exclusions",
+			exclusion: &SyncExclusionSettings{
+				MimeExclusions: []string{"image/*"},
+			},
+			expected: true,
+		},
+		{
+			name: "with multiple mime exclusions",
+			exclusion: &SyncExclusionSettings{
+				MimeExclusions: []string{"image/*", "font/*"},
+			},
+			expected: true,
+		},
+		{
+			name:      "default settings",
+			exclusion: DefaultSyncExclusions(),
+			expected:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.exclusion.HasMimeExclusions()
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestDefaultSyncExclusions_MimeExclusions(t *testing.T) {
+	exclusions := DefaultSyncExclusions()
+
+	if exclusions == nil {
+		t.Fatal("expected DefaultSyncExclusions to return non-nil value")
+	}
+
+	if len(exclusions.MimeExclusions) == 0 {
+		t.Error("expected MimeExclusions to have default values")
+	}
+
+	// Check for common MIME patterns
+	hasImageWildcard := false
+	hasFontWildcard := false
+	hasAudioWildcard := false
+	hasVideoWildcard := false
+	hasZip := false
+
+	for _, pattern := range exclusions.MimeExclusions {
+		switch pattern {
+		case "image/*":
+			hasImageWildcard = true
+		case "font/*":
+			hasFontWildcard = true
+		case "audio/*":
+			hasAudioWildcard = true
+		case "video/*":
+			hasVideoWildcard = true
+		case "application/zip":
+			hasZip = true
+		}
+	}
+
+	if !hasImageWildcard {
+		t.Error("expected MimeExclusions to include image/*")
+	}
+	if !hasFontWildcard {
+		t.Error("expected MimeExclusions to include font/*")
+	}
+	if !hasAudioWildcard {
+		t.Error("expected MimeExclusions to include audio/*")
+	}
+	if !hasVideoWildcard {
+		t.Error("expected MimeExclusions to include video/*")
+	}
+	if !hasZip {
+		t.Error("expected MimeExclusions to include application/zip")
+	}
+}

@@ -357,8 +357,16 @@ function SyncExclusionsSection({
     if (!settings?.sync_exclusions) {
       return DEFAULT_SYNC_EXCLUSION_PATTERNS.some(p => p.pattern === pattern);
     }
-    // Pattern is enabled if it's in enabled list and not in disabled list
-    return enabledPatterns.includes(pattern) && !disabledPatterns.includes(pattern);
+    // If explicitly disabled by user, it's disabled
+    if (disabledPatterns.includes(pattern)) {
+      return false;
+    }
+    // If in enabled list, it's enabled
+    if (enabledPatterns.includes(pattern)) {
+      return true;
+    }
+    // New default patterns (not in enabled or disabled) are enabled by default
+    return DEFAULT_SYNC_EXCLUSION_PATTERNS.some(p => p.pattern === pattern);
   };
 
   const togglePattern = (pattern: string) => {
@@ -403,6 +411,7 @@ function SyncExclusionsSection({
         enabled_patterns: enabledPatterns,
         disabled_patterns: disabledPatterns,
         custom_patterns: customPatterns,
+        mime_exclusions: settings?.sync_exclusions?.mime_exclusions || [],
       };
       await onSave({ sync_exclusions: syncExclusions });
       setSaved(true);

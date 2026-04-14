@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 )
@@ -191,6 +192,64 @@ func TestChunkerStage_AllNonTextContent(t *testing.T) {
 	// All content is non-text, so no chunks should survive
 	if len(chunks) != 0 {
 		t.Errorf("expected 0 chunks for all-base64 content, got %d", len(chunks))
+	}
+}
+
+func TestChunkerStage_NoInfiniteLoopOnMixedContent(t *testing.T) {
+	factory := NewChunkerFactory()
+	config := pipeline.StageConfig{
+		StageID:    ChunkerStageID,
+		Enabled:    true,
+		Parameters: map[string]any{"chunk_size": float64(1024), "chunk_overlap": float64(100)},
+	}
+	stage, _ := factory.Create(config, nil)
+
+	// Simulate a real .api.mdx file: normal frontmatter, then a large base64 blob
+	// with a space early in the chunk window (triggers word-boundary adjustment).
+	// Before the fix, this caused an infinite loop because:
+	// 1. Text chunks are appended (last StartOffset far behind)
+	// 2. Base64 chunk is skipped by isLikelyNonText
+	// 3. Word boundary sets end close to offset
+	// 4. offset = end - overlap regresses backward
+	// 5. Guard only checks last appended chunk, doesn't catch the regression
+	normalText := strings.Repeat("This is normal markdown documentation with proper spacing and words. ", 40) // ~2800 chars
+	// Base64-like content with a space near the start (triggers word-boundary + overlap regression)
+	base64Block := "api: " + strings.Repeat("eJztWG1vGjkQivWfmolXvJyJ1V8IzS9Sy9tokJ00qURMl4DTrz2nu0loY", 40) // ~2400 chars
+	trailingText := "\n" + strings.Repeat("More normal text after the base64 block for testing. ", 20)
+
+	input := &pipeline.IndexingInput{
+		DocumentID: "doc-api-mdx",
+		SourceID:   "src-docs",
+		Content:    normalText + base64Block + trailingText,
+	}
+
+	type processResult struct {
+		output any
+		err    error
+	}
+	done := make(chan processResult, 1)
+	go func() {
+		out, err := stage.Process(context.Background(), input)
+		done <- processResult{out, err}
+	}()
+
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("Process() error = %v", res.err)
+		}
+		chunks := res.output.([]*pipeline.Chunk)
+		if len(chunks) == 0 {
+			t.Error("expected at least one chunk from the normal text portions")
+		}
+		for i, chunk := range chunks {
+			if isLikelyNonText(chunk.Content) {
+				t.Errorf("chunk %d contains non-text content that should have been filtered", i)
+			}
+		}
+		t.Logf("completed with %d chunks (no infinite loop)", len(chunks))
+	case <-time.After(3 * time.Second):
+		t.Fatal("chunker stuck in infinite loop — did not complete within 3 seconds")
 	}
 }
 

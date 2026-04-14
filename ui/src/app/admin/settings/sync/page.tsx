@@ -20,6 +20,7 @@ import {
   UpdateSettingsRequest,
   SyncExclusionSettings,
   DEFAULT_SYNC_EXCLUSION_PATTERNS,
+  DEFAULT_MIME_EXCLUSIONS,
 } from "@/lib/api";
 
 // Toggle switch component
@@ -176,6 +177,7 @@ function SyncExclusionsSection({
   const [enabledPatterns, setEnabledPatterns] = useState<string[]>([]);
   const [disabledPatterns, setDisabledPatterns] = useState<string[]>([]);
   const [customPatterns, setCustomPatterns] = useState<string[]>([]);
+  const [mimeExclusions, setMimeExclusions] = useState<string[]>([]);
   const [newPattern, setNewPattern] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -187,11 +189,13 @@ function SyncExclusionsSection({
       setEnabledPatterns(settings.sync_exclusions.enabled_patterns || []);
       setDisabledPatterns(settings.sync_exclusions.disabled_patterns || []);
       setCustomPatterns(settings.sync_exclusions.custom_patterns || []);
+      setMimeExclusions(settings.sync_exclusions.mime_exclusions || []);
     } else {
       // Default: all patterns enabled
       setEnabledPatterns(DEFAULT_SYNC_EXCLUSION_PATTERNS.map(p => p.pattern));
       setDisabledPatterns([]);
       setCustomPatterns([]);
+      setMimeExclusions(DEFAULT_MIME_EXCLUSIONS.map(m => m.pattern));
     }
   }, [settings]);
 
@@ -200,8 +204,16 @@ function SyncExclusionsSection({
     if (!settings?.sync_exclusions) {
       return DEFAULT_SYNC_EXCLUSION_PATTERNS.some(p => p.pattern === pattern);
     }
-    // Pattern is enabled if it's in enabled list and not in disabled list
-    return enabledPatterns.includes(pattern) && !disabledPatterns.includes(pattern);
+    // If explicitly disabled by user, it's disabled
+    if (disabledPatterns.includes(pattern)) {
+      return false;
+    }
+    // If in enabled list, it's enabled
+    if (enabledPatterns.includes(pattern)) {
+      return true;
+    }
+    // New default patterns (not in enabled or disabled) are enabled by default
+    return DEFAULT_SYNC_EXCLUSION_PATTERNS.some(p => p.pattern === pattern);
   };
 
   const togglePattern = (pattern: string) => {
@@ -236,6 +248,18 @@ function SyncExclusionsSection({
     setEnabledPatterns(prev => prev.filter(p => p !== pattern));
   };
 
+  const isMimeExclusionEnabled = (pattern: string) => {
+    return mimeExclusions.includes(pattern);
+  };
+
+  const toggleMimeExclusion = (pattern: string) => {
+    if (isMimeExclusionEnabled(pattern)) {
+      setMimeExclusions(prev => prev.filter(p => p !== pattern));
+    } else {
+      setMimeExclusions(prev => [...prev, pattern]);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -246,6 +270,7 @@ function SyncExclusionsSection({
         enabled_patterns: enabledPatterns,
         disabled_patterns: disabledPatterns,
         custom_patterns: customPatterns,
+        mime_exclusions: mimeExclusions,
       };
       await onSave({ sync_exclusions: syncExclusions });
       setSaved(true);
@@ -331,6 +356,40 @@ function SyncExclusionsSection({
                   type="checkbox"
                   checked={isPatternEnabled(pattern)}
                   onChange={() => togglePattern(pattern)}
+                  className="h-4 w-4 rounded border-sercha-silverline text-sercha-indigo focus:ring-sercha-indigo"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-sercha-ink-slate">
+                    {pattern}
+                  </p>
+                  <p className="truncate text-xs text-sercha-fog-grey">
+                    {description}
+                  </p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* MIME Type Exclusions */}
+        <div>
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-sercha-ink-slate">
+            <FileX className="h-4 w-4" />
+            MIME Type Exclusions
+          </h3>
+          <p className="mb-3 text-xs text-sercha-fog-grey">
+            Exclude files based on their content type (e.g., all images, fonts, videos)
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {DEFAULT_MIME_EXCLUSIONS.map(({ pattern, description }) => (
+              <label
+                key={pattern}
+                className="flex cursor-pointer items-center gap-3 rounded-lg border border-sercha-silverline bg-sercha-snow p-3 hover:bg-sercha-mist"
+              >
+                <input
+                  type="checkbox"
+                  checked={isMimeExclusionEnabled(pattern)}
+                  onChange={() => toggleMimeExclusion(pattern)}
                   className="h-4 w-4 rounded border-sercha-silverline text-sercha-indigo focus:ring-sercha-indigo"
                 />
                 <div className="min-w-0 flex-1">

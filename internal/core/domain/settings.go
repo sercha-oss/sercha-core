@@ -23,6 +23,9 @@ type SyncExclusionSettings struct {
 
 	// CustomPatterns are user-defined exclusion patterns
 	CustomPatterns []string `json:"custom_patterns"`
+
+	// MimeExclusions are MIME type patterns to exclude (e.g., "image/*", "font/*")
+	MimeExclusions []string `json:"mime_exclusions"`
 }
 
 // GetActivePatterns returns all active exclusion patterns (enabled defaults + custom)
@@ -38,12 +41,28 @@ func (s *SyncExclusionSettings) GetActivePatterns() []string {
 	return active
 }
 
+// GetActiveMimeExclusions returns all active MIME type exclusion patterns
+func (s *SyncExclusionSettings) GetActiveMimeExclusions() []string {
+	if s == nil {
+		return []string{}
+	}
+	return s.MimeExclusions
+}
+
 // HasPatterns returns true if there are any active exclusion patterns
 func (s *SyncExclusionSettings) HasPatterns() bool {
 	if s == nil {
 		return false
 	}
 	return len(s.EnabledPatterns) > 0 || len(s.CustomPatterns) > 0
+}
+
+// HasMimeExclusions returns true if there are any MIME exclusion patterns
+func (s *SyncExclusionSettings) HasMimeExclusions() bool {
+	if s == nil {
+		return false
+	}
+	return len(s.MimeExclusions) > 0
 }
 
 // Settings holds team-wide configuration
@@ -108,9 +127,36 @@ func DefaultSyncExclusions() *SyncExclusionSettings {
 			"*.avi",
 			"*.mp3",
 			"*.wav",
+			// Images
+			"*.png",
+			"*.jpg",
+			"*.jpeg",
+			"*.gif",
+			"*.webp",
+			"*.svg",
+			"*.ico",
+			"*.bmp",
 		},
 		DisabledPatterns: []string{},
 		CustomPatterns:   []string{},
+		MimeExclusions: []string{
+			// Images (binary content)
+			"image/*",
+			// Fonts (binary content)
+			"font/*",
+			// Archives and compressed files
+			"application/zip",
+			"application/x-tar",
+			"application/gzip",
+			"application/vnd.rar",
+			"application/x-7z-compressed",
+			// Executables and libraries
+			"application/x-msdownload",
+			"application/x-sharedlib",
+			// Audio/video (typically not searchable text)
+			"audio/*",
+			"video/*",
+		},
 	}
 }
 

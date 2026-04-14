@@ -141,9 +141,17 @@ func (s *ChunkerStage) chunkText(documentID, sourceID, text string) []*pipeline.
 			position++
 		}
 
-		// Move forward with overlap
+		// Move forward with overlap, but guarantee forward progress.
+		// When a chunk is skipped (e.g. non-text filter), the last appended
+		// chunk may be far behind, so we must also guard against regressing
+		// past the current offset.
+		prevOffset := offset
 		offset = end - s.chunkOverlap
-		if len(chunks) == 0 || offset <= chunks[len(chunks)-1].StartOffset {
+		if offset <= prevOffset {
+			offset = end
+		} else if len(chunks) > 0 && offset <= chunks[len(chunks)-1].StartOffset {
+			offset = end
+		} else if len(chunks) == 0 {
 			offset = end
 		}
 	}

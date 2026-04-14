@@ -451,6 +451,16 @@ func TestSyncOrchestrator_ExclusionPatternsComprehensive(t *testing.T) {
 		{"media", "song.mp3", true},
 		{"media", "audio.wav", true},
 
+		// Images
+		{"image", "logo.png", true},
+		{"image", "photo.jpg", true},
+		{"image", "picture.jpeg", true},
+		{"image", "animation.gif", true},
+		{"image", "icon.svg", true},
+		{"image", "assets/images/hero.webp", true},
+		{"image", "favicon.ico", true},
+		{"image", "screenshot.bmp", true},
+
 		// Should NOT be excluded
 		{"source", "src/main.go", false},
 		{"source", "README.md", false},
