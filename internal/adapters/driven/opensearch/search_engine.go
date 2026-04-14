@@ -144,7 +144,7 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 					map[string]any{
 						"multi_match": map[string]any{
 							"query":  query,
-							"fields": []string{"title^2", "content"},
+							"fields": []string{"title^3", "content"},
 							"type":   "most_fields",
 						},
 					},
