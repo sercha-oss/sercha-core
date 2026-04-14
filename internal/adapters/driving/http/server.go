@@ -372,6 +372,9 @@ func (s *Server) setupRoutes() {
 		// Revocation endpoint (public - client auth via credentials)
 		s.router.HandleFunc("POST /oauth/revoke", s.handleOAuthServerRevoke)
 
+		// Client public info (public — used by consent screen to display app name)
+		s.router.HandleFunc("GET /oauth/clients/{client_id}", s.handleOAuthClientInfo)
+
 		// Protected Resource Metadata (public)
 		s.router.HandleFunc("GET /.well-known/oauth-protected-resource", s.handleProtectedResourceMetadata)
 	}

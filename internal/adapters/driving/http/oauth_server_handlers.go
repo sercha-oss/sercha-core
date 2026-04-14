@@ -310,6 +310,34 @@ func (s *Server) handleProtectedResourceMetadata(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, metadata)
 }
 
+// handleOAuthClientInfo returns non-sensitive public info about an OAuth client
+// GET /oauth/clients/{client_id}
+func (s *Server) handleOAuthClientInfo(w http.ResponseWriter, r *http.Request) {
+	if s.oauthServerService == nil {
+		writeError(w, http.StatusServiceUnavailable, "oauth server not configured")
+		return
+	}
+
+	clientID := r.PathValue("client_id")
+	if clientID == "" {
+		writeError(w, http.StatusBadRequest, "client_id is required")
+		return
+	}
+
+	info, err := s.oauthServerService.GetClientPublicInfo(r.Context(), clientID)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			writeError(w, http.StatusNotFound, "client not found")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to get client info")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, info)
+}
+
 // Helper functions
 
 // writeOAuthError writes an OAuth 2.0 error response

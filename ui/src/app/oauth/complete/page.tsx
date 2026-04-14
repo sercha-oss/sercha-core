@@ -134,10 +134,17 @@ function OAuthCompleteContent() {
               </h1>
               <p className="mt-2 text-sm text-sercha-fog-grey">{error}</p>
               <button
-                onClick={() => router.push("/admin/sources")}
+                onClick={() => {
+                  const returnContext = searchParams.get("return_context");
+                  if (returnContext === "setup") {
+                    router.push("/setup?step=4");
+                  } else {
+                    router.push("/admin/sources");
+                  }
+                }}
                 className="mt-6 rounded-lg bg-sercha-indigo px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sercha-indigo/90"
               >
-                Go to Sources
+                {searchParams.get("return_context") === "setup" ? "Back to Setup" : "Go to Sources"}
               </button>
             </div>
           )}

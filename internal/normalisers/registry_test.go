@@ -442,4 +442,6 @@ func TestInterfaceCompliance(t *testing.T) {
 	var _ driven.Normaliser = (*PlaintextNormaliser)(nil)
 	var _ driven.Normaliser = (*MarkdownNormaliser)(nil)
 	var _ driven.Normaliser = (*HTMLNormaliser)(nil)
+	var _ driven.Normaliser = (*GitHubIssueNormaliser)(nil)
+	var _ driven.Normaliser = (*GitHubPRNormaliser)(nil)
 }

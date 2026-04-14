@@ -144,7 +144,8 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 					map[string]any{
 						"multi_match": map[string]any{
 							"query":  query,
-							"fields": []string{"title^2", "content"},
+							"fields": []string{"title^3", "content"},
+							"type":   "most_fields",
 						},
 					},
 				},
@@ -190,17 +191,11 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 
 	resp, err := s.client.Search(ctx, req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("search failed: %w", err)
-	}
-
-	if httpResp := resp.Inspect().Response; httpResp != nil {
-		if httpResp.StatusCode == 404 {
+		// Index doesn't exist yet — return empty results instead of 500
+		if isIndexNotFoundError(err) {
 			return []driven.DocumentResult{}, 0, nil
 		}
-		if httpResp.StatusCode != 200 {
-			respBody, _ := io.ReadAll(httpResp.Body)
-			return nil, 0, fmt.Errorf("search failed with status %d: %s", httpResp.StatusCode, string(respBody))
-		}
+		return nil, 0, fmt.Errorf("search failed: %w", err)
 	}
 
 	results := make([]driven.DocumentResult, 0, len(resp.Hits.Hits))
@@ -275,19 +270,11 @@ func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding 
 
 	resp, err := s.client.Search(ctx, req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("search failed: %w", err)
-	}
-
-	// Check for HTTP errors
-	if httpResp := resp.Inspect().Response; httpResp != nil {
-		if httpResp.StatusCode == 404 {
-			// Index doesn't exist, return empty results
+		// Index doesn't exist yet — return empty results instead of 500
+		if isIndexNotFoundError(err) {
 			return []*domain.RankedChunk{}, 0, nil
 		}
-		if httpResp.StatusCode != 200 {
-			body, _ := io.ReadAll(httpResp.Body)
-			return nil, 0, fmt.Errorf("search failed with status %d: %s", httpResp.StatusCode, string(body))
-		}
+		return nil, 0, fmt.Errorf("search failed: %w", err)
 	}
 
 	// Convert typed response to domain objects
@@ -619,4 +606,16 @@ func getInt(m map[string]any, key string) int {
 		}
 	}
 	return 0
+}
+
+// isIndexNotFoundError checks if an opensearch error is due to a missing index.
+// The v4 client returns errors for non-2xx responses, so 404 (index_not_found)
+// arrives as an error rather than a response we can inspect.
+func isIndexNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "index_not_found_exception") ||
+		strings.Contains(msg, "no such index")
 }

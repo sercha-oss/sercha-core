@@ -301,6 +301,7 @@ export interface SyncExclusionSettings {
   enabled_patterns: string[];
   disabled_patterns: string[];
   custom_patterns: string[];
+  mime_exclusions: string[];
 }
 
 export interface Settings {
@@ -370,6 +371,45 @@ export const DEFAULT_SYNC_EXCLUSION_PATTERNS: SyncExclusionPattern[] = [
   { pattern: "*.swp", description: "Vim swap files", category: "file" },
   { pattern: "*.swo", description: "Vim swap files", category: "file" },
   { pattern: "*~", description: "Backup files", category: "file" },
+  // Archives
+  { pattern: "*.zip", description: "ZIP archives", category: "file" },
+  { pattern: "*.tar.gz", description: "Gzipped tar archives", category: "file" },
+  { pattern: "*.rar", description: "RAR archives", category: "file" },
+  // Media files
+  { pattern: "*.mp4", description: "Video files", category: "file" },
+  { pattern: "*.mov", description: "Video files", category: "file" },
+  { pattern: "*.avi", description: "Video files", category: "file" },
+  { pattern: "*.mp3", description: "Audio files", category: "file" },
+  { pattern: "*.wav", description: "Audio files", category: "file" },
+  // Images
+  { pattern: "*.png", description: "PNG images", category: "file" },
+  { pattern: "*.jpg", description: "JPEG images", category: "file" },
+  { pattern: "*.jpeg", description: "JPEG images", category: "file" },
+  { pattern: "*.gif", description: "GIF images", category: "file" },
+  { pattern: "*.webp", description: "WebP images", category: "file" },
+  { pattern: "*.svg", description: "SVG images", category: "file" },
+  { pattern: "*.ico", description: "Icon files", category: "file" },
+  { pattern: "*.bmp", description: "Bitmap images", category: "file" },
+];
+
+// MIME type exclusion patterns with metadata for UI display
+export interface MimeExclusionPattern {
+  pattern: string;
+  description: string;
+}
+
+export const DEFAULT_MIME_EXCLUSIONS: MimeExclusionPattern[] = [
+  { pattern: "image/*", description: "All image types" },
+  { pattern: "font/*", description: "All font types" },
+  { pattern: "audio/*", description: "All audio types" },
+  { pattern: "video/*", description: "All video types" },
+  { pattern: "application/zip", description: "ZIP archives" },
+  { pattern: "application/x-tar", description: "TAR archives" },
+  { pattern: "application/gzip", description: "GZIP files" },
+  { pattern: "application/vnd.rar", description: "RAR archives" },
+  { pattern: "application/x-7z-compressed", description: "7-Zip archives" },
+  { pattern: "application/x-msdownload", description: "Windows executables" },
+  { pattern: "application/x-sharedlib", description: "Shared libraries" },
 ];
 
 export interface Document {
@@ -675,6 +715,16 @@ export async function completeOAuthAuthorize(params: OAuthAuthorizeParams): Prom
     method: "POST",
     body: JSON.stringify(params),
   });
+}
+
+export interface OAuthClientInfo {
+  client_id: string;
+  name: string;
+  application_type: string;
+}
+
+export async function getOAuthClientInfo(clientId: string): Promise<OAuthClientInfo> {
+  return apiFetch<OAuthClientInfo>(`/oauth/clients/${encodeURIComponent(clientId)}`);
 }
 
 // ========== Connections API ==========

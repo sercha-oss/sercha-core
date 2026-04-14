@@ -385,16 +385,11 @@ export default function AdminDashboardPage() {
           <h2 className="mb-4 text-lg font-semibold text-sercha-ink-slate">
             System Health
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-3">
             <HealthCard
               title="PostgreSQL"
               status={getComponentHealth("postgres")}
               message={health?.components?.postgres?.message}
-            />
-            <HealthCard
-              title="Redis"
-              status={health?.components?.redis ? getComponentHealth("redis") : "degraded"}
-              message={health?.components?.redis?.message || "Not configured"}
             />
             <HealthCard
               title="API Server"

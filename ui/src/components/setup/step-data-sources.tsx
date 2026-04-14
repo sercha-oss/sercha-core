@@ -95,7 +95,7 @@ export function StepDataSources({
 
         // Handle OAuth callback return (connection_id and provider come from URL via /oauth/complete)
         if (connectionId) {
-          await handleOAuthReturn(connectionId, providerFromUrl);
+          await handleOAuthReturn(connectionId, providerFromUrl, configuredProviders);
         }
       } catch {
         // Don't show error on initial load
@@ -215,14 +215,16 @@ export function StepDataSources({
   };
 
   // Handle OAuth callback return
-  const handleOAuthReturn = async (connId: string, providerType?: string) => {
+  const handleOAuthReturn = async (connId: string, providerType?: string, providerList?: ProviderListItem[]) => {
     try {
       const connection = await getConnection(connId);
       setSelectedConnection(connection);
 
       // Set pending provider from URL params (passed from /oauth/complete)
+      // Use providerList arg when called from useEffect (state may not be set yet)
       if (providerType) {
-        const provider = providers.find((p) => p.type === providerType);
+        const available = providerList || providers;
+        const provider = available.find((p) => p.type === providerType);
         if (provider) setPendingProvider(provider);
       }
 

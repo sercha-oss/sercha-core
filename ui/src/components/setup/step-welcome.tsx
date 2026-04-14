@@ -45,7 +45,7 @@ export function StepWelcome({ onComplete }: StepWelcomeProps) {
       onComplete();
     } catch (err) {
       if (err instanceof ApiError) {
-        if (err.status === 409) {
+        if (err.status === 403) {
           setError("An admin account already exists. Please login instead.");
         } else {
           setError(err.message || "Setup failed. Please try again.");

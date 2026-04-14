@@ -122,43 +122,6 @@ func (s *DocLoaderStage) Process(ctx context.Context, input any) (any, error) {
 	return indexInput, nil
 }
 
-// isLikelyNonText detects binary or encoded content that shouldn't be indexed as text.
-func isLikelyNonText(content string) bool {
-	if len(content) < 64 {
-		return false
-	}
-
-	sample := content
-	if len(sample) > 512 {
-		sample = sample[:512]
-	}
-
-	var whitespace, nonPrintable int
-	for _, r := range sample {
-		switch {
-		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
-			whitespace++
-		case r < 32 || r == 0x7f:
-			nonPrintable++
-		}
-	}
-
-	total := len([]rune(sample))
-	if total == 0 {
-		return false
-	}
-
-	if float64(nonPrintable)/float64(total) > 0.05 {
-		return true
-	}
-
-	if float64(whitespace)/float64(total) < 0.02 {
-		return true
-	}
-
-	return false
-}
-
 // Ensure DocLoaderFactory implements StageFactory.
 var _ pipelineport.StageFactory = (*DocLoaderFactory)(nil)
 

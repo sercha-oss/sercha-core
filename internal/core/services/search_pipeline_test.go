@@ -30,7 +30,7 @@ func (m *mockSearchExecutor) Execute(ctx context.Context, sctx *pipeline.SearchC
 				SourceID:   "source-1",
 				Title:      "Test Result",
 				Snippet:    "Test snippet",
-				Score:      0.9,
+				Score:      90.0,
 			},
 		},
 		TotalCount: 1,
@@ -110,7 +110,7 @@ func TestSearchWithPipeline_Success(t *testing.T) {
 						SourceID:   "source-1",
 						Title:      "Result 1",
 						Snippet:    "Snippet 1",
-						Score:      0.95,
+						Score:      95.0,
 					},
 					{
 						DocumentID: "doc-2",
@@ -118,7 +118,7 @@ func TestSearchWithPipeline_Success(t *testing.T) {
 						SourceID:   "source-1",
 						Title:      "Result 2",
 						Snippet:    "Snippet 2",
-						Score:      0.85,
+						Score:      85.0,
 					},
 				},
 				TotalCount: 2,
@@ -166,8 +166,8 @@ func TestSearchWithPipeline_Success(t *testing.T) {
 	}
 
 	// Verify results are properly formatted
-	if result.Results[0].Score != 0.95 {
-		t.Errorf("expected first result score=0.95, got %f", result.Results[0].Score)
+	if result.Results[0].Score != 95.0 {
+		t.Errorf("expected first result score=95.0, got %f", result.Results[0].Score)
 	}
 	if result.Results[0].Snippet != "Snippet 1" {
 		t.Errorf("expected snippet 'Snippet 1', got %s", result.Results[0].Snippet)
@@ -270,7 +270,7 @@ func TestSearchWithPipeline_DocumentEnrichment(t *testing.T) {
 						ChunkID:    "chunk-1",
 						SourceID:   "source-1",
 						Snippet:    "Test snippet",
-						Score:      0.9,
+						Score:      90.0,
 					},
 				},
 				TotalCount: 1,
@@ -409,7 +409,7 @@ func TestSearchBySource_WithPipeline(t *testing.T) {
 						ChunkID:    "chunk-1",
 						SourceID:   "source-1",
 						Snippet:    "Test",
-						Score:      0.9,
+						Score:      90.0,
 					},
 				},
 				TotalCount: 1,
@@ -462,7 +462,7 @@ func TestSearchWithPipeline_ResultMapping(t *testing.T) {
 						SourceID:   "source-789",
 						Title:      "Test Title",
 						Snippet:    "Test snippet content",
-						Score:      0.87,
+						Score:      87.0,
 						Highlights: []pipeline.Highlight{
 							{Field: "content", Text: "highlighted text", Offset: 10},
 						},
@@ -493,8 +493,8 @@ func TestSearchWithPipeline_ResultMapping(t *testing.T) {
 	}
 
 	item := result.Results[0]
-	if item.Score != 0.87 {
-		t.Errorf("expected score=0.87, got %f", item.Score)
+	if item.Score != 87.0 {
+		t.Errorf("expected score=87.0, got %f", item.Score)
 	}
 	if item.DocumentID != "doc-123" {
 		t.Errorf("expected document ID='doc-123', got %s", item.DocumentID)

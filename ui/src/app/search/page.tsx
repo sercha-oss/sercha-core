@@ -297,7 +297,14 @@ function SearchResultsContent() {
           {!loading &&
             results.map((result) => {
               const FileIcon = getFileIcon(result.mime_type);
-              const isGitHub = result.path?.includes("github.com");
+              const isGitHub = (() => {
+                try {
+                  const host = new URL(result.path ?? "").hostname;
+                  return host === "github.com" || host.endsWith(".github.com");
+                } catch {
+                  return false;
+                }
+              })();
 
               return (
                 <article
@@ -325,7 +332,7 @@ function SearchResultsContent() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="rounded-full bg-sercha-indigo-soft px-2.5 py-0.5 text-xs font-medium text-sercha-indigo">
-                        {result.score.toFixed(2)}
+                        {Math.round(result.score)}%
                       </span>
                       {isGitHub && (
                         <div className="flex items-center gap-1.5 rounded-full bg-sercha-mist px-2.5 py-1 text-xs font-medium text-sercha-fog-grey">

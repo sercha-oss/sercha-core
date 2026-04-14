@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { Loader2, CheckCircle } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import {
   ProgressBar,
   StepWelcome,
@@ -13,7 +13,7 @@ import {
   StepDataSources,
   StepComplete,
 } from "@/components/setup";
-import { getSetupStatus } from "@/lib/api";
+import { getSetupStatus, ApiError } from "@/lib/api";
 
 function SetupWizardContent() {
   const router = useRouter();
@@ -26,9 +26,20 @@ function SetupWizardContent() {
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [checkingStatus, setCheckingStatus] = useState(true);
   const [setupAlreadyComplete, setSetupAlreadyComplete] = useState(false);
+  const [setupCheckError, setSetupCheckError] = useState<string | null>(null);
 
-  // Check if setup is already complete
+  // Check if setup is already complete — but only gate on step 1.
+  // If URL has step > 1 or connection_id, the user is mid-FTUE (e.g. returning
+  // from OAuth redirect) and must not be blocked by the "already complete" screen.
   useEffect(() => {
+    const isMidFlow = initialStep > 1 || searchParams.get("connection_id");
+
+    if (isMidFlow) {
+      // User is mid-setup — skip the gate, let them continue
+      setCheckingStatus(false);
+      return;
+    }
+
     const checkSetupStatus = async () => {
       try {
         const status = await getSetupStatus();
@@ -36,15 +47,20 @@ function SetupWizardContent() {
           setSetupAlreadyComplete(true);
         }
       } catch (err) {
-        // If we get an error (like 403), setup is likely already complete
-        console.error("Failed to check setup status:", err);
-        setSetupAlreadyComplete(true);
+        if (err instanceof ApiError && (err.status === 403 || err.status === 409)) {
+          // Server explicitly says setup is done
+          setSetupAlreadyComplete(true);
+        } else {
+          // Network error, server down, etc. — don't assume setup is complete
+          console.error("Failed to check setup status:", err);
+          setSetupCheckError("Unable to connect to the server. Please check that the backend is running.");
+        }
       } finally {
         setCheckingStatus(false);
       }
     };
     checkSetupStatus();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync URL with step
   useEffect(() => {
@@ -114,6 +130,39 @@ function SetupWizardContent() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-sercha-indigo" />
+      </div>
+    );
+  }
+
+  // Show error if setup status check failed (network/server error)
+  if (setupCheckError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center px-4">
+        <Image
+          src="/logo-wordmark.png"
+          alt="Sercha"
+          width={140}
+          height={36}
+          className="mb-8 h-9 w-auto"
+          priority
+        />
+        <div className="flex flex-col items-center rounded-2xl border border-sercha-silverline bg-white p-8 text-center shadow-sm">
+          <div className="mb-4 rounded-full bg-red-100 p-3">
+            <AlertCircle className="h-8 w-8 text-red-600" />
+          </div>
+          <h2 className="mb-2 text-xl font-semibold text-sercha-ink-slate">
+            Connection Error
+          </h2>
+          <p className="mb-6 text-sercha-fog-grey">
+            {setupCheckError}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="rounded-full bg-sercha-indigo px-6 py-2.5 text-sm font-semibold text-white transition-all hover:bg-sercha-indigo/90"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

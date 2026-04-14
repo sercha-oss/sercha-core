@@ -99,6 +99,17 @@ func TestRankerStage_SingleSource(t *testing.T) {
 	if ranked[0].Score <= ranked[1].Score {
 		t.Errorf("scores not descending: %v >= %v", ranked[0].Score, ranked[1].Score)
 	}
+
+	// With min-max normalization: scores 0.9, 0.7, 0.5 → 100%, 50%, 0%
+	if math.Abs(ranked[0].Score-100.0) > 0.01 {
+		t.Errorf("ranked[0].Score = %v, want ~100 (max score)", ranked[0].Score)
+	}
+	if math.Abs(ranked[1].Score-50.0) > 0.01 {
+		t.Errorf("ranked[1].Score = %v, want ~50 (mid score)", ranked[1].Score)
+	}
+	if math.Abs(ranked[2].Score-0.0) > 0.01 {
+		t.Errorf("ranked[2].Score = %v, want ~0 (min score)", ranked[2].Score)
+	}
 }
 
 func TestRankerStage_MultiSource_RRF(t *testing.T) {
@@ -117,13 +128,14 @@ func TestRankerStage_MultiSource_RRF(t *testing.T) {
 	// Document "d2" appears only in bm25 (rank 2)
 	// Document "d3" appears only in vector (rank 1)
 	// Document "d4" appears in both (rank 3 in bm25, rank 3 in vector)
+	// Note: Vector scores must be >= MinVectorSimilarity (0.65) to pass threshold
 	candidates := []*pipeline.Candidate{
 		{DocumentID: "d1", ChunkID: "", Score: 0.9, Source: "bm25", Content: "doc 1"},
 		{DocumentID: "d2", ChunkID: "", Score: 0.7, Source: "bm25", Content: "doc 2"},
 		{DocumentID: "d4", ChunkID: "", Score: 0.3, Source: "bm25", Content: "doc 4"},
 		{DocumentID: "d3", ChunkID: "c3", Score: 0.95, Source: "vector", Content: "chunk 3"},
 		{DocumentID: "d1", ChunkID: "c1", Score: 0.8, Source: "vector", Content: "chunk 1"},
-		{DocumentID: "d4", ChunkID: "c4", Score: 0.2, Source: "vector", Content: "chunk 4"},
+		{DocumentID: "d4", ChunkID: "c4", Score: 0.7, Source: "vector", Content: "chunk 4"},
 	}
 
 	result, err := stage.Process(context.Background(), candidates)
@@ -148,10 +160,25 @@ func TestRankerStage_MultiSource_RRF(t *testing.T) {
 		t.Errorf("ranked[1].DocumentID = %q, want d4", ranked[1].DocumentID)
 	}
 
-	// Verify RRF scores are roughly correct
-	expectedD1 := 1.0/61.0 + 1.0/62.0
-	if math.Abs(ranked[0].Score-expectedD1) > 0.0001 {
-		t.Errorf("d1 RRF score = %v, want ≈ %v", ranked[0].Score, expectedD1)
+	// Verify normalized percentage scores are roughly correct
+	// d1: rank 1 in bm25, rank 2 in vector
+	// rawScore = 1/61 + 1/62
+	// theoreticalMax = 2 * (1/61) = 2/61
+	// normalized = (rawScore / theoreticalMax) * 100
+	rawD1 := 1.0/61.0 + 1.0/62.0
+	theoreticalMax := 2.0 * (1.0 / 61.0)
+	expectedD1 := (rawD1 / theoreticalMax) * 100.0
+	if math.Abs(ranked[0].Score-expectedD1) > 0.01 {
+		t.Errorf("d1 normalized score = %v, want ≈ %v", ranked[0].Score, expectedD1)
+	}
+
+	// Verify raw RRF score is preserved in metadata
+	rawScore, ok := ranked[0].Metadata["rrf_raw_score"].(float64)
+	if !ok {
+		t.Fatal("expected rrf_raw_score metadata on ranked candidates")
+	}
+	if math.Abs(rawScore-rawD1) > 0.0001 {
+		t.Errorf("raw RRF score = %v, want ≈ %v", rawScore, rawD1)
 	}
 
 	// Verify rrf_sources metadata
@@ -249,10 +276,12 @@ func TestRankerStage_CustomRRFK(t *testing.T) {
 		t.Fatalf("Process() returned %d candidates, want 1", len(ranked))
 	}
 
-	// With k=1: 1/(1+1) + 1/(1+1) = 0.5 + 0.5 = 1.0
-	expectedScore := 1.0
+	// With k=1, 2 sources: raw = 1/(1+1) + 1/(1+1) = 0.5 + 0.5 = 1.0
+	// theoreticalMax = 2 * (1/(1+1)) = 2 * 0.5 = 1.0
+	// normalized = (1.0 / 1.0) * 100 = 100
+	expectedScore := 100.0
 	if math.Abs(ranked[0].Score-expectedScore) > 0.0001 {
-		t.Errorf("RRF score with k=1 = %v, want %v", ranked[0].Score, expectedScore)
+		t.Errorf("RRF normalized score with k=1 = %v, want %v", ranked[0].Score, expectedScore)
 	}
 }
 
@@ -315,5 +344,104 @@ func TestRankerStage_ChunkAggregation_BestChunkWins(t *testing.T) {
 	// d1 should rank first (its best chunk score 0.9 > d2's 0.8, so rank 1 vs rank 2)
 	if ranked[0].DocumentID != "d1" {
 		t.Errorf("ranked[0].DocumentID = %q, want d1 (best chunk 0.9)", ranked[0].DocumentID)
+	}
+}
+
+func TestRankerStage_ScoreNormalization(t *testing.T) {
+	tests := []struct {
+		name       string
+		rrfK       float64
+		candidates []*pipeline.Candidate
+		wantScore  float64 // expected normalized score for top result
+		wantNumSrc int     // expected number of sources in rrf_sources metadata
+	}{
+		{
+			name: "hybrid rank1 both sources = 100%",
+			rrfK: 60,
+			candidates: []*pipeline.Candidate{
+				{DocumentID: "d1", Score: 0.9, Source: "bm25", Metadata: make(map[string]any)},
+				{DocumentID: "d1", ChunkID: "c1", Score: 0.8, Source: "vector", Metadata: make(map[string]any)},
+			},
+			wantScore:  100.0,
+			wantNumSrc: 2,
+		},
+		{
+			name: "hybrid rank1 one source only = 50%",
+			rrfK: 60,
+			candidates: []*pipeline.Candidate{
+				{DocumentID: "d1", Score: 0.9, Source: "bm25", Metadata: make(map[string]any)},
+				{DocumentID: "d2", ChunkID: "c2", Score: 0.8, Source: "vector", Metadata: make(map[string]any)},
+			},
+			wantScore:  50.0,
+			wantNumSrc: 1,
+		},
+		{
+			name: "single source rank1 = 100%",
+			rrfK: 60,
+			candidates: []*pipeline.Candidate{
+				{DocumentID: "d1", Score: 0.9, Source: "bm25", Metadata: make(map[string]any)},
+				{DocumentID: "d2", Score: 0.7, Source: "bm25", Metadata: make(map[string]any)},
+			},
+			wantScore:  100.0,
+			wantNumSrc: 1,
+		},
+		{
+			name: "single source preserves score gaps",
+			rrfK: 60,
+			candidates: []*pipeline.Candidate{
+				{DocumentID: "d1", Score: 10.0, Source: "bm25", Metadata: make(map[string]any)},
+				{DocumentID: "d2", Score: 5.0, Source: "bm25", Metadata: make(map[string]any)},
+				{DocumentID: "d3", Score: 1.0, Source: "bm25", Metadata: make(map[string]any)},
+			},
+			// min-max: d1=(10-1)/(10-1)*100=100, d2=(5-1)/(10-1)*100≈44.4, d3=0
+			wantScore:  100.0,
+			wantNumSrc: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := NewRankerFactory()
+			stage, err := f.Create(pipeline.StageConfig{
+				Parameters: map[string]any{
+					"limit": float64(10),
+					"rrf_k": tt.rrfK,
+				},
+			}, nil)
+			if err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+
+			result, err := stage.Process(context.Background(), tt.candidates)
+			if err != nil {
+				t.Fatalf("Process() error = %v", err)
+			}
+
+			ranked := result.([]*pipeline.Candidate)
+			if len(ranked) == 0 {
+				t.Fatal("expected at least one ranked result")
+			}
+
+			if math.Abs(ranked[0].Score-tt.wantScore) > 0.1 {
+				t.Errorf("score = %v, want ~%v", ranked[0].Score, tt.wantScore)
+			}
+
+			sources, ok := ranked[0].Metadata["rrf_sources"].([]string)
+			if !ok {
+				t.Fatal("expected rrf_sources metadata")
+			}
+			if len(sources) != tt.wantNumSrc {
+				t.Errorf("sources count = %d, want %d", len(sources), tt.wantNumSrc)
+			}
+
+			// Verify raw score is preserved in metadata
+			rawScore, ok := ranked[0].Metadata["rrf_raw_score"].(float64)
+			if !ok {
+				t.Fatal("expected rrf_raw_score metadata")
+			}
+			if rawScore <= 0 {
+				t.Errorf("raw score should be positive, got %v", rawScore)
+			}
+		})
 	}
 }

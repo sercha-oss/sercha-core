@@ -94,6 +94,37 @@ var mimeTypes = map[string]string{
 	".graphql":    "text/x-graphql",
 	".gql":        "text/x-graphql",
 	".sql":        "application/sql",
+	// Images
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".svg":  "image/svg+xml",
+	".ico":  "image/x-icon",
+	".bmp":  "image/bmp",
+	".tiff": "image/tiff",
+	".tif":  "image/tiff",
+	".heic": "image/heic",
+	".heif": "image/heif",
+	".avif": "image/avif",
+	// Binary / archives
+	".zip":   "application/zip",
+	".tar":   "application/x-tar",
+	".gz":    "application/gzip",
+	".rar":   "application/vnd.rar",
+	".7z":    "application/x-7z-compressed",
+	".exe":   "application/x-msdownload",
+	".dll":   "application/x-msdownload",
+	".so":    "application/x-sharedlib",
+	".dylib": "application/x-sharedlib",
+	".wasm":  "application/wasm",
+	// Fonts
+	".woff":  "font/woff",
+	".woff2": "font/woff2",
+	".ttf":   "font/ttf",
+	".otf":   "font/otf",
+	".eot":   "application/vnd.ms-fontobject",
 }
 
 // extensionlessNames maps well-known filenames (without extensions) to MIME types.

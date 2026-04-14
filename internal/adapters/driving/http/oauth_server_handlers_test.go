@@ -22,6 +22,7 @@ type mockOAuthServerService struct {
 	revokeFn              func(ctx context.Context, req domain.RevokeRequest) error
 	validateAccessTokenFn func(ctx context.Context, token string) (*driving.OAuthTokenInfo, error)
 	getServerMetadataFn   func(baseURL string) *driving.OAuthServerMetadata
+	getClientPublicInfoFn func(ctx context.Context, clientID string) (*driving.ClientPublicInfo, error)
 }
 
 func (m *mockOAuthServerService) RegisterClient(ctx context.Context, req domain.ClientRegistrationRequest) (*domain.ClientRegistrationResponse, error) {
@@ -68,6 +69,13 @@ func (m *mockOAuthServerService) GetServerMetadata(baseURL string) *driving.OAut
 		AuthorizationEndpoint: baseURL + "/oauth/authorize",
 		TokenEndpoint:         baseURL + "/oauth/token",
 	}
+}
+
+func (m *mockOAuthServerService) GetClientPublicInfo(ctx context.Context, clientID string) (*driving.ClientPublicInfo, error) {
+	if m.getClientPublicInfoFn != nil {
+		return m.getClientPublicInfoFn(ctx, clientID)
+	}
+	return nil, errors.New("not implemented")
 }
 
 // Tests for GET /oauth/authorize
@@ -742,5 +750,87 @@ func TestWriteOAuthError_SetsCorrectHeaders(t *testing.T) {
 	}
 	if pragma != "no-cache" {
 		t.Errorf("expected Pragma 'no-cache', got %s", pragma)
+	}
+}
+
+// Tests for GET /oauth/clients/{client_id}
+
+func TestHandleOAuthClientInfo_ServiceNotConfigured(t *testing.T) {
+	server := &Server{
+		oauthServerService: nil,
+	}
+
+	req := httptest.NewRequest("GET", "/oauth/clients/test-id", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleOAuthClientInfo(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503, got %d", rr.Code)
+	}
+}
+
+func TestHandleOAuthClientInfo_Success(t *testing.T) {
+	mockOAuth := &mockOAuthServerService{
+		getClientPublicInfoFn: func(ctx context.Context, clientID string) (*driving.ClientPublicInfo, error) {
+			if clientID != "test-client-id" {
+				t.Errorf("expected clientID 'test-client-id', got %s", clientID)
+			}
+			return &driving.ClientPublicInfo{
+				ClientID:        "test-client-id",
+				Name:            "My Test App",
+				ApplicationType: "native",
+			}, nil
+		},
+	}
+	server := &Server{
+		oauthServerService: mockOAuth,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /oauth/clients/{client_id}", server.handleOAuthClientInfo)
+
+	req := httptest.NewRequest("GET", "/oauth/clients/test-client-id", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rr.Code)
+	}
+
+	var response driving.ClientPublicInfo
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Name != "My Test App" {
+		t.Errorf("expected name 'My Test App', got %s", response.Name)
+	}
+	if response.ClientID != "test-client-id" {
+		t.Errorf("expected client_id 'test-client-id', got %s", response.ClientID)
+	}
+	if response.ApplicationType != "native" {
+		t.Errorf("expected application_type 'native', got %s", response.ApplicationType)
+	}
+}
+
+func TestHandleOAuthClientInfo_NotFound(t *testing.T) {
+	mockOAuth := &mockOAuthServerService{
+		getClientPublicInfoFn: func(ctx context.Context, clientID string) (*driving.ClientPublicInfo, error) {
+			return nil, domain.ErrNotFound
+		},
+	}
+	server := &Server{
+		oauthServerService: mockOAuth,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /oauth/clients/{client_id}", server.handleOAuthClientInfo)
+
+	req := httptest.NewRequest("GET", "/oauth/clients/nonexistent", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rr.Code)
 	}
 }

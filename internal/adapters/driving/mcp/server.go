@@ -101,7 +101,7 @@ type SearchResult struct {
 	DocumentID string  `json:"document_id" jsonschema_description:"Document ID"`
 	Title      string  `json:"title" jsonschema_description:"Document title"`
 	Content    string  `json:"content" jsonschema_description:"Relevant content snippet"`
-	Score      float64 `json:"score" jsonschema_description:"Relevance score"`
+	Score      float64 `json:"score" jsonschema_description:"Relevance score as percentage (0-100)"`
 	SourceID   string  `json:"source_id" jsonschema_description:"Source ID"`
 }
 
@@ -319,7 +319,7 @@ func formatSearchResults(results []SearchResult) string {
 		fmt.Fprintf(&sb, "%d. %s\n", i+1, r.Title)
 		fmt.Fprintf(&sb, "   Document ID: %s\n", r.DocumentID)
 		fmt.Fprintf(&sb, "   Source ID: %s\n", r.SourceID)
-		fmt.Fprintf(&sb, "   Score: %.2f\n", r.Score)
+		fmt.Fprintf(&sb, "   Score: %.0f%%\n", r.Score)
 		fmt.Fprintf(&sb, "   Content: %s\n", truncate(r.Content, 200))
 		sb.WriteString("\n")
 	}
