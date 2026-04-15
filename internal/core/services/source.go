@@ -21,7 +21,6 @@ type sourceService struct {
 	syncStore     driven.SyncStateStore
 	searchEngine  driven.SearchEngine
 	vectorIndex   driven.VectorIndex
-	chunkStore    driven.ChunkStore
 	taskQueue     driven.TaskQueue
 	teamID        string
 	logger        *slog.Logger
@@ -34,7 +33,6 @@ func NewSourceService(
 	syncStore driven.SyncStateStore,
 	searchEngine driven.SearchEngine,
 	vectorIndex driven.VectorIndex,
-	chunkStore driven.ChunkStore,
 	taskQueue driven.TaskQueue,
 	teamID string,
 	logger *slog.Logger,
@@ -48,7 +46,6 @@ func NewSourceService(
 		syncStore:     syncStore,
 		searchEngine:  searchEngine,
 		vectorIndex:   vectorIndex,
-		chunkStore:    chunkStore,
 		taskQueue:     taskQueue,
 		teamID:        teamID,
 		logger:        logger,
@@ -291,13 +288,6 @@ func (s *sourceService) deleteContainerData(ctx context.Context, sourceID, conta
 	// Delete from vector index (pgvector)
 	if s.vectorIndex != nil {
 		if err := s.vectorIndex.DeleteBySourceAndContainer(ctx, sourceID, containerID); err != nil {
-			return err
-		}
-	}
-
-	// Delete chunks (PostgreSQL)
-	if s.chunkStore != nil {
-		if err := s.chunkStore.DeleteChunksBySourceAndContainer(ctx, sourceID, containerID); err != nil {
 			return err
 		}
 	}

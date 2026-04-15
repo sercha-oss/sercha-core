@@ -146,25 +146,69 @@ func TestConnector_FetchChanges_InitialSync(t *testing.T) {
 }
 
 func TestConnector_FetchChanges_IncrementalSync(t *testing.T) {
+	// Cursor represents the last sync time
 	lastSync := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	filterChecked := false
+
+	// Create test data: one page edited before cursor (should be skipped),
+	// one page edited after cursor (should be included)
+	oldPage := SearchResult{
+		Object:         "page",
+		ID:             "old-page",
+		LastEditedTime: time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC), // Before cursor
+		Parent:         Parent{Type: "workspace"},
+	}
+	newPage := SearchResult{
+		Object:         "page",
+		ID:             "new-page",
+		LastEditedTime: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC), // After cursor
+		Parent:         Parent{Type: "workspace"},
+	}
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" && r.URL.Path == "/v1/search" {
+			// Verify no filter is sent (Notion Search API doesn't support timestamp filter)
 			var body map[string]interface{}
 			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
-				if filter, ok := body["filter"].(map[string]interface{}); ok {
-					if filter["property"] == "last_edited_time" {
-						filterChecked = true
-					}
+				if _, hasFilter := body["filter"]; hasFilter {
+					t.Error("unexpected filter in search request - Notion Search API doesn't support timestamp filter")
 				}
 			}
 
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(SearchResponse{
-				Results:    []SearchResult{},
+				Results:    []SearchResult{oldPage, newPage},
 				HasMore:    false,
 				NextCursor: "",
+			})
+			return
+		}
+
+		// Handle GetPage calls
+		if r.Method == "GET" && strings.Contains(r.URL.Path, "/v1/pages/new-page") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(Page{
+				Object:         "page",
+				ID:             "new-page",
+				CreatedTime:    time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+				LastEditedTime: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+				Parent:         Parent{Type: "workspace"},
+				URL:            "https://notion.so/new-page",
+				Properties: Properties{
+					"title": Property{
+						Type:  "title",
+						Title: json.RawMessage(`[{"plain_text": "New Page"}]`),
+					},
+				},
+			})
+			return
+		}
+
+		// Handle GetBlocks calls
+		if r.Method == "GET" && strings.Contains(r.URL.Path, "/v1/blocks/new-page/children") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(BlocksResponse{
+				Results: []Block{},
+				HasMore: false,
 			})
 			return
 		}
@@ -178,13 +222,14 @@ func TestConnector_FetchChanges_IncrementalSync(t *testing.T) {
 	c := NewConnector(&stubTokenProvider{}, "", cfg)
 
 	cursor := lastSync.Format(time.RFC3339)
-	_, _, err := c.FetchChanges(context.Background(), nil, cursor)
+	changes, _, err := c.FetchChanges(context.Background(), nil, cursor)
 	if err != nil {
 		t.Fatalf("FetchChanges() error = %v", err)
 	}
 
-	if !filterChecked {
-		t.Error("expected filter by last_edited_time to be applied")
+	// Should only return the new page (client-side filtered)
+	if len(changes) != 1 {
+		t.Errorf("expected 1 change (filtered by cursor), got %d", len(changes))
 	}
 }
 

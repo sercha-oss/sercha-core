@@ -16,10 +16,9 @@ func TestSourceService_Create(t *testing.T) {
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
 	vectorIndex := mocks.NewMockVectorIndex()
-	chunkStore := mocks.NewMockChunkStore()
 	taskQueue := mocks.NewMockTaskQueue()
 	teamID := "test-team"
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, vectorIndex, chunkStore, taskQueue, teamID, nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, vectorIndex, taskQueue, teamID, nil)
 
 	tests := []struct {
 		name      string
@@ -89,7 +88,7 @@ func TestSourceService_Create_DuplicateName(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	req := driving.CreateSourceRequest{
 		Name:         "Test Source",
@@ -114,7 +113,7 @@ func TestSourceService_Get(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create a source
 	source := &domain.Source{
@@ -146,7 +145,7 @@ func TestSourceService_List(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create sources
 	for i := 0; i < 3; i++ {
@@ -174,7 +173,7 @@ func TestSourceService_ListWithSummary(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create a source
 	source := &domain.Source{
@@ -233,7 +232,7 @@ func TestSourceService_Update(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create a source
 	source := &domain.Source{
@@ -280,7 +279,7 @@ func TestSourceService_Update_ConflictingName(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create two sources
 	source1 := &domain.Source{
@@ -310,7 +309,7 @@ func TestSourceService_Delete(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create a source with documents and chunks
 	source := &domain.Source{
@@ -363,7 +362,7 @@ func TestSourceService_EnableDisable(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create a source
 	source := &domain.Source{
@@ -399,7 +398,7 @@ func TestSourceService_ListByConnection(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create sources with different connections
 	source1 := &domain.Source{
@@ -483,7 +482,7 @@ func TestSourceService_UpdateContainers(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Create a source
 	source := &domain.Source{
@@ -523,7 +522,7 @@ func TestSourceService_UpdateContainers_NotFound(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockChunkStore(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
 
 	// Try to update containers for non-existent source
 	containers := []domain.Container{

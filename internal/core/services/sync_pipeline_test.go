@@ -50,7 +50,6 @@ func (m *mockIndexingExecutor) ExecuteBatch(ctx context.Context, pctx *pipeline.
 func TestSyncOrchestrator_WithPipelineExecutor(t *testing.T) {
 	sourceStore := mocks.NewMockSourceStore()
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
 	connectorFactory := newMockConnectorFactory()
@@ -66,7 +65,6 @@ func TestSyncOrchestrator_WithPipelineExecutor(t *testing.T) {
 	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
 		SourceStore:      sourceStore,
 		DocumentStore:    documentStore,
-		ChunkStore:       chunkStore,
 		SyncStore:        syncStore,
 		SearchEngine:     searchEngine,
 		ConnectorFactory: connectorFactory,
@@ -142,7 +140,7 @@ func TestSyncOrchestrator_WithPipelineExecutor(t *testing.T) {
 
 // TestProcessWithPipeline_Success tests successful pipeline execution
 func TestProcessWithPipeline_Success(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}
@@ -196,7 +194,7 @@ func TestProcessWithPipeline_Success(t *testing.T) {
 
 // TestProcessWithPipeline_UpdateDocument tests pipeline execution for document updates
 func TestProcessWithPipeline_UpdateDocument(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}
@@ -233,7 +231,7 @@ func TestProcessWithPipeline_UpdateDocument(t *testing.T) {
 
 // TestProcessWithPipeline_ExecutorError tests error handling when executor fails
 func TestProcessWithPipeline_ExecutorError(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}
@@ -274,7 +272,7 @@ func TestProcessWithPipeline_ExecutorError(t *testing.T) {
 
 // TestProcessWithPipeline_MultipleChunks tests pipeline execution with multiple chunks
 func TestProcessWithPipeline_MultipleChunks(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}
@@ -316,7 +314,7 @@ func TestProcessWithPipeline_MultipleChunks(t *testing.T) {
 
 // TestProcessWithPipeline_MetadataConversion tests metadata conversion from map[string]string to map[string]any
 func TestProcessWithPipeline_MetadataConversion(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}
@@ -388,7 +386,7 @@ func TestProcessWithPipeline_MetadataConversion(t *testing.T) {
 
 // TestProcessWithPipeline_ContextPassing tests that correct context is passed to executor
 func TestProcessWithPipeline_ContextPassing(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}

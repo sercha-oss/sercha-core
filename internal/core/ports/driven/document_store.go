@@ -44,27 +44,3 @@ type DocumentStore interface {
 	// ListExternalIDs returns all external IDs for a source (for diff sync)
 	ListExternalIDs(ctx context.Context, sourceID string) ([]string, error)
 }
-
-// ChunkStore handles chunk persistence (PostgreSQL)
-type ChunkStore interface {
-	// Save creates or updates a chunk
-	Save(ctx context.Context, chunk *domain.Chunk) error
-
-	// SaveBatch saves multiple chunks in a transaction
-	SaveBatch(ctx context.Context, chunks []*domain.Chunk) error
-
-	// GetByDocument retrieves all chunks for a document
-	GetByDocument(ctx context.Context, documentID string) ([]*domain.Chunk, error)
-
-	// Delete deletes a chunk
-	Delete(ctx context.Context, id string) error
-
-	// DeleteByDocument deletes all chunks for a document
-	DeleteByDocument(ctx context.Context, documentID string) error
-
-	// DeleteBySource deletes all chunks for a source
-	DeleteBySource(ctx context.Context, sourceID string) error
-
-	// DeleteChunksBySourceAndContainer deletes all chunks for a specific container within a source
-	DeleteChunksBySourceAndContainer(ctx context.Context, sourceID, containerID string) error
-}

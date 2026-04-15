@@ -13,9 +13,6 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/runtime"
 )
 
-// We need a ChunkStore for saving chunks separately
-// The SyncOrchestrator needs both DocumentStore and ChunkStore
-
 // SyncOrchestrator coordinates the document sync pipeline.
 // It implements the 7-step sync flow:
 //  1. Get source config
@@ -28,7 +25,6 @@ import (
 type SyncOrchestrator struct {
 	sourceStore      driven.SourceStore
 	documentStore    driven.DocumentStore
-	chunkStore       driven.ChunkStore
 	syncStore        driven.SyncStateStore
 	searchEngine     driven.SearchEngine
 	vectorIndex      driven.VectorIndex
@@ -47,7 +43,6 @@ type SyncOrchestrator struct {
 type SyncOrchestratorConfig struct {
 	SourceStore      driven.SourceStore
 	DocumentStore    driven.DocumentStore
-	ChunkStore       driven.ChunkStore
 	SyncStore        driven.SyncStateStore
 	SearchEngine     driven.SearchEngine
 	VectorIndex      driven.VectorIndex
@@ -77,7 +72,6 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 	return &SyncOrchestrator{
 		sourceStore:      cfg.SourceStore,
 		documentStore:    cfg.DocumentStore,
-		chunkStore:       cfg.ChunkStore,
 		syncStore:        cfg.SyncStore,
 		searchEngine:     cfg.SearchEngine,
 		vectorIndex:      cfg.VectorIndex,

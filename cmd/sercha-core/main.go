@@ -213,7 +213,6 @@ func main() {
 	// ===== PostgreSQL Stores =====
 	userStore := postgres.NewUserStore(db)
 	documentStore := postgres.NewDocumentStore(db)
-	chunkStore := postgres.NewChunkStore(db)
 	sourceStore := postgres.NewSourceStore(db)
 	syncStore := postgres.NewSyncStateStore(db)
 	settingsStore := postgres.NewSettingsStore(db)
@@ -475,7 +474,7 @@ func main() {
 	// Services (core business logic)
 	authService := services.NewAuthService(userStore, sessionStore, authAdapter)
 	userService := services.NewUserService(userStore, sessionStore, authAdapter, teamID)
-	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine, vectorIndex, chunkStore, taskQueue, teamID, slog.Default())
+	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine, vectorIndex, taskQueue, teamID, slog.Default())
 	documentService := services.NewDocumentService(documentStore, searchEngine)
 	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, capabilityStore, settingsStore, teamID)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)
@@ -567,7 +566,6 @@ func main() {
 	syncOrchestrator := services.NewSyncOrchestrator(services.SyncOrchestratorConfig{
 		SourceStore:      sourceStore,
 		DocumentStore:    documentStore,
-		ChunkStore:       chunkStore,
 		SyncStore:        syncStore,
 		SearchEngine:     searchEngine,
 		VectorIndex:      vectorIndex,

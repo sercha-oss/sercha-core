@@ -40,7 +40,6 @@ const (
 	CapabilityVectorStore  CapabilityType = "vector_store"   // Vector similarity (driven.VectorIndex)
 	CapabilityGraphStore   CapabilityType = "graph_store"
 	CapabilityDocStore     CapabilityType = "doc_store"
-	CapabilityChunkStore   CapabilityType = "chunk_store"
 	CapabilityOntology     CapabilityType = "ontology"
 )
 

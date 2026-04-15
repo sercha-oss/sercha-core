@@ -55,20 +55,9 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 	var changes []*domain.Change
 	var lastModified time.Time
 
-	// Parse cursor to get since timestamp
-	var filter *SearchFilter
-	if cursor != "" {
-		parsed, err := time.Parse(time.RFC3339, cursor)
-		if err == nil {
-			// Filter by last_edited_time
-			filter = &SearchFilter{
-				Property: "last_edited_time",
-				Value: map[string]interface{}{
-					"after": parsed.Format(time.RFC3339),
-				},
-			}
-		}
-	}
+	// Note: Notion Search API only supports filtering by object type, not by timestamp.
+	// We do client-side filtering based on last_edited_time after fetching results.
+	// The filter parameter is left nil to fetch all pages and databases.
 
 	// Parse cursor timestamp for incremental sync check
 	var sinceTime time.Time
@@ -139,9 +128,10 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 		}
 	} else {
 		// Search all accessible pages and databases
+		// Note: No filter passed - Notion Search API only supports object type filter
 		searchCursor := ""
 		for {
-			resp, err := c.client.Search(ctx, filter, searchCursor)
+			resp, err := c.client.Search(ctx, nil, searchCursor)
 			if err != nil {
 				return nil, "", fmt.Errorf("search: %w", err)
 			}
@@ -149,6 +139,12 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 			for _, result := range resp.Results {
 				if result.Archived {
 					// Skip archived items
+					continue
+				}
+
+				// Client-side filtering for incremental sync
+				if !sinceTime.IsZero() && !result.LastEditedTime.After(sinceTime) {
+					// Item hasn't changed since last sync, skip it
 					continue
 				}
 

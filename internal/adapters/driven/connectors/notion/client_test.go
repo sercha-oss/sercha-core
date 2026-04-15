@@ -75,7 +75,8 @@ func TestClient_Search_WithFilter(t *testing.T) {
 		var body map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
 			if filter, ok := body["filter"].(map[string]interface{}); ok {
-				if filter["property"] == "last_edited_time" {
+				// Notion Search API only supports "object" type filter
+				if filter["property"] == "object" && filter["value"] == "page" {
 					filterApplied = true
 				}
 			}
@@ -93,11 +94,10 @@ func TestClient_Search_WithFilter(t *testing.T) {
 	cfg.APIBaseURL = ts.URL + "/v1"
 	client := NewClient(&stubTokenProvider{}, cfg)
 
+	// Note: Notion Search API only supports filtering by object type (page/database)
 	filter := &SearchFilter{
-		Property: "last_edited_time",
-		Value: map[string]interface{}{
-			"after": "2024-01-01T00:00:00Z",
-		},
+		Property: "object",
+		Value:    "page",
 	}
 
 	_, err := client.Search(context.Background(), filter, "")
