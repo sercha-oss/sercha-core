@@ -36,6 +36,7 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/github"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/localfs"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/notion"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/opensearch"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pgvector"
 	pipelineexec "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/executor"
@@ -294,6 +295,10 @@ func main() {
 	factory.Register(github.NewBuilder())
 	factory.RegisterOAuthHandler(domain.PlatformGitHub, github.NewOAuthHandler())
 
+	// Register Notion connector
+	factory.Register(notion.NewBuilder())
+	factory.RegisterOAuthHandler(domain.PlatformNotion, notion.NewOAuthHandler())
+
 	// Register LocalFS connector (for testing/development)
 	localfsAllowedRoots := []string{"/data", "/tmp"}
 	if envRoots := getEnv("LOCALFS_ALLOWED_ROOTS", ""); envRoots != "" {
@@ -313,6 +318,10 @@ func main() {
 	// Register GitHub container lister factory
 	containerListerFactory.Register(domain.ProviderTypeGitHub,
 		github.NewContainerListerFactory(installationStore, tokenProviderFactory, ""))
+
+	// Register Notion container lister factory
+	containerListerFactory.Register(domain.ProviderTypeNotion,
+		notion.NewContainerListerFactory(installationStore, tokenProviderFactory))
 
 	// Register LocalFS container lister factory
 	containerListerFactory.Register(domain.ProviderTypeLocalFS,

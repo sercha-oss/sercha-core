@@ -161,9 +161,39 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 	var lastCursor string
 	var syncErrors []string
 
+	// Track processed external IDs across containers to avoid duplicate processing
+	// This is needed when the same document appears in multiple containers
+	// (e.g., a page that's both a specific container AND an entry in a database container)
+	processedExternalIDs := make(map[string]bool)
+
+	// Full sync (no cursor): wipe all existing indexed data for this source ONCE
+	// before processing any containers. This prevents orphaned chunks from
+	// accumulating across re-syncs.
+	if syncState.Cursor == "" {
+		o.logger.Info("full sync: clearing existing indexed data", "source_id", source.ID)
+		if o.searchEngine != nil {
+			if err := o.searchEngine.DeleteBySource(ctx, source.ID); err != nil {
+				o.logger.Warn("failed to clear search engine data for source", "source_id", source.ID, "error", err)
+			}
+		}
+		if o.vectorIndex != nil {
+			// Delete embeddings for all documents in this source
+			docs, err := o.documentStore.GetBySource(ctx, source.ID, 10000, 0)
+			if err == nil {
+				docIDs := make([]string, len(docs))
+				for i, d := range docs {
+					docIDs[i] = d.ID
+				}
+				if len(docIDs) > 0 {
+					_ = o.vectorIndex.DeleteByDocuments(ctx, docIDs)
+				}
+			}
+		}
+	}
+
 	// Step 3: Sync each container
 	for _, containerID := range containerIDs {
-		containerStats, cursor, err := o.syncContainer(ctx, source, syncState, containerID)
+		containerStats, cursor, err := o.syncContainer(ctx, source, syncState, containerID, processedExternalIDs)
 		if err != nil {
 			o.logger.Error("container sync failed",
 				"source_id", sourceID,
@@ -237,11 +267,14 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 
 // syncContainer syncs a single container within a source.
 // Returns stats for this container, the cursor, and any error.
+// processedExternalIDs tracks documents already processed by previous containers
+// to avoid duplicate processing within the same sync operation.
 func (o *SyncOrchestrator) syncContainer(
 	ctx context.Context,
 	source *domain.Source,
 	syncState *domain.SyncState,
 	containerID string,
+	processedExternalIDs map[string]bool,
 ) (*domain.SyncStats, string, error) {
 	logFields := []any{"source_id", source.ID}
 	if containerID != "" {
@@ -265,29 +298,8 @@ func (o *SyncOrchestrator) syncContainer(
 	stats := &domain.SyncStats{}
 	var lastCursor string
 
-	// Full sync (no cursor): wipe all existing indexed data for this source
-	// to prevent orphaned chunks from accumulating across re-syncs.
-	if cursor == "" {
-		o.logger.Info("full sync: clearing existing indexed data", "source_id", source.ID)
-		if o.searchEngine != nil {
-			if err := o.searchEngine.DeleteBySource(ctx, source.ID); err != nil {
-				o.logger.Warn("failed to clear search engine data for source", "source_id", source.ID, "error", err)
-			}
-		}
-		if o.vectorIndex != nil {
-			// Delete embeddings for all documents in this source
-			docs, err := o.documentStore.GetBySource(ctx, source.ID, 10000, 0)
-			if err == nil {
-				docIDs := make([]string, len(docs))
-				for i, d := range docs {
-					docIDs[i] = d.ID
-				}
-				if len(docIDs) > 0 {
-					_ = o.vectorIndex.DeleteByDocuments(ctx, docIDs)
-				}
-			}
-		}
-	}
+	// Note: Full sync clearing is now handled once in Sync() before the container loop,
+	// not per-container here. This prevents wiping previously-indexed container data.
 
 	for {
 		select {
@@ -303,6 +315,30 @@ func (o *SyncOrchestrator) syncContainer(
 
 		if len(changes) == 0 {
 			break
+		}
+
+		// Filter out already-processed documents (from other containers in this sync)
+		var filteredChanges []*domain.Change
+		for _, change := range changes {
+			if processedExternalIDs[change.ExternalID] {
+				o.logger.Debug("skipping already-processed document",
+					"source_id", source.ID,
+					"container_id", containerID,
+					"external_id", change.ExternalID,
+				)
+				continue
+			}
+			filteredChanges = append(filteredChanges, change)
+		}
+		changes = filteredChanges
+
+		if len(changes) == 0 {
+			// All changes were duplicates, continue to next batch
+			if nextCursor == "" || nextCursor == cursor {
+				break
+			}
+			cursor = nextCursor
+			continue
 		}
 
 		// Collect document IDs that need old-chunk cleanup (updates/modifications)
@@ -322,6 +358,9 @@ func (o *SyncOrchestrator) syncContainer(
 		// Process each document
 		errorsBefore := stats.Errors
 		for _, change := range changes {
+			// Mark as processed before processing to avoid duplicates
+			processedExternalIDs[change.ExternalID] = true
+
 			if err := o.processChange(ctx, source, change, stats); err != nil {
 				o.logger.Warn("failed to process change",
 					"source_id", source.ID,

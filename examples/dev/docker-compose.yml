@@ -58,6 +58,8 @@ services:
       # Optional: Configure OAuth providers
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      NOTION_CLIENT_ID: ${NOTION_CLIENT_ID:-}
+      NOTION_CLIENT_SECRET: ${NOTION_CLIENT_SECRET:-}
     volumes:
       - ./test-docs:/data/test-docs:ro
     ports:

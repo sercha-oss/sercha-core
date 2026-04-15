@@ -9,6 +9,7 @@ const (
 	// Only implemented connectors
 	ProviderTypeGitHub  ProviderType = "github"
 	ProviderTypeLocalFS ProviderType = "localfs"
+	ProviderTypeNotion  ProviderType = "notion"
 )
 
 // AuthProvider holds OAuth configuration for a provider
@@ -77,6 +78,7 @@ const (
 	// Only implemented platforms (1:1 with providers for now)
 	PlatformGitHub  PlatformType = "github"
 	PlatformLocalFS PlatformType = "localfs"
+	PlatformNotion  PlatformType = "notion"
 )
 
 // PlatformFor returns the platform that owns a given service/provider.
@@ -89,6 +91,8 @@ func PlatformFor(provider ProviderType) PlatformType {
 		return PlatformGitHub
 	case ProviderTypeLocalFS:
 		return PlatformLocalFS
+	case ProviderTypeNotion:
+		return PlatformNotion
 	default:
 		return PlatformType(provider)
 	}
@@ -101,6 +105,8 @@ func ServicesFor(platform PlatformType) []ProviderType {
 		return []ProviderType{ProviderTypeGitHub}
 	case PlatformLocalFS:
 		return []ProviderType{ProviderTypeLocalFS}
+	case PlatformNotion:
+		return []ProviderType{ProviderTypeNotion}
 	default:
 		return []ProviderType{ProviderType(platform)}
 	}
@@ -112,6 +118,8 @@ func PlatformDisplayName(platform PlatformType) string {
 		return "GitHub"
 	case PlatformLocalFS:
 		return "Local Filesystem"
+	case PlatformNotion:
+		return "Notion"
 	default:
 		return string(platform)
 	}
