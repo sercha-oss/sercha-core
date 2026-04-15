@@ -235,3 +235,17 @@ func (s *ChunkStore) DeleteBatch(ctx context.Context, ids []string) error {
 	_, err := s.db.ExecContext(ctx, query, args...)
 	return err
 }
+
+// DeleteChunksBySourceAndContainer deletes all chunks for a specific container within a source
+// Joins with documents to filter by container_id from document metadata
+func (s *ChunkStore) DeleteChunksBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	query := `
+		DELETE FROM chunks
+		WHERE document_id IN (
+			SELECT id FROM documents
+			WHERE source_id = $1 AND metadata->>'container_id' = $2
+		)
+	`
+	_, err := s.db.ExecContext(ctx, query, sourceID, containerID)
+	return err
+}

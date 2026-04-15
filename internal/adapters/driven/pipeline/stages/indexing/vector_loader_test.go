@@ -53,6 +53,9 @@ func (s *stubVectorIndex) DeleteByDocument(ctx context.Context, documentID strin
 func (s *stubVectorIndex) DeleteByDocuments(ctx context.Context, documentIDs []string) error {
 	return nil
 }
+func (s *stubVectorIndex) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	return nil
+}
 func (s *stubVectorIndex) HealthCheck(ctx context.Context) error { return nil }
 
 // --- Factory tests ---

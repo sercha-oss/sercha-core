@@ -200,6 +200,8 @@ func (w *Worker) processTask(ctx context.Context, task *domain.Task, logger *slo
 		err = w.handleSyncSource(ctx, task)
 	case domain.TaskTypeSyncAll:
 		err = w.handleSyncAll(ctx, task)
+	case domain.TaskTypeSyncContainer:
+		err = w.handleSyncContainer(ctx, task)
 	default:
 		err = fmt.Errorf("unknown task type: %s", task.Type)
 	}
@@ -268,6 +270,40 @@ func (w *Worker) handleSyncAll(ctx context.Context, task *domain.Task) error {
 		)
 		// We still consider the task successful if at least some sources synced
 		// The individual failures are logged and can be investigated
+	}
+
+	return nil
+}
+
+// handleSyncContainer handles a sync_container task.
+func (w *Worker) handleSyncContainer(ctx context.Context, task *domain.Task) error {
+	sourceID := task.SourceID()
+	if sourceID == "" {
+		return fmt.Errorf("source_id not found in task payload")
+	}
+
+	containerID := task.ContainerID()
+	if containerID == "" {
+		return fmt.Errorf("container_id not found in task payload")
+	}
+
+	// Type assert to access SyncContainer method
+	type containerSyncer interface {
+		SyncContainer(ctx context.Context, sourceID, containerID string) (*domain.SyncResult, error)
+	}
+
+	syncer, ok := w.orchestrator.(containerSyncer)
+	if !ok {
+		return fmt.Errorf("orchestrator does not support container sync")
+	}
+
+	result, err := syncer.SyncContainer(ctx, sourceID, containerID)
+	if err != nil {
+		return err
+	}
+
+	if !result.Success {
+		return fmt.Errorf("sync failed: %s", result.Error)
 	}
 
 	return nil

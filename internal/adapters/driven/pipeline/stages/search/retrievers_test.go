@@ -40,6 +40,9 @@ func (s *stubSearchEngine) DeleteByDocuments(ctx context.Context, documentIDs []
 	return nil
 }
 func (s *stubSearchEngine) DeleteBySource(ctx context.Context, sourceID string) error { return nil }
+func (s *stubSearchEngine) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	return nil
+}
 func (s *stubSearchEngine) HealthCheck(ctx context.Context) error    { return nil }
 func (s *stubSearchEngine) Count(ctx context.Context) (int64, error) { return 0, nil }
 func (s *stubSearchEngine) GetDocument(ctx context.Context, documentID string) (*domain.DocumentContent, error) {
@@ -76,6 +79,9 @@ func (s *stubVectorIndex) DeleteByDocument(ctx context.Context, documentID strin
 	return nil
 }
 func (s *stubVectorIndex) DeleteByDocuments(ctx context.Context, documentIDs []string) error {
+	return nil
+}
+func (s *stubVectorIndex) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
 	return nil
 }
 func (s *stubVectorIndex) HealthCheck(ctx context.Context) error { return nil }

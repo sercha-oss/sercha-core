@@ -134,6 +134,13 @@ func (m *MockChunkStore) DeleteBySource(ctx context.Context, sourceID string) er
 	return nil
 }
 
+func (m *MockChunkStore) DeleteChunksBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	// Mock implementation: For testing purposes, we would need access to documents
+	// to check container_id from metadata. For now, this is a simplified implementation
+	// that deletes all chunks from the source (same as DeleteBySource)
+	return m.DeleteBySource(ctx, sourceID)
+}
+
 // Helper methods for testing
 
 func (m *MockChunkStore) Reset() {

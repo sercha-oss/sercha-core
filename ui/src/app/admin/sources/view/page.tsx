@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, Suspense } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -22,6 +23,8 @@ import {
   User,
   Key,
   Calendar,
+  X,
+  Search,
 } from "lucide-react";
 import { AdminLayout } from "@/components/layout";
 import {
@@ -34,10 +37,13 @@ import {
   getSourceDocuments,
   getDocumentURL,
   getConnection,
+  getConnectionContainers,
+  updateSourceContainers,
   Source,
   ConnectionSummary,
   SyncState,
   Document,
+  Container,
 } from "@/lib/api";
 import { getProviderIcon, getProviderName } from "@/lib/providers";
 
@@ -90,6 +96,14 @@ function SourceDetailContent() {
   const [deleting, setDeleting] = useState(false);
   const [openingDoc, setOpeningDoc] = useState<string | null>(null);
   const [loadingDocs, setLoadingDocs] = useState(false);
+  const [updatingContainers, setUpdatingContainers] = useState(false);
+
+  // Container picker modal state
+  const [showContainerPicker, setShowContainerPicker] = useState(false);
+  const [availableContainers, setAvailableContainers] = useState<Container[]>([]);
+  const [selectedContainerIds, setSelectedContainerIds] = useState<Set<string>>(new Set());
+  const [loadingContainers, setLoadingContainers] = useState(false);
+  const [containerSearchQuery, setContainerSearchQuery] = useState("");
 
   // Fetch source and connection data
   const fetchSource = useCallback(async () => {
@@ -237,6 +251,65 @@ function SourceDetailContent() {
       setOpeningDoc(null);
     }
   };
+
+  const handleOpenContainerPicker = async () => {
+    if (!source || !connection) return;
+
+    setLoadingContainers(true);
+    setShowContainerPicker(true);
+
+    try {
+      const result = await getConnectionContainers(connection.id);
+      setAvailableContainers(result.containers);
+      // Pre-select currently synced containers
+      if (source.containers && source.containers.length > 0) {
+        setSelectedContainerIds(new Set(source.containers.map(c => c.id)));
+      } else {
+        setSelectedContainerIds(new Set());
+      }
+    } catch (err) {
+      console.error("Failed to load containers:", err);
+      setShowContainerPicker(false);
+    } finally {
+      setLoadingContainers(false);
+    }
+  };
+
+  const handleSaveContainerSelection = async () => {
+    if (!sourceId) return;
+
+    setUpdatingContainers(true);
+    try {
+      // If no containers selected, this means "sync all" mode (empty array)
+      // If containers are selected, pass the selected Container objects
+      const selectedContainers = selectedContainerIds.size === 0
+        ? []
+        : availableContainers.filter(c => selectedContainerIds.has(c.id));
+      await updateSourceContainers(sourceId, { containers: selectedContainers });
+      await fetchSource();
+      setShowContainerPicker(false);
+    } catch (err) {
+      console.error("Failed to update containers:", err);
+    } finally {
+      setUpdatingContainers(false);
+    }
+  };
+
+  const toggleContainerSelection = (containerId: string) => {
+    setSelectedContainerIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(containerId)) {
+        newSet.delete(containerId);
+      } else {
+        newSet.add(containerId);
+      }
+      return newSet;
+    });
+  };
+
+  const filteredAvailableContainers = availableContainers.filter(c =>
+    c.name.toLowerCase().includes(containerSearchQuery.toLowerCase())
+  );
 
   // Loading state
   if (loading) {
@@ -474,6 +547,198 @@ function SourceDetailContent() {
               </p>
             </div>
           </div>
+        )}
+
+        {/* Container Sync Mode */}
+        <div className="rounded-2xl border border-sercha-silverline bg-white p-6">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h3 className="mb-2 font-semibold text-sercha-ink-slate">Container Sync Mode</h3>
+              {!source?.containers || source.containers.length === 0 ? (
+                <>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="rounded-full bg-sercha-indigo-soft px-2.5 py-1 text-xs font-medium text-sercha-indigo">
+                      Sync All Containers
+                    </span>
+                  </div>
+                  <p className="text-sm text-sercha-fog-grey">
+                    Automatically syncing all accessible containers including future items (auto-discover mode).
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="rounded-full bg-sercha-snow px-2.5 py-1 text-xs font-medium text-sercha-ink-slate">
+                      Specific Containers
+                    </span>
+                  </div>
+                  <p className="text-sm text-sercha-fog-grey">
+                    Syncing {source.containers.length} specific {source.containers.length === 1 ? "container" : "containers"}.
+                  </p>
+                </>
+              )}
+            </div>
+            <button
+              onClick={handleOpenContainerPicker}
+              disabled={updatingContainers}
+              className="inline-flex items-center gap-2 rounded-lg border border-sercha-silverline bg-white px-4 py-2 text-sm font-medium text-sercha-ink-slate transition-all hover:bg-sercha-mist disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {updatingContainers ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Manage Containers"
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Container Picker Modal - rendered via portal to escape stacking context */}
+        {showContainerPicker && typeof document !== 'undefined' && createPortal(
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 z-[9998] bg-black/50"
+              onClick={() => setShowContainerPicker(false)}
+            />
+            {/* Modal */}
+            <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999] w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl mx-4 max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-sercha-ink-slate">Manage Containers</h3>
+                <button
+                  onClick={() => setShowContainerPicker(false)}
+                  className="rounded-lg p-1 text-sercha-fog-grey hover:bg-sercha-mist"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <p className="text-sm text-sercha-fog-grey mb-4">
+                Choose how to sync containers for this source.
+              </p>
+
+              {/* Sync Mode Selection */}
+              <div className="mb-4 space-y-3">
+                {/* Sync All Option */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Clear selection to indicate sync-all mode
+                    setSelectedContainerIds(new Set());
+                  }}
+                  disabled={updatingContainers}
+                  className={`w-full rounded-lg border-2 p-3 text-left transition-colors ${
+                    selectedContainerIds.size === 0
+                      ? "border-sercha-indigo bg-sercha-indigo/5"
+                      : "border-sercha-silverline bg-white hover:border-sercha-fog-grey"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
+                      selectedContainerIds.size === 0 ? "border-sercha-indigo" : "border-sercha-fog-grey"
+                    }`}>
+                      {selectedContainerIds.size === 0 && <div className="h-2 w-2 rounded-full bg-sercha-indigo" />}
+                    </div>
+                    <div>
+                      <span className="font-medium text-sercha-ink-slate text-sm">Sync all (auto-discover)</span>
+                      <p className="text-xs text-sercha-fog-grey">Index all content including future items</p>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Select Specific Option */}
+                <div
+                  className={`rounded-lg border-2 p-3 transition-colors ${
+                    selectedContainerIds.size > 0
+                      ? "border-sercha-indigo bg-sercha-indigo/5"
+                      : "border-sercha-silverline bg-white"
+                  }`}
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
+                      selectedContainerIds.size > 0 ? "border-sercha-indigo" : "border-sercha-fog-grey"
+                    }`}>
+                      {selectedContainerIds.size > 0 && <div className="h-2 w-2 rounded-full bg-sercha-indigo" />}
+                    </div>
+                    <div>
+                      <span className="font-medium text-sercha-ink-slate text-sm">Select specific containers</span>
+                      <p className="text-xs text-sercha-fog-grey">Choose exactly which items to sync</p>
+                    </div>
+                  </div>
+
+                  {/* Search */}
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sercha-fog-grey" />
+                    <input
+                      type="text"
+                      value={containerSearchQuery}
+                      onChange={(e) => setContainerSearchQuery(e.target.value)}
+                      className="w-full rounded-lg border border-sercha-silverline bg-white py-2 pl-10 pr-4 text-sm placeholder:text-sercha-fog-grey focus:border-sercha-indigo focus:outline-none"
+                      placeholder="Search containers..."
+                    />
+                  </div>
+
+                  {/* Container List */}
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {loadingContainers ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-5 w-5 animate-spin text-sercha-indigo" />
+                      </div>
+                    ) : filteredAvailableContainers.length === 0 ? (
+                      <p className="text-center text-sm text-sercha-fog-grey py-4">
+                        {containerSearchQuery ? "No matching containers" : "No containers available"}
+                      </p>
+                    ) : (
+                      filteredAvailableContainers.map((container) => (
+                        <label
+                          key={container.id}
+                          className="flex items-center gap-3 rounded-lg p-2 hover:bg-sercha-mist cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedContainerIds.has(container.id)}
+                            onChange={() => toggleContainerSelection(container.id)}
+                            className="h-4 w-4 rounded border-sercha-silverline text-sercha-indigo focus:ring-sercha-indigo/20"
+                          />
+                          <span className="text-sm text-sercha-ink-slate truncate">{container.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+
+                  <p className="mt-2 text-xs text-sercha-fog-grey">
+                    {selectedContainerIds.size} container{selectedContainerIds.size !== 1 ? "s" : ""} selected
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 mt-auto pt-4 border-t border-sercha-mist">
+                <button
+                  onClick={() => setShowContainerPicker(false)}
+                  className="flex-1 rounded-lg border border-sercha-silverline bg-white px-4 py-2 text-sm font-medium text-sercha-fog-grey hover:bg-sercha-mist"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveContainerSelection}
+                  disabled={updatingContainers}
+                  className="flex-1 rounded-lg bg-sercha-indigo px-4 py-2 text-sm font-medium text-white hover:bg-sercha-indigo/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updatingContainers ? (
+                    <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                  ) : selectedContainerIds.size === 0 ? (
+                    "Save (Sync All)"
+                  ) : (
+                    `Save (${selectedContainerIds.size} selected)`
+                  )}
+                </button>
+              </div>
+            </div>
+          </>,
+          document.body
         )}
 
         {/* Sync Error Alert */}

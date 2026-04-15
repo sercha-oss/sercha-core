@@ -334,3 +334,10 @@ func (s *DocumentStore) ListExternalIDs(ctx context.Context, sourceID string) ([
 
 	return ids, nil
 }
+
+// DeleteBySourceAndContainer deletes all documents for a specific container within a source
+func (s *DocumentStore) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	query := `DELETE FROM documents WHERE source_id = $1 AND metadata->>'container_id' = $2`
+	_, err := s.db.ExecContext(ctx, query, sourceID, containerID)
+	return err
+}

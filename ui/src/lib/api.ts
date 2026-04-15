@@ -198,7 +198,7 @@ export interface Source {
   last_synced?: string;
   status: "healthy" | "syncing" | "error";
   connection_id?: string;
-  containers?: string[];
+  containers?: Container[];
   created_at?: string;
   updated_at?: string;
 }
@@ -212,7 +212,7 @@ export interface SourceSummaryResponse {
     config: Record<string, unknown>;
     enabled: boolean;
     connection_id?: string;
-    containers?: string[];
+    containers?: Container[];
     created_at: string;
     updated_at: string;
     created_by?: string;
@@ -451,7 +451,7 @@ export interface UpdateSourceRequest {
 }
 
 export interface UpdateSourceContainersRequest {
-  containers: string[];
+  containers: Container[];
 }
 
 export interface VersionResponse {

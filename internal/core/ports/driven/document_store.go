@@ -29,6 +29,9 @@ type DocumentStore interface {
 	// DeleteBySource deletes all documents for a source
 	DeleteBySource(ctx context.Context, sourceID string) error
 
+	// DeleteBySourceAndContainer deletes all documents for a specific container within a source
+	DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error
+
 	// DeleteBatch deletes multiple documents by ID
 	DeleteBatch(ctx context.Context, ids []string) error
 
@@ -61,4 +64,7 @@ type ChunkStore interface {
 
 	// DeleteBySource deletes all chunks for a source
 	DeleteBySource(ctx context.Context, sourceID string) error
+
+	// DeleteChunksBySourceAndContainer deletes all chunks for a specific container within a source
+	DeleteChunksBySourceAndContainer(ctx context.Context, sourceID, containerID string) error
 }

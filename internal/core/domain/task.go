@@ -21,6 +21,8 @@ const (
 	TaskTypeSyncSource TaskType = "sync_source"
 	// TaskTypeSyncAll syncs all sources for a team
 	TaskTypeSyncAll TaskType = "sync_all"
+	// TaskTypeSyncContainer syncs a single container within a source
+	TaskTypeSyncContainer TaskType = "sync_container"
 )
 
 // TaskStatus represents the current state of a task
@@ -46,6 +48,7 @@ type Task struct {
 
 	// Payload contains task-specific data
 	// For sync_source: {"source_id": "src-123"}
+	// For sync_container: {"source_id": "src-123", "container_id": "cnt-456"}
 	// For sync_all: {} (empty)
 	Payload map[string]string `json:"payload"`
 
@@ -111,12 +114,28 @@ func NewSyncAllTask(teamID string) *Task {
 	return NewTask(TaskTypeSyncAll, teamID, nil)
 }
 
-// SourceID extracts the source_id from the payload (for sync_source tasks)
+// NewSyncContainerTask creates a task to sync a single container within a source
+func NewSyncContainerTask(teamID, sourceID, containerID string) *Task {
+	return NewTask(TaskTypeSyncContainer, teamID, map[string]string{
+		"source_id":    sourceID,
+		"container_id": containerID,
+	})
+}
+
+// SourceID extracts the source_id from the payload (for sync_source and sync_container tasks)
 func (t *Task) SourceID() string {
 	if t.Payload == nil {
 		return ""
 	}
 	return t.Payload["source_id"]
+}
+
+// ContainerID extracts the container_id from the payload (for sync_container tasks)
+func (t *Task) ContainerID() string {
+	if t.Payload == nil {
+		return ""
+	}
+	return t.Payload["container_id"]
 }
 
 // CanRetry returns true if the task can be retried

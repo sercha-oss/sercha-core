@@ -475,7 +475,7 @@ func main() {
 	// Services (core business logic)
 	authService := services.NewAuthService(userStore, sessionStore, authAdapter)
 	userService := services.NewUserService(userStore, sessionStore, authAdapter, teamID)
-	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine)
+	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine, vectorIndex, chunkStore, taskQueue, teamID, slog.Default())
 	documentService := services.NewDocumentService(documentStore, searchEngine)
 	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, capabilityStore, settingsStore, teamID)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)

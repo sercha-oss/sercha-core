@@ -121,6 +121,24 @@ func (m *MockDocumentStore) DeleteBySource(ctx context.Context, sourceID string)
 	return nil
 }
 
+func (m *MockDocumentStore) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	docs := m.bySource[sourceID]
+	var remaining []*domain.Document
+	for _, doc := range docs {
+		// Check if document metadata has matching container_id
+		if doc.Metadata != nil && doc.Metadata["container_id"] == containerID {
+			delete(m.documents, doc.ID)
+			delete(m.byExternal, doc.SourceID+":"+doc.ExternalID)
+		} else {
+			remaining = append(remaining, doc)
+		}
+	}
+	m.bySource[sourceID] = remaining
+	return nil
+}
+
 func (m *MockDocumentStore) DeleteBatch(ctx context.Context, ids []string) error {
 	for _, id := range ids {
 		_ = m.Delete(ctx, id)

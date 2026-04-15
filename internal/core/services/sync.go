@@ -93,6 +93,105 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 	}
 }
 
+// SyncContainer synchronizes a single container within a source.
+// This is used for incremental updates when containers are added.
+func (o *SyncOrchestrator) SyncContainer(ctx context.Context, sourceID, containerID string) (*domain.SyncResult, error) {
+	startTime := time.Now()
+
+	o.logger.Info("starting container sync", "source_id", sourceID, "container_id", containerID)
+
+	// Check if sync is enabled in settings
+	settings, err := o.loadSettings(ctx)
+	if err == nil && !settings.SyncEnabled {
+		o.logger.Info("sync disabled in settings", "source_id", sourceID, "container_id", containerID)
+		return &domain.SyncResult{
+			SourceID: sourceID,
+			Success:  false,
+			Error:    "sync is disabled in team settings",
+			Duration: time.Since(startTime).Seconds(),
+		}, nil
+	}
+
+	// Step 1: Get source config
+	source, err := o.sourceStore.Get(ctx, sourceID)
+	if err != nil {
+		return o.failSync(ctx, sourceID, startTime, fmt.Errorf("failed to get source: %w", err))
+	}
+
+	if !source.Enabled {
+		return o.failSync(ctx, sourceID, startTime, fmt.Errorf("source is disabled"))
+	}
+
+	// Step 2: Get sync state
+	syncState, err := o.syncStore.Get(ctx, sourceID)
+	if err != nil {
+		// Create initial sync state
+		syncState = &domain.SyncState{
+			SourceID: sourceID,
+			Status:   domain.SyncStatusIdle,
+			Stats:    domain.SyncStats{},
+		}
+	}
+
+	// Mark as running
+	now := time.Now()
+	syncState.Status = domain.SyncStatusRunning
+	syncState.StartedAt = &now
+	syncState.Error = ""
+	if err := o.syncStore.Save(ctx, syncState); err != nil {
+		o.logger.Warn("failed to update sync state to running", "error", err)
+	}
+
+	// Track processed external IDs for this container
+	processedExternalIDs := make(map[string]bool)
+
+	// Step 3: Sync the specific container
+	stats, cursor, err := o.syncContainer(ctx, source, syncState, containerID, processedExternalIDs)
+	if err != nil {
+		o.logger.Error("container sync failed",
+			"source_id", sourceID,
+			"container_id", containerID,
+			"error", err,
+		)
+		return o.failSync(ctx, sourceID, startTime, fmt.Errorf("container sync failed: %w", err))
+	}
+
+	// Step 4: Update final sync state
+	completedAt := time.Now()
+	syncState.Status = domain.SyncStatusCompleted
+	syncState.Error = ""
+	syncState.LastSyncAt = &completedAt
+	syncState.CompletedAt = &completedAt
+	syncState.Cursor = cursor
+	// Don't overwrite stats - this is just one container
+	// In a production system, you might want container-specific sync states
+
+	if err := o.syncStore.Save(ctx, syncState); err != nil {
+		o.logger.Warn("failed to update sync state", "error", err)
+	}
+
+	duration := time.Since(startTime).Seconds()
+
+	o.logger.Info("container sync completed",
+		"source_id", sourceID,
+		"container_id", containerID,
+		"duration_seconds", duration,
+		"documents_added", stats.DocumentsAdded,
+		"documents_updated", stats.DocumentsUpdated,
+		"documents_deleted", stats.DocumentsDeleted,
+		"chunks_indexed", stats.ChunksIndexed,
+		"errors", stats.Errors,
+	)
+
+	return &domain.SyncResult{
+		SourceID: sourceID,
+		Success:  true,
+		Stats:    *stats,
+		Duration: duration,
+		Cursor:   cursor,
+	}, nil
+}
+
 // SyncSource synchronizes a single source.
 // This is the main entry point for the sync pipeline.
 // For sources with container selection, it syncs each selected container.
