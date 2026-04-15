@@ -31,9 +31,6 @@ func TestNewLock(t *testing.T) {
 
 	lock := NewLock(client)
 
-	if lock == nil {
-		t.Fatal("expected non-nil lock")
-	}
 	if lock.ownerID == "" {
 		t.Error("expected non-empty owner ID")
 	}

@@ -74,9 +74,6 @@ func TestNewSearchEngine(t *testing.T) {
 				t.Fatalf("NewSearchEngine() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !tt.wantErr {
-				if engine == nil {
-					t.Fatal("NewSearchEngine() returned nil")
-				}
 				if engine.indexName != tt.cfg.IndexName {
 					t.Errorf("indexName = %v, want %v", engine.indexName, tt.cfg.IndexName)
 				}

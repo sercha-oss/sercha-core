@@ -245,10 +245,6 @@ func TestConnector_FetchDocument_Page(t *testing.T) {
 		t.Fatalf("FetchDocument() error = %v", err)
 	}
 
-	if doc == nil {
-		t.Fatal("expected document, got nil")
-	}
-
 	if doc.Title != "Test Page" {
 		t.Errorf("Title = %q, want Test Page", doc.Title)
 	}

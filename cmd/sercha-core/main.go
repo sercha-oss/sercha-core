@@ -600,6 +600,26 @@ func main() {
 		log.Println("Scheduler disabled via SCHEDULER_ENABLED=false")
 	}
 
+	// Seed default scheduled task if it doesn't exist
+	// This ensures periodic syncs run automatically without manual configuration
+	if scheduler != nil {
+		const defaultSyncTaskID = "document-sync"
+		if _, err := schedulerStore.GetScheduledTask(ctx, defaultSyncTaskID); err == domain.ErrNotFound {
+			task := domain.NewScheduledTask(
+				defaultSyncTaskID,
+				"Document Sync",
+				domain.TaskTypeSyncAll,
+				teamID,
+				time.Hour,
+			)
+			if err := schedulerStore.SaveScheduledTask(ctx, task); err != nil {
+				log.Printf("Warning: failed to seed scheduled task: %v", err)
+			} else {
+				log.Printf("Created default sync schedule (every %v)", task.Interval)
+			}
+		}
+	}
+
 	switch mode {
 	case "api":
 		// API-only mode: HTTP server, no worker

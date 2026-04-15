@@ -66,9 +66,6 @@ func TestConnector_FetchDocument_Issue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchDocument() error = %v", err)
 	}
-	if doc == nil {
-		t.Fatal("expected document, got nil")
-	}
 	if doc.Title != "Test Issue" {
 		t.Errorf("Title = %q, want Test Issue", doc.Title)
 	}
@@ -158,9 +155,6 @@ func TestConnector_FetchDocument_File(t *testing.T) {
 	doc, contentHash, err := c.FetchDocument(context.Background(), nil, "file-abc123def")
 	if err != nil {
 		t.Fatalf("FetchDocument() error = %v", err)
-	}
-	if doc == nil {
-		t.Fatal("expected document, got nil")
 	}
 	if doc.Title != "file-abc123de" {
 		t.Errorf("Title = %q, want file-abc123de (first 8 chars of SHA)", doc.Title)

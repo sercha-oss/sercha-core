@@ -9,9 +9,6 @@ import (
 
 func TestNewAdapter(t *testing.T) {
 	adapter := NewAdapter("test-secret")
-	if adapter == nil {
-		t.Fatal("expected non-nil adapter")
-	}
 	if string(adapter.jwtSecret) != "test-secret" {
 		t.Error("expected jwt secret to be set")
 	}
@@ -19,9 +16,6 @@ func TestNewAdapter(t *testing.T) {
 
 func TestNewAdapterWithCost(t *testing.T) {
 	adapter := NewAdapterWithCost("test-secret", 4)
-	if adapter == nil {
-		t.Fatal("expected non-nil adapter")
-	}
 	if adapter.bcryptCost != 4 {
 		t.Errorf("expected bcrypt cost 4, got %d", adapter.bcryptCost)
 	}

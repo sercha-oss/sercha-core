@@ -68,9 +68,6 @@ func TestNewTokenProviderFactory(t *testing.T) {
 	connStore := newMockConnectionStore()
 	factory := NewTokenProviderFactory(connStore)
 
-	if factory == nil {
-		t.Fatal("expected non-nil factory")
-	}
 	if factory.connectionStore != connStore {
 		t.Error("expected connection store to be set")
 	}
