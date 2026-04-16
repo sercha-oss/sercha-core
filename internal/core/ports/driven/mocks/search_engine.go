@@ -200,6 +200,19 @@ func (m *MockSearchEngine) DeleteBySource(ctx context.Context, sourceID string) 
 	return nil
 }
 
+func (m *MockSearchEngine) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, doc := range m.docs {
+		if doc.SourceID == sourceID {
+			// In a real implementation, we'd check doc.Metadata["container_id"] == containerID
+			// For the mock, we'll just match by source_id
+			delete(m.docs, id)
+		}
+	}
+	return nil
+}
+
 func (m *MockSearchEngine) HealthCheck(ctx context.Context) error {
 	return nil
 }
@@ -377,6 +390,22 @@ func (m *MockVectorIndex) DeleteByDocuments(ctx context.Context, documentIDs []s
 				delete(m.documentIDs, id)
 				delete(m.contents, id)
 			}
+		}
+	}
+	return nil
+}
+
+func (m *MockVectorIndex) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, srcID := range m.sourceIDs {
+		if srcID == sourceID {
+			// In a real implementation, we'd check document metadata for container_id
+			// For the mock, we'll just match by source_id
+			delete(m.embeddings, id)
+			delete(m.documentIDs, id)
+			delete(m.sourceIDs, id)
+			delete(m.contents, id)
 		}
 	}
 	return nil

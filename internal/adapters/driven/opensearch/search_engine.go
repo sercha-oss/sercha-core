@@ -387,6 +387,27 @@ func (s *SearchEngine) DeleteBySource(ctx context.Context, sourceID string) erro
 	})
 }
 
+// DeleteBySourceAndContainer deletes all indexed data for a specific container within a source
+// IMPLEMENTATION NOTE: Since container_id is not indexed in OpenSearch (chunks/documents only have
+// source_id and document_id fields), we cannot filter directly by container_id.
+// This is a limitation of the current schema - container_id lives in PostgreSQL document metadata only.
+//
+// For a proper implementation, the service layer should:
+// 1. Query PostgreSQL for document IDs matching (source_id, container_id)
+// 2. Call DeleteByDocuments() with those document IDs
+//
+// For now, this is a no-op placeholder. The service layer (deleteContainerData in source.go)
+// will need to orchestrate the deletion by first querying document IDs, then calling
+// DeleteByDocuments instead of this method.
+func (s *SearchEngine) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	// TODO: This method cannot be properly implemented without container_id indexed in OpenSearch
+	// The service layer must handle this by:
+	// 1. Querying DocumentStore for document IDs where source_id=$1 AND metadata->>'container_id'=$2
+	// 2. Calling SearchEngine.DeleteByDocuments(ctx, documentIDs)
+	// For now, return nil (no-op) to satisfy the interface
+	return nil
+}
+
 // HealthCheck verifies the search engine is available
 func (s *SearchEngine) HealthCheck(ctx context.Context) error {
 	resp, err := s.client.Cluster.Health(ctx, nil)

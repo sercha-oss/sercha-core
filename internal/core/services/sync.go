@@ -13,9 +13,6 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/runtime"
 )
 
-// We need a ChunkStore for saving chunks separately
-// The SyncOrchestrator needs both DocumentStore and ChunkStore
-
 // SyncOrchestrator coordinates the document sync pipeline.
 // It implements the 7-step sync flow:
 //  1. Get source config
@@ -28,7 +25,6 @@ import (
 type SyncOrchestrator struct {
 	sourceStore      driven.SourceStore
 	documentStore    driven.DocumentStore
-	chunkStore       driven.ChunkStore
 	syncStore        driven.SyncStateStore
 	searchEngine     driven.SearchEngine
 	vectorIndex      driven.VectorIndex
@@ -47,7 +43,6 @@ type SyncOrchestrator struct {
 type SyncOrchestratorConfig struct {
 	SourceStore      driven.SourceStore
 	DocumentStore    driven.DocumentStore
-	ChunkStore       driven.ChunkStore
 	SyncStore        driven.SyncStateStore
 	SearchEngine     driven.SearchEngine
 	VectorIndex      driven.VectorIndex
@@ -77,7 +72,6 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 	return &SyncOrchestrator{
 		sourceStore:      cfg.SourceStore,
 		documentStore:    cfg.DocumentStore,
-		chunkStore:       cfg.ChunkStore,
 		syncStore:        cfg.SyncStore,
 		searchEngine:     cfg.SearchEngine,
 		vectorIndex:      cfg.VectorIndex,
@@ -91,6 +85,105 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		settingsStore:    cfg.SettingsStore,
 		teamID:           cfg.TeamID,
 	}
+}
+
+// SyncContainer synchronizes a single container within a source.
+// This is used for incremental updates when containers are added.
+func (o *SyncOrchestrator) SyncContainer(ctx context.Context, sourceID, containerID string) (*domain.SyncResult, error) {
+	startTime := time.Now()
+
+	o.logger.Info("starting container sync", "source_id", sourceID, "container_id", containerID)
+
+	// Check if sync is enabled in settings
+	settings, err := o.loadSettings(ctx)
+	if err == nil && !settings.SyncEnabled {
+		o.logger.Info("sync disabled in settings", "source_id", sourceID, "container_id", containerID)
+		return &domain.SyncResult{
+			SourceID: sourceID,
+			Success:  false,
+			Error:    "sync is disabled in team settings",
+			Duration: time.Since(startTime).Seconds(),
+		}, nil
+	}
+
+	// Step 1: Get source config
+	source, err := o.sourceStore.Get(ctx, sourceID)
+	if err != nil {
+		return o.failSync(ctx, sourceID, startTime, fmt.Errorf("failed to get source: %w", err))
+	}
+
+	if !source.Enabled {
+		return o.failSync(ctx, sourceID, startTime, fmt.Errorf("source is disabled"))
+	}
+
+	// Step 2: Get sync state
+	syncState, err := o.syncStore.Get(ctx, sourceID)
+	if err != nil {
+		// Create initial sync state
+		syncState = &domain.SyncState{
+			SourceID: sourceID,
+			Status:   domain.SyncStatusIdle,
+			Stats:    domain.SyncStats{},
+		}
+	}
+
+	// Mark as running
+	now := time.Now()
+	syncState.Status = domain.SyncStatusRunning
+	syncState.StartedAt = &now
+	syncState.Error = ""
+	if err := o.syncStore.Save(ctx, syncState); err != nil {
+		o.logger.Warn("failed to update sync state to running", "error", err)
+	}
+
+	// Track processed external IDs for this container
+	processedExternalIDs := make(map[string]bool)
+
+	// Step 3: Sync the specific container
+	stats, cursor, err := o.syncContainer(ctx, source, syncState, containerID, processedExternalIDs)
+	if err != nil {
+		o.logger.Error("container sync failed",
+			"source_id", sourceID,
+			"container_id", containerID,
+			"error", err,
+		)
+		return o.failSync(ctx, sourceID, startTime, fmt.Errorf("container sync failed: %w", err))
+	}
+
+	// Step 4: Update final sync state
+	completedAt := time.Now()
+	syncState.Status = domain.SyncStatusCompleted
+	syncState.Error = ""
+	syncState.LastSyncAt = &completedAt
+	syncState.CompletedAt = &completedAt
+	syncState.Cursor = cursor
+	// Don't overwrite stats - this is just one container
+	// In a production system, you might want container-specific sync states
+
+	if err := o.syncStore.Save(ctx, syncState); err != nil {
+		o.logger.Warn("failed to update sync state", "error", err)
+	}
+
+	duration := time.Since(startTime).Seconds()
+
+	o.logger.Info("container sync completed",
+		"source_id", sourceID,
+		"container_id", containerID,
+		"duration_seconds", duration,
+		"documents_added", stats.DocumentsAdded,
+		"documents_updated", stats.DocumentsUpdated,
+		"documents_deleted", stats.DocumentsDeleted,
+		"chunks_indexed", stats.ChunksIndexed,
+		"errors", stats.Errors,
+	)
+
+	return &domain.SyncResult{
+		SourceID: sourceID,
+		Success:  true,
+		Stats:    *stats,
+		Duration: duration,
+		Cursor:   cursor,
+	}, nil
 }
 
 // SyncSource synchronizes a single source.
@@ -161,9 +254,39 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 	var lastCursor string
 	var syncErrors []string
 
+	// Track processed external IDs across containers to avoid duplicate processing
+	// This is needed when the same document appears in multiple containers
+	// (e.g., a page that's both a specific container AND an entry in a database container)
+	processedExternalIDs := make(map[string]bool)
+
+	// Full sync (no cursor): wipe all existing indexed data for this source ONCE
+	// before processing any containers. This prevents orphaned chunks from
+	// accumulating across re-syncs.
+	if syncState.Cursor == "" {
+		o.logger.Info("full sync: clearing existing indexed data", "source_id", source.ID)
+		if o.searchEngine != nil {
+			if err := o.searchEngine.DeleteBySource(ctx, source.ID); err != nil {
+				o.logger.Warn("failed to clear search engine data for source", "source_id", source.ID, "error", err)
+			}
+		}
+		if o.vectorIndex != nil {
+			// Delete embeddings for all documents in this source
+			docs, err := o.documentStore.GetBySource(ctx, source.ID, 10000, 0)
+			if err == nil {
+				docIDs := make([]string, len(docs))
+				for i, d := range docs {
+					docIDs[i] = d.ID
+				}
+				if len(docIDs) > 0 {
+					_ = o.vectorIndex.DeleteByDocuments(ctx, docIDs)
+				}
+			}
+		}
+	}
+
 	// Step 3: Sync each container
 	for _, containerID := range containerIDs {
-		containerStats, cursor, err := o.syncContainer(ctx, source, syncState, containerID)
+		containerStats, cursor, err := o.syncContainer(ctx, source, syncState, containerID, processedExternalIDs)
 		if err != nil {
 			o.logger.Error("container sync failed",
 				"source_id", sourceID,
@@ -237,11 +360,14 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 
 // syncContainer syncs a single container within a source.
 // Returns stats for this container, the cursor, and any error.
+// processedExternalIDs tracks documents already processed by previous containers
+// to avoid duplicate processing within the same sync operation.
 func (o *SyncOrchestrator) syncContainer(
 	ctx context.Context,
 	source *domain.Source,
 	syncState *domain.SyncState,
 	containerID string,
+	processedExternalIDs map[string]bool,
 ) (*domain.SyncStats, string, error) {
 	logFields := []any{"source_id", source.ID}
 	if containerID != "" {
@@ -265,29 +391,8 @@ func (o *SyncOrchestrator) syncContainer(
 	stats := &domain.SyncStats{}
 	var lastCursor string
 
-	// Full sync (no cursor): wipe all existing indexed data for this source
-	// to prevent orphaned chunks from accumulating across re-syncs.
-	if cursor == "" {
-		o.logger.Info("full sync: clearing existing indexed data", "source_id", source.ID)
-		if o.searchEngine != nil {
-			if err := o.searchEngine.DeleteBySource(ctx, source.ID); err != nil {
-				o.logger.Warn("failed to clear search engine data for source", "source_id", source.ID, "error", err)
-			}
-		}
-		if o.vectorIndex != nil {
-			// Delete embeddings for all documents in this source
-			docs, err := o.documentStore.GetBySource(ctx, source.ID, 10000, 0)
-			if err == nil {
-				docIDs := make([]string, len(docs))
-				for i, d := range docs {
-					docIDs[i] = d.ID
-				}
-				if len(docIDs) > 0 {
-					_ = o.vectorIndex.DeleteByDocuments(ctx, docIDs)
-				}
-			}
-		}
-	}
+	// Note: Full sync clearing is now handled once in Sync() before the container loop,
+	// not per-container here. This prevents wiping previously-indexed container data.
 
 	for {
 		select {
@@ -303,6 +408,30 @@ func (o *SyncOrchestrator) syncContainer(
 
 		if len(changes) == 0 {
 			break
+		}
+
+		// Filter out already-processed documents (from other containers in this sync)
+		var filteredChanges []*domain.Change
+		for _, change := range changes {
+			if processedExternalIDs[change.ExternalID] {
+				o.logger.Debug("skipping already-processed document",
+					"source_id", source.ID,
+					"container_id", containerID,
+					"external_id", change.ExternalID,
+				)
+				continue
+			}
+			filteredChanges = append(filteredChanges, change)
+		}
+		changes = filteredChanges
+
+		if len(changes) == 0 {
+			// All changes were duplicates, continue to next batch
+			if nextCursor == "" || nextCursor == cursor {
+				break
+			}
+			cursor = nextCursor
+			continue
 		}
 
 		// Collect document IDs that need old-chunk cleanup (updates/modifications)
@@ -322,6 +451,9 @@ func (o *SyncOrchestrator) syncContainer(
 		// Process each document
 		errorsBefore := stats.Errors
 		for _, change := range changes {
+			// Mark as processed before processing to avoid duplicates
+			processedExternalIDs[change.ExternalID] = true
+
 			if err := o.processChange(ctx, source, change, stats); err != nil {
 				o.logger.Warn("failed to process change",
 					"source_id", source.ID,

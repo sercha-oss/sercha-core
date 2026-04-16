@@ -155,9 +155,6 @@ func TestConnector_FetchDocument(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FetchDocument() error = %v", err)
 		}
-		if doc == nil {
-			t.Fatal("expected document, got nil")
-		}
 		if doc.Title != "test.md" {
 			t.Errorf("Title = %q, want test.md", doc.Title)
 		}

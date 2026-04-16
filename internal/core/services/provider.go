@@ -29,6 +29,7 @@ func (s *providerService) List(ctx context.Context) ([]*driving.ProviderListItem
 	// Build list with only implemented providers
 	implementedProviders := []domain.ProviderType{
 		domain.ProviderTypeGitHub,
+		domain.ProviderTypeNotion,
 		domain.ProviderTypeLocalFS,
 	}
 	items := make([]*driving.ProviderListItem, 0, len(implementedProviders))
@@ -69,6 +70,13 @@ func providerMetadata(pt domain.ProviderType) providerMeta {
 			description: "Index repositories, issues, pull requests, and wikis",
 			authMethods: []domain.AuthMethod{domain.AuthMethodOAuth2, domain.AuthMethodPAT},
 			docsURL:     "https://docs.sercha.dev/connectors/github",
+		}
+	case domain.ProviderTypeNotion:
+		return providerMeta{
+			name:        "Notion",
+			description: "Index pages, databases, and workspace content",
+			authMethods: []domain.AuthMethod{domain.AuthMethodOAuth2},
+			docsURL:     "https://docs.sercha.dev/connectors/notion",
 		}
 	case domain.ProviderTypeLocalFS:
 		return providerMeta{

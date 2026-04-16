@@ -61,6 +61,7 @@ function AddSourceWizardContent() {
   const [containers, setContainers] = useState<Container[]>([]);
   const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
+  const [syncAllContainers, setSyncAllContainers] = useState(true);
 
   // Success tracking
   const [createdSourceName, setCreatedSourceName] = useState("");
@@ -245,7 +246,7 @@ function AddSourceWizardContent() {
 
   // Create source
   const handleCreateSource = async () => {
-    if (!selectedConnection || selectedContainers.size === 0) return;
+    if (!selectedConnection || (!syncAllContainers && selectedContainers.size === 0)) return;
 
     setView("creating");
     setError(null);
@@ -273,7 +274,7 @@ function AddSourceWizardContent() {
         name: sourceName,
         provider_type: selectedConnection.provider_type,
         connection_id: selectedConnection.id,
-        containers: containers.filter((c) => selectedContainers.has(c.id)),
+        containers: syncAllContainers ? [] : containers.filter((c) => selectedContainers.has(c.id)),
       });
       setCreatedSourceName(sourceName);
       setView("success");
@@ -351,8 +352,9 @@ function AddSourceWizardContent() {
             Source Created!
           </h1>
           <p className="mt-2 text-sm text-sercha-fog-grey">
-            {createdSourceName} has been connected. {selectedContainers.size}{" "}
-            {selectedContainers.size === 1 ? "item" : "items"} will be synced.
+            {createdSourceName} has been connected. {syncAllContainers
+              ? "All accessible containers will be synced (auto-discover mode)."
+              : `${selectedContainers.size} ${selectedContainers.size === 1 ? "item" : "items"} will be synced.`}
           </p>
           <div className="mt-8 flex justify-center gap-4">
             <button
@@ -550,38 +552,94 @@ function AddSourceWizardContent() {
             </p>
           </div>
 
-          {/* Breadcrumb Navigation - Only for folder-based providers */}
-          {showFolderNavigation && folderPath.length > 0 && (
-            <div className="mb-4 flex items-center gap-1 text-sm overflow-x-auto">
-              <button
-                onClick={() => handleBreadcrumbClick(-1)}
-                className="flex items-center gap-1 text-sercha-indigo hover:underline shrink-0"
-                disabled={isLoadingContainers}
-              >
-                <Home className="h-4 w-4" />
-                Root
-              </button>
-              {folderPath.map((folder, index) => (
-                <span key={folder.id} className="flex items-center gap-1 shrink-0">
-                  <ChevronRight className="h-4 w-4 text-sercha-fog-grey" />
-                  <button
-                    onClick={() => handleBreadcrumbClick(index)}
-                    className={`hover:underline ${
-                      index === folderPath.length - 1
-                        ? "text-sercha-ink-slate font-medium"
-                        : "text-sercha-indigo"
-                    }`}
-                    disabled={isLoadingContainers || index === folderPath.length - 1}
-                  >
-                    {folder.name}
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Sync Mode Selection */}
+          <div className="mb-4 space-y-3">
+            {/* Option 1: Sync All */}
+            <button
+              type="button"
+              onClick={() => setSyncAllContainers(true)}
+              className={`w-full rounded-lg border-2 p-4 text-left transition-colors ${
+                syncAllContainers
+                  ? "border-sercha-indigo bg-sercha-indigo/5"
+                  : "border-sercha-silverline bg-white hover:border-sercha-fog-grey"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
+                  syncAllContainers ? "border-sercha-indigo" : "border-sercha-fog-grey"
+                }`}>
+                  {syncAllContainers && <div className="h-2 w-2 rounded-full bg-sercha-indigo" />}
+                </div>
+                <div>
+                  <span className="font-medium text-sercha-ink-slate">Sync all containers (auto-discover)</span>
+                  <p className="mt-0.5 text-xs text-sercha-fog-grey">
+                    Automatically index all accessible content, including items added in the future.
+                  </p>
+                </div>
+              </div>
+            </button>
 
-          {/* Search and Select All */}
-          <div className="mb-4 flex items-center gap-4">
+            {/* Option 2: Select Specific */}
+            <button
+              type="button"
+              onClick={() => setSyncAllContainers(false)}
+              className={`w-full rounded-lg border-2 p-4 text-left transition-colors ${
+                !syncAllContainers
+                  ? "border-sercha-indigo bg-sercha-indigo/5"
+                  : "border-sercha-silverline bg-white hover:border-sercha-fog-grey"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
+                  !syncAllContainers ? "border-sercha-indigo" : "border-sercha-fog-grey"
+                }`}>
+                  {!syncAllContainers && <div className="h-2 w-2 rounded-full bg-sercha-indigo" />}
+                </div>
+                <div>
+                  <span className="font-medium text-sercha-ink-slate">Select specific {pendingProvider?.type === "github" ? "repositories" : "containers"}</span>
+                  <p className="mt-0.5 text-xs text-sercha-fog-grey">
+                    Choose exactly which items to index. New items won&apos;t be added automatically.
+                  </p>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          {/* Container Picker - Only show when selecting specific containers */}
+          {!syncAllContainers && (
+            <>
+              {/* Breadcrumb Navigation - Only for folder-based providers */}
+              {showFolderNavigation && folderPath.length > 0 && (
+                <div className="mb-4 flex items-center gap-1 text-sm overflow-x-auto">
+                  <button
+                    onClick={() => handleBreadcrumbClick(-1)}
+                    className="flex items-center gap-1 text-sercha-indigo hover:underline shrink-0"
+                    disabled={isLoadingContainers}
+                  >
+                    <Home className="h-4 w-4" />
+                    Root
+                  </button>
+                  {folderPath.map((folder, index) => (
+                    <span key={folder.id} className="flex items-center gap-1 shrink-0">
+                      <ChevronRight className="h-4 w-4 text-sercha-fog-grey" />
+                      <button
+                        onClick={() => handleBreadcrumbClick(index)}
+                        className={`hover:underline ${
+                          index === folderPath.length - 1
+                            ? "text-sercha-ink-slate font-medium"
+                            : "text-sercha-indigo"
+                        }`}
+                        disabled={isLoadingContainers || index === folderPath.length - 1}
+                      >
+                        {folder.name}
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Search and Select All */}
+              <div className="mb-4 flex items-center gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sercha-fog-grey" />
               <input
@@ -666,6 +724,8 @@ function AddSourceWizardContent() {
               ))
             )}
           </div>
+            </>
+          )}
 
           {/* Action Buttons */}
           <div className="flex gap-3">
@@ -677,7 +737,7 @@ function AddSourceWizardContent() {
             </button>
             <button
               onClick={handleCreateSource}
-              disabled={selectedContainers.size === 0}
+              disabled={!syncAllContainers && selectedContainers.size === 0}
               className="flex flex-1 items-center justify-center rounded-lg bg-sercha-indigo px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sercha-indigo/90 focus:outline-none focus:ring-2 focus:ring-sercha-indigo/50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Create Source

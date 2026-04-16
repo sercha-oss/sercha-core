@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -19,6 +20,10 @@ type sourceService struct {
 	documentStore driven.DocumentStore
 	syncStore     driven.SyncStateStore
 	searchEngine  driven.SearchEngine
+	vectorIndex   driven.VectorIndex
+	taskQueue     driven.TaskQueue
+	teamID        string
+	logger        *slog.Logger
 }
 
 // NewSourceService creates a new SourceService
@@ -27,12 +32,23 @@ func NewSourceService(
 	documentStore driven.DocumentStore,
 	syncStore driven.SyncStateStore,
 	searchEngine driven.SearchEngine,
+	vectorIndex driven.VectorIndex,
+	taskQueue driven.TaskQueue,
+	teamID string,
+	logger *slog.Logger,
 ) driving.SourceService {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &sourceService{
 		sourceStore:   sourceStore,
 		documentStore: documentStore,
 		syncStore:     syncStore,
 		searchEngine:  searchEngine,
+		vectorIndex:   vectorIndex,
+		taskQueue:     taskQueue,
+		teamID:        teamID,
+		logger:        logger,
 	}
 }
 
@@ -194,11 +210,94 @@ func (s *sourceService) Disable(ctx context.Context, id string) error {
 
 // UpdateContainers updates the selected containers for a source
 func (s *sourceService) UpdateContainers(ctx context.Context, id string, containers []domain.Container) error {
-	// Verify source exists
-	_, err := s.sourceStore.Get(ctx, id)
+	// Get existing source with current containers
+	source, err := s.sourceStore.Get(ctx, id)
 	if err != nil {
 		return err
 	}
 
+	// Build maps for efficient comparison
+	oldContainerMap := make(map[string]domain.Container)
+	for _, c := range source.Containers {
+		oldContainerMap[c.ID] = c
+	}
+
+	newContainerMap := make(map[string]domain.Container)
+	for _, c := range containers {
+		newContainerMap[c.ID] = c
+	}
+
+	// Identify removed and added containers
+	var removedContainers []domain.Container
+	var addedContainers []domain.Container
+
+	// Find removed containers (in old but not in new)
+	for id, container := range oldContainerMap {
+		if _, exists := newContainerMap[id]; !exists {
+			removedContainers = append(removedContainers, container)
+		}
+	}
+
+	// Find added containers (in new but not in old)
+	for id, container := range newContainerMap {
+		if _, exists := oldContainerMap[id]; !exists {
+			addedContainers = append(addedContainers, container)
+		}
+	}
+
+	// Delete indexed data for removed containers
+	for _, container := range removedContainers {
+		if err := s.deleteContainerData(ctx, source.ID, container.ID); err != nil {
+			// Log error but continue with other containers
+			// We don't want to fail the entire operation if one deletion fails
+			s.logger.Error("failed to delete container data",
+				"source_id", source.ID,
+				"container_id", container.ID,
+				"error", err)
+		}
+	}
+
+	// Enqueue sync tasks for added containers
+	for _, container := range addedContainers {
+		if s.taskQueue != nil {
+			task := domain.NewSyncContainerTask(s.teamID, source.ID, container.ID)
+			if err := s.taskQueue.Enqueue(ctx, task); err != nil {
+				// Log error but continue
+				// The container will be synced on next full sync if this fails
+				s.logger.Error("failed to enqueue sync task for container",
+					"source_id", source.ID,
+					"container_id", container.ID,
+					"error", err)
+			}
+		}
+	}
+
+	// Update containers in store
 	return s.sourceStore.UpdateContainers(ctx, id, containers)
+}
+
+// deleteContainerData deletes all indexed data for a specific container
+func (s *sourceService) deleteContainerData(ctx context.Context, sourceID, containerID string) error {
+	// Delete from search engine (OpenSearch)
+	if s.searchEngine != nil {
+		if err := s.searchEngine.DeleteBySourceAndContainer(ctx, sourceID, containerID); err != nil {
+			return err
+		}
+	}
+
+	// Delete from vector index (pgvector)
+	if s.vectorIndex != nil {
+		if err := s.vectorIndex.DeleteBySourceAndContainer(ctx, sourceID, containerID); err != nil {
+			return err
+		}
+	}
+
+	// Delete documents (PostgreSQL)
+	if s.documentStore != nil {
+		if err := s.documentStore.DeleteBySourceAndContainer(ctx, sourceID, containerID); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -50,6 +50,9 @@ type SearchEngine interface {
 	// DeleteBySource deletes all indexed data for a source
 	DeleteBySource(ctx context.Context, sourceID string) error
 
+	// DeleteBySourceAndContainer deletes all indexed data for a specific container within a source
+	DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error
+
 	// HealthCheck verifies the search engine is available
 	HealthCheck(ctx context.Context) error
 
@@ -88,6 +91,9 @@ type VectorIndex interface {
 
 	// DeleteByDocuments removes all embeddings for multiple documents in a single operation
 	DeleteByDocuments(ctx context.Context, documentIDs []string) error
+
+	// DeleteBySourceAndContainer removes all embeddings for a specific container within a source
+	DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error
 
 	// HealthCheck verifies the vector store is available
 	HealthCheck(ctx context.Context) error

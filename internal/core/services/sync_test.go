@@ -18,7 +18,6 @@ func createTestSyncOrchestrator(t *testing.T) (
 	*SyncOrchestrator,
 	*mocks.MockSourceStore,
 	*mocks.MockDocumentStore,
-	*mocks.MockChunkStore,
 	*mocks.MockSyncStateStore,
 	*mocks.MockSearchEngine,
 	*mockConnectorFactory,
@@ -27,7 +26,6 @@ func createTestSyncOrchestrator(t *testing.T) (
 
 	sourceStore := mocks.NewMockSourceStore()
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
 	connectorFactory := newMockConnectorFactory()
@@ -36,7 +34,7 @@ func createTestSyncOrchestrator(t *testing.T) (
 	cfg := domain.NewRuntimeConfig("memory")
 	services := runtime.NewServices(cfg)
 
-	// Create mock indexing executor that actually saves chunks and indexes them
+	// Create mock indexing executor that indexes chunks
 	executor := &mockIndexingExecutor{
 		executeFn: func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
 			// Create a chunk from the input
@@ -46,11 +44,6 @@ func createTestSyncOrchestrator(t *testing.T) (
 				SourceID:   pctx.SourceID,
 				Content:    input.Content,
 				Position:   0,
-			}
-
-			// Save to chunk store if available
-			if chunkStore != nil {
-				_ = chunkStore.Save(ctx, chunk)
 			}
 
 			// Index in search engine if available
@@ -70,7 +63,6 @@ func createTestSyncOrchestrator(t *testing.T) (
 	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
 		SourceStore:      sourceStore,
 		DocumentStore:    documentStore,
-		ChunkStore:       chunkStore,
 		SyncStore:        syncStore,
 		SearchEngine:     searchEngine,
 		ConnectorFactory: connectorFactory,
@@ -80,7 +72,7 @@ func createTestSyncOrchestrator(t *testing.T) (
 		CapabilitySet:    capabilitySet,
 	})
 
-	return orchestrator, sourceStore, documentStore, chunkStore, syncStore, searchEngine, connectorFactory
+	return orchestrator, sourceStore, documentStore, syncStore, searchEngine, connectorFactory
 }
 
 // mockConnectorFactory wraps mocks.MockConnectorFactory to fix interface compatibility
@@ -122,7 +114,7 @@ func (m *mockConnectorFactory) GetOAuthConfig(providerType domain.ProviderType) 
 
 // TestNewSyncOrchestrator tests basic orchestrator creation
 func TestNewSyncOrchestrator(t *testing.T) {
-	orchestrator, _, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, _, _, _, _, _ := createTestSyncOrchestrator(t)
 	if orchestrator == nil {
 		t.Fatal("expected non-nil orchestrator")
 	}
@@ -160,7 +152,7 @@ func TestNewSyncOrchestrator_NilLogger(t *testing.T) {
 
 // TestSyncSource_SourceNotFound tests error when source doesn't exist
 func TestSyncSource_SourceNotFound(t *testing.T) {
-	orchestrator, _, _, _, syncStore, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, _, _, syncStore, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	result, err := orchestrator.SyncSource(ctx, "non-existent")
@@ -186,7 +178,7 @@ func TestSyncSource_SourceNotFound(t *testing.T) {
 
 // TestSyncSource_DisabledSource tests that disabled sources fail sync
 func TestSyncSource_DisabledSource(t *testing.T) {
-	orchestrator, sourceStore, _, _, syncStore, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, syncStore, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create disabled source
@@ -214,7 +206,7 @@ func TestSyncSource_DisabledSource(t *testing.T) {
 
 // TestSyncSource_ConnectorCreateFails tests error when connector creation fails
 func TestSyncSource_ConnectorCreateFails(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -240,7 +232,7 @@ func TestSyncSource_ConnectorCreateFails(t *testing.T) {
 
 // TestSyncSource_TestConnectionFails tests error when connection test fails
 func TestSyncSource_TestConnectionFails(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -268,7 +260,7 @@ func TestSyncSource_TestConnectionFails(t *testing.T) {
 
 // TestSyncSource_FetchChangesFails tests error when fetching changes fails
 func TestSyncSource_FetchChangesFails(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -296,7 +288,7 @@ func TestSyncSource_FetchChangesFails(t *testing.T) {
 
 // TestSyncSource_ContextCancelled tests that context cancellation is handled
 func TestSyncSource_ContextCancelled(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create enabled source
@@ -335,7 +327,7 @@ func TestSyncSource_ContextCancelled(t *testing.T) {
 
 // TestSyncSource_Success_AddDocument tests successful document addition
 func TestSyncSource_Success_AddDocument(t *testing.T) {
-	orchestrator, sourceStore, documentStore, chunkStore, syncStore, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, syncStore, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -394,12 +386,6 @@ func TestSyncSource_Success_AddDocument(t *testing.T) {
 		t.Errorf("expected source ID 'source-1', got '%s'", savedDoc.SourceID)
 	}
 
-	// Verify chunks were saved
-	chunks, _ := chunkStore.GetByDocument(ctx, savedDoc.ID)
-	if len(chunks) != 1 {
-		t.Errorf("expected 1 chunk, got %d", len(chunks))
-	}
-
 	// Verify chunks were indexed in search engine
 	count, _ := searchEngine.Count(ctx)
 	if count != 1 {
@@ -421,7 +407,7 @@ func TestSyncSource_Success_AddDocument(t *testing.T) {
 
 // TestSyncSource_Success_UpdateDocument tests successful document update
 func TestSyncSource_Success_UpdateDocument(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, syncStore, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, syncStore, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -498,7 +484,7 @@ func TestSyncSource_Success_UpdateDocument(t *testing.T) {
 
 // TestSyncSource_Success_DeleteDocument tests successful document deletion
 func TestSyncSource_Success_DeleteDocument(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, syncStore, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, syncStore, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -569,7 +555,7 @@ func TestSyncSource_Success_DeleteDocument(t *testing.T) {
 
 // TestSyncSource_DeleteNonExistentDocument tests that deleting non-existent documents doesn't error
 func TestSyncSource_DeleteNonExistentDocument(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -607,7 +593,7 @@ func TestSyncSource_DeleteNonExistentDocument(t *testing.T) {
 
 // TestSyncSource_Pagination tests handling of paginated results
 func TestSyncSource_Pagination(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -657,7 +643,7 @@ func TestSyncSource_Pagination(t *testing.T) {
 
 // TestSyncSource_PaginationStopsOnEmptyResults tests that pagination stops on empty results
 func TestSyncSource_PaginationStopsOnEmptyResults(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{
@@ -695,7 +681,7 @@ func TestSyncSource_PaginationStopsOnEmptyResults(t *testing.T) {
 
 // TestSyncSource_PaginationStopsOnSameCursor tests that pagination stops when cursor doesn't advance
 func TestSyncSource_PaginationStopsOnSameCursor(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{
@@ -729,7 +715,7 @@ func TestSyncSource_PaginationStopsOnSameCursor(t *testing.T) {
 
 // TestSyncSource_ProcessChangeError_Continues tests that sync continues after processing errors
 func TestSyncSource_ProcessChangeError_Continues(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -768,7 +754,7 @@ func TestSyncSource_ProcessChangeError_Continues(t *testing.T) {
 
 // TestSyncSource_UnknownChangeType tests error handling for unknown change types
 func TestSyncSource_UnknownChangeType(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -797,7 +783,7 @@ func TestSyncSource_UnknownChangeType(t *testing.T) {
 
 // TestSyncSource_MultipleChunks tests that multiple chunks are created and indexed
 func TestSyncSource_MultipleChunks(t *testing.T) {
-	orchestrator, sourceStore, _, chunkStore, _, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{
@@ -809,14 +795,11 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 	// Mock indexing executor to return multiple chunks
 	executor := orchestrator.indexingExecutor.(*mockIndexingExecutor)
 	executor.executeFn = func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
-		// Create and save 3 chunks
+		// Create and index 3 chunks
 		chunks := []*domain.Chunk{
 			{ID: "chunk-1", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 1", Position: 0},
 			{ID: "chunk-2", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 2", Position: 1},
 			{ID: "chunk-3", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 3", Position: 2},
-		}
-		for _, chunk := range chunks {
-			_ = chunkStore.Save(ctx, chunk)
 		}
 		_ = searchEngine.Index(ctx, chunks)
 
@@ -845,12 +828,7 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 		t.Errorf("expected 3 chunks indexed, got %d", result.Stats.ChunksIndexed)
 	}
 
-	// Verify chunks were saved
-	if chunkStore.Count() != 3 {
-		t.Errorf("expected 3 chunks in store, got %d", chunkStore.Count())
-	}
-
-	// Verify chunks were indexed
+	// Verify chunks were indexed in search engine
 	seCount, _ := searchEngine.Count(ctx)
 	if seCount != 3 {
 		t.Errorf("expected 3 chunks in search engine, got %d", seCount)
@@ -859,7 +837,7 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 
 // TestSyncSource_NormaliserApplied tests that content normalisation is applied
 func TestSyncSource_NormaliserApplied(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{
@@ -918,7 +896,6 @@ func TestSyncSource_NormaliserApplied(t *testing.T) {
 func TestSyncSource_NilSearchEngine(t *testing.T) {
 	sourceStore := mocks.NewMockSourceStore()
 	documentStore := mocks.NewMockDocumentStore()
-	chunkStore := mocks.NewMockChunkStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	connectorFactory := newMockConnectorFactory()
 	normaliserRegistry := mocks.NewMockNormaliserRegistry()
@@ -932,7 +909,6 @@ func TestSyncSource_NilSearchEngine(t *testing.T) {
 	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
 		SourceStore:      sourceStore,
 		DocumentStore:    documentStore,
-		ChunkStore:       chunkStore,
 		SyncStore:        syncStore,
 		SearchEngine:     nil, // No search engine
 		ConnectorFactory: connectorFactory,
@@ -961,54 +937,9 @@ func TestSyncSource_NilSearchEngine(t *testing.T) {
 	}
 }
 
-// TestSyncSource_NilChunkStore tests that sync works without chunk store
-func TestSyncSource_NilChunkStore(t *testing.T) {
-	sourceStore := mocks.NewMockSourceStore()
-	documentStore := mocks.NewMockDocumentStore()
-	syncStore := mocks.NewMockSyncStateStore()
-	connectorFactory := newMockConnectorFactory()
-	normaliserRegistry := mocks.NewMockNormaliserRegistry()
-	executor := &mockIndexingExecutor{}
-	capabilitySet := pipeline.NewCapabilitySet()
-
-	cfg := domain.NewRuntimeConfig("memory")
-	services := runtime.NewServices(cfg)
-
-	// Create orchestrator without chunk store
-	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
-		SourceStore:      sourceStore,
-		DocumentStore:    documentStore,
-		ChunkStore:       nil, // No chunk store
-		SyncStore:        syncStore,
-		ConnectorFactory: connectorFactory,
-		NormaliserReg:    normaliserRegistry,
-		Services:         services,
-		IndexingExecutor: executor,
-		CapabilitySet:    capabilitySet,
-	})
-
-	ctx := context.Background()
-	_ = sourceStore.Save(ctx, &domain.Source{ID: "source-1", Enabled: true})
-
-	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
-		return []*domain.Change{
-			{ExternalID: "ext-1", Type: domain.ChangeTypeAdded, Document: &domain.Document{ExternalID: "ext-1"}, Content: "Content"},
-		}, "", nil
-	}
-
-	// Should not panic without chunk store
-	result, err := orchestrator.SyncSource(ctx, "source-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Success {
-		t.Error("expected success even without chunk store")
-	}
-}
-
 // TestSyncSource_CursorPersisted tests that cursor is persisted after successful sync
 func TestSyncSource_CursorPersisted(t *testing.T) {
-	orchestrator, sourceStore, _, _, syncStore, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, syncStore, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{
@@ -1044,7 +975,7 @@ func TestSyncSource_CursorPersisted(t *testing.T) {
 
 // TestSyncSource_SyncStateProgression tests sync state transitions
 func TestSyncSource_SyncStateProgression(t *testing.T) {
-	orchestrator, sourceStore, _, _, syncStore, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, syncStore, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{
@@ -1091,7 +1022,7 @@ func TestSyncSource_SyncStateProgression(t *testing.T) {
 
 // TestSyncAll_NoSources tests SyncAll with no sources
 func TestSyncAll_NoSources(t *testing.T) {
-	orchestrator, _, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, _, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	results, err := orchestrator.SyncAll(ctx)
@@ -1105,7 +1036,7 @@ func TestSyncAll_NoSources(t *testing.T) {
 
 // TestSyncAll_SkipsDisabledSources tests that disabled sources are skipped
 func TestSyncAll_SkipsDisabledSources(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create disabled source
@@ -1123,7 +1054,7 @@ func TestSyncAll_SkipsDisabledSources(t *testing.T) {
 
 // TestSyncAll_MultipleSources tests syncing multiple enabled sources
 func TestSyncAll_MultipleSources(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create two enabled sources
@@ -1155,7 +1086,7 @@ func TestSyncAll_MultipleSources(t *testing.T) {
 
 // TestSyncAll_MixedEnabledDisabled tests that only enabled sources are synced
 func TestSyncAll_MixedEnabledDisabled(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	_ = sourceStore.Save(ctx, &domain.Source{ID: "source-1", Enabled: true})
@@ -1177,7 +1108,7 @@ func TestSyncAll_MixedEnabledDisabled(t *testing.T) {
 
 // TestSyncAll_ListSourcesError tests error when listing sources fails
 func TestSyncAll_ListSourcesError(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create a custom mock that returns an error on List
@@ -1211,7 +1142,7 @@ func (m *mockSourceStoreWithError) List(ctx context.Context) ([]*domain.Source, 
 
 // TestSyncAll_PartialFailure tests that SyncAll continues after individual source failures
 func TestSyncAll_PartialFailure(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create two sources
@@ -1259,7 +1190,7 @@ func TestSyncAll_PartialFailure(t *testing.T) {
 
 // TestProcessChange_NilDocument tests processAddOrUpdate with nil document
 func TestProcessChange_NilDocument(t *testing.T) {
-	orchestrator, sourceStore, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}
@@ -1289,7 +1220,7 @@ func TestProcessChange_NilDocument(t *testing.T) {
 
 // TestProcessAddOrUpdate_DocumentFieldsSet tests that document fields are properly set
 func TestProcessAddOrUpdate_DocumentFieldsSet(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{ID: "source-1"}
@@ -1334,7 +1265,7 @@ func TestProcessAddOrUpdate_DocumentFieldsSet(t *testing.T) {
 
 // TestFailSync tests that failSync properly updates sync state
 func TestFailSync(t *testing.T) {
-	orchestrator, _, _, _, syncStore, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, _, _, syncStore, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Pre-create sync state
@@ -1379,7 +1310,7 @@ func TestFailSync(t *testing.T) {
 
 // TestFailSync_NoExistingSyncState tests failSync when no sync state exists
 func TestFailSync_NoExistingSyncState(t *testing.T) {
-	orchestrator, _, _, _, _, _, _ := createTestSyncOrchestrator(t)
+	orchestrator, _, _, _, _, _ := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	testErr := errors.New("sync failed")
@@ -1401,7 +1332,7 @@ func TestFailSync_NoExistingSyncState(t *testing.T) {
 
 // TestSyncSource_SearchEngineDeleteError tests that deletion continues even if search engine fails
 func TestSyncSource_SearchEngineDeleteError(t *testing.T) {
-	orchestrator, sourceStore, documentStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{

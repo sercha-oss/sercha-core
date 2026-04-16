@@ -34,8 +34,8 @@ func (s *documentService) Get(ctx context.Context, id string) (*domain.Document,
 }
 
 // GetWithChunks retrieves a document with its chunks.
-// Note: This method is deprecated. It returns the document with empty chunks
-// since we no longer use ChunkStore for content retrieval. Use GetContent instead.
+// Note: This method is deprecated. It returns the document with empty chunks.
+// Use GetContent instead to retrieve document content from the search engine.
 func (s *documentService) GetWithChunks(ctx context.Context, id string) (*domain.DocumentWithChunks, error) {
 	doc, err := s.documentStore.Get(ctx, id)
 	if err != nil {

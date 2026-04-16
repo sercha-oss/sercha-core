@@ -276,6 +276,23 @@ func (v *VectorIndex) DeleteByDocuments(ctx context.Context, documentIDs []strin
 	return nil
 }
 
+// DeleteBySourceAndContainer removes all embeddings for a specific container within a source
+// Joins with documents table to filter by container_id from document metadata
+func (v *VectorIndex) DeleteBySourceAndContainer(ctx context.Context, sourceID, containerID string) error {
+	query := `
+		DELETE FROM embeddings
+		WHERE document_id IN (
+			SELECT id FROM documents
+			WHERE source_id = $1 AND metadata->>'container_id' = $2
+		)
+	`
+	_, err := v.pool.Exec(ctx, query, sourceID, containerID)
+	if err != nil {
+		return fmt.Errorf("failed to delete embeddings by source and container: %w", err)
+	}
+	return nil
+}
+
 // HealthCheck verifies the connection and vector extension availability
 func (v *VectorIndex) HealthCheck(ctx context.Context) error {
 	if err := v.pool.Ping(ctx); err != nil {

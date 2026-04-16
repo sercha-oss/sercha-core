@@ -36,6 +36,7 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/github"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/localfs"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/notion"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/opensearch"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pgvector"
 	pipelineexec "github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/executor"
@@ -212,7 +213,6 @@ func main() {
 	// ===== PostgreSQL Stores =====
 	userStore := postgres.NewUserStore(db)
 	documentStore := postgres.NewDocumentStore(db)
-	chunkStore := postgres.NewChunkStore(db)
 	sourceStore := postgres.NewSourceStore(db)
 	syncStore := postgres.NewSyncStateStore(db)
 	settingsStore := postgres.NewSettingsStore(db)
@@ -294,6 +294,10 @@ func main() {
 	factory.Register(github.NewBuilder())
 	factory.RegisterOAuthHandler(domain.PlatformGitHub, github.NewOAuthHandler())
 
+	// Register Notion connector
+	factory.Register(notion.NewBuilder())
+	factory.RegisterOAuthHandler(domain.PlatformNotion, notion.NewOAuthHandler())
+
 	// Register LocalFS connector (for testing/development)
 	localfsAllowedRoots := []string{"/data", "/tmp"}
 	if envRoots := getEnv("LOCALFS_ALLOWED_ROOTS", ""); envRoots != "" {
@@ -313,6 +317,10 @@ func main() {
 	// Register GitHub container lister factory
 	containerListerFactory.Register(domain.ProviderTypeGitHub,
 		github.NewContainerListerFactory(installationStore, tokenProviderFactory, ""))
+
+	// Register Notion container lister factory
+	containerListerFactory.Register(domain.ProviderTypeNotion,
+		notion.NewContainerListerFactory(installationStore, tokenProviderFactory))
 
 	// Register LocalFS container lister factory
 	containerListerFactory.Register(domain.ProviderTypeLocalFS,
@@ -466,7 +474,7 @@ func main() {
 	// Services (core business logic)
 	authService := services.NewAuthService(userStore, sessionStore, authAdapter)
 	userService := services.NewUserService(userStore, sessionStore, authAdapter, teamID)
-	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine)
+	sourceService := services.NewSourceService(sourceStore, documentStore, syncStore, searchEngine, vectorIndex, taskQueue, teamID, slog.Default())
 	documentService := services.NewDocumentService(documentStore, searchEngine)
 	searchService := services.NewSearchService(searchEngine, documentStore, runtimeServices, searchExecutor, capabilityStore, settingsStore, teamID)
 	settingsService := services.NewSettingsService(settingsStore, aiFactory, cfg, runtimeServices, teamID)
@@ -558,7 +566,6 @@ func main() {
 	syncOrchestrator := services.NewSyncOrchestrator(services.SyncOrchestratorConfig{
 		SourceStore:      sourceStore,
 		DocumentStore:    documentStore,
-		ChunkStore:       chunkStore,
 		SyncStore:        syncStore,
 		SearchEngine:     searchEngine,
 		VectorIndex:      vectorIndex,
@@ -589,6 +596,26 @@ func main() {
 		log.Printf("Scheduler enabled (lock_required=%t)", schedulerLockRequired)
 	} else {
 		log.Println("Scheduler disabled via SCHEDULER_ENABLED=false")
+	}
+
+	// Seed default scheduled task if it doesn't exist
+	// This ensures periodic syncs run automatically without manual configuration
+	if scheduler != nil {
+		const defaultSyncTaskID = "document-sync"
+		if _, err := schedulerStore.GetScheduledTask(ctx, defaultSyncTaskID); err == domain.ErrNotFound {
+			task := domain.NewScheduledTask(
+				defaultSyncTaskID,
+				"Document Sync",
+				domain.TaskTypeSyncAll,
+				teamID,
+				time.Hour,
+			)
+			if err := schedulerStore.SaveScheduledTask(ctx, task); err != nil {
+				log.Printf("Warning: failed to seed scheduled task: %v", err)
+			} else {
+				log.Printf("Created default sync schedule (every %v)", task.Interval)
+			}
+		}
 	}
 
 	switch mode {

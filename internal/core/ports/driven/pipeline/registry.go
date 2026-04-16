@@ -59,7 +59,6 @@ type CapabilityProvider interface {
 	// - CapabilitySearchEngine: driven.SearchEngine
 	// - CapabilityVectorStore: driven.VectorIndex
 	// - CapabilityDocStore: driven.DocumentStore
-	// - CapabilityChunkStore: driven.DocumentStore (chunk operations)
 	Instance() any
 
 	// Available checks if the capability is currently available.
