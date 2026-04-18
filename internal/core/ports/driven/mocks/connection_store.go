@@ -10,10 +10,10 @@ import (
 
 // MockConnectionStore is a mock implementation of ConnectionStore for testing
 type MockConnectionStore struct {
-	mu            sync.RWMutex
-	connections   map[string]*domain.Connection
-	byPlatform    map[domain.PlatformType]map[string]*domain.Connection
-	byAccount     map[string]*domain.Connection // key: platform:accountID
+	mu          sync.RWMutex
+	connections map[string]*domain.Connection
+	byPlatform  map[domain.PlatformType]map[string]*domain.Connection
+	byAccount   map[string]*domain.Connection // key: platform:accountID
 }
 
 // NewMockConnectionStore creates a new MockConnectionStore

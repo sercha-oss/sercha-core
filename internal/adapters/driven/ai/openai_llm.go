@@ -51,23 +51,23 @@ func NewOpenAILLM(apiKey, model, baseURL string) (driven.LLMService, error) {
 
 // chatCompletionRequest is the request body for OpenAI chat completion API
 type chatCompletionRequest struct {
-	Model            string                 `json:"model"`
-	Messages         []chatMessage          `json:"messages"`
-	Temperature      float64                `json:"temperature,omitempty"`
-	MaxTokens        int                    `json:"max_tokens,omitempty"`
-	ResponseFormat   *responseFormat        `json:"response_format,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []chatMessage   `json:"messages"`
+	Temperature    float64         `json:"temperature,omitempty"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
 // chatMessage represents a message in the chat
 type chatMessage struct {
-	Role    string `json:"role"`    // "system", "user", or "assistant"
+	Role    string `json:"role"` // "system", "user", or "assistant"
 	Content string `json:"content"`
 }
 
 // responseFormat specifies the output format for structured responses
 type responseFormat struct {
-	Type       string                 `json:"type"` // "json_schema" for structured output
-	JSONSchema *jsonSchemaDefinition  `json:"json_schema,omitempty"`
+	Type       string                `json:"type"` // "json_schema" for structured output
+	JSONSchema *jsonSchemaDefinition `json:"json_schema,omitempty"`
 }
 
 // jsonSchemaDefinition wraps a JSON schema with name and strict mode

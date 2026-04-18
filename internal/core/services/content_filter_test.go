@@ -121,10 +121,10 @@ func TestContentFilterService_ShouldFetchContent_NoSettings(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name     string
-		path     string
+		name      string
+		path      string
 		wantFetch bool
-		wantMime string
+		wantMime  string
 	}{
 		{"text file", "README.md", true, "text/markdown"},
 		{"image file", "logo.png", true, "image/png"},
@@ -226,7 +226,7 @@ func TestContentFilterService_ShouldFetchContent_MimePatterns(t *testing.T) {
 		{"allow markdown", "README.md", true, "text/markdown"},
 		{"allow typescript", "app.ts", true, "application/typescript"},
 		{"allow go", "main.go", true, "text/x-go"},
-		{"allow tar", "backup.tar", true, "application/x-tar"}, // Not excluded
+		{"allow tar", "backup.tar", true, "application/x-tar"},     // Not excluded
 		{"allow exe", "app.exe", true, "application/x-msdownload"}, // Not excluded
 	}
 

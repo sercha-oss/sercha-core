@@ -21,8 +21,8 @@ var _ driven.Connector = (*Connector)(nil)
 
 // Connector fetches documents from a local filesystem directory.
 type Connector struct {
-	rootPath    string  // Full path to directory
-	containerID string  // Relative path (for metadata)
+	rootPath    string // Full path to directory
+	containerID string // Relative path (for metadata)
 	config      *Config
 }
 
@@ -376,4 +376,3 @@ func computeContentHash(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
 }
-

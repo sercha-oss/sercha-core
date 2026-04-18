@@ -37,8 +37,8 @@ type CapabilityType string
 const (
 	CapabilityLLM          CapabilityType = "llm"
 	CapabilityEmbedder     CapabilityType = "embedder"
-	CapabilitySearchEngine CapabilityType = "search_engine"  // BM25/text search (driven.SearchEngine)
-	CapabilityVectorStore  CapabilityType = "vector_store"   // Vector similarity (driven.VectorIndex)
+	CapabilitySearchEngine CapabilityType = "search_engine" // BM25/text search (driven.SearchEngine)
+	CapabilityVectorStore  CapabilityType = "vector_store"  // Vector similarity (driven.VectorIndex)
 	CapabilityGraphStore   CapabilityType = "graph_store"
 	CapabilityDocStore     CapabilityType = "doc_store"
 	CapabilityOntology     CapabilityType = "ontology"

@@ -31,6 +31,7 @@ func (s *providerService) List(ctx context.Context) ([]*driving.ProviderListItem
 		domain.ProviderTypeGitHub,
 		domain.ProviderTypeNotion,
 		domain.ProviderTypeLocalFS,
+		domain.ProviderTypeOneDrive,
 	}
 	items := make([]*driving.ProviderListItem, 0, len(implementedProviders))
 
@@ -84,6 +85,13 @@ func providerMetadata(pt domain.ProviderType) providerMeta {
 			description: "Index files and directories from the local filesystem",
 			authMethods: []domain.AuthMethod{},
 			docsURL:     "https://docs.sercha.dev/connectors/localfs",
+		}
+	case domain.ProviderTypeOneDrive:
+		return providerMeta{
+			name:        "Microsoft OneDrive",
+			description: "Index files and folders from Microsoft OneDrive",
+			authMethods: []domain.AuthMethod{domain.AuthMethodOAuth2},
+			docsURL:     "https://docs.sercha.dev/connectors/onedrive",
 		}
 	default:
 		return providerMeta{

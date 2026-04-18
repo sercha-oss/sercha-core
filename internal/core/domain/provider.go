@@ -7,9 +7,10 @@ type ProviderType string
 
 const (
 	// Only implemented connectors
-	ProviderTypeGitHub  ProviderType = "github"
-	ProviderTypeLocalFS ProviderType = "localfs"
-	ProviderTypeNotion  ProviderType = "notion"
+	ProviderTypeGitHub   ProviderType = "github"
+	ProviderTypeLocalFS  ProviderType = "localfs"
+	ProviderTypeNotion   ProviderType = "notion"
+	ProviderTypeOneDrive ProviderType = "onedrive"
 )
 
 // AuthProvider holds OAuth configuration for a provider
@@ -23,7 +24,6 @@ type AuthProvider struct {
 	ClientSecret string       `json:"-"`            // OAuth client secret (never serialize)
 	RedirectURL  string       `json:"redirect_url"` // OAuth callback URL
 }
-
 
 // ProviderConfig represents OAuth app configuration for a provider type.
 // One config per provider - multiple installations can use the same config.
@@ -76,9 +76,10 @@ type PlatformType string
 
 const (
 	// Only implemented platforms (1:1 with providers for now)
-	PlatformGitHub  PlatformType = "github"
-	PlatformLocalFS PlatformType = "localfs"
-	PlatformNotion  PlatformType = "notion"
+	PlatformGitHub    PlatformType = "github"
+	PlatformLocalFS   PlatformType = "localfs"
+	PlatformNotion    PlatformType = "notion"
+	PlatformMicrosoft PlatformType = "microsoft"
 )
 
 // PlatformFor returns the platform that owns a given service/provider.
@@ -93,6 +94,8 @@ func PlatformFor(provider ProviderType) PlatformType {
 		return PlatformLocalFS
 	case ProviderTypeNotion:
 		return PlatformNotion
+	case ProviderTypeOneDrive:
+		return PlatformMicrosoft
 	default:
 		return PlatformType(provider)
 	}
@@ -107,6 +110,8 @@ func ServicesFor(platform PlatformType) []ProviderType {
 		return []ProviderType{ProviderTypeLocalFS}
 	case PlatformNotion:
 		return []ProviderType{ProviderTypeNotion}
+	case PlatformMicrosoft:
+		return []ProviderType{ProviderTypeOneDrive}
 	default:
 		return []ProviderType{ProviderType(platform)}
 	}
@@ -120,6 +125,8 @@ func PlatformDisplayName(platform PlatformType) string {
 		return "Local Filesystem"
 	case PlatformNotion:
 		return "Notion"
+	case PlatformMicrosoft:
+		return "Microsoft"
 	default:
 		return string(platform)
 	}

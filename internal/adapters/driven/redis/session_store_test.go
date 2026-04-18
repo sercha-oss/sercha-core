@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/redis/go-redis/v9"
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 )
 
 // setupTestSessionStore creates a test Redis client and SessionStore

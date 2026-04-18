@@ -37,10 +37,10 @@ type Capabilities struct {
 
 // OperationalLimits defines guardrails from environment configuration
 type OperationalLimits struct {
-	SyncMinInterval      int // Minutes floor (default: 5)
-	SyncMaxInterval      int // Minutes ceiling (default: 1440)
-	MaxWorkers           int // Worker ceiling (default: 10)
-	MaxResultsPerPage    int // Results ceiling (default: 100)
+	SyncMinInterval   int // Minutes floor (default: 5)
+	SyncMaxInterval   int // Minutes ceiling (default: 1440)
+	MaxWorkers        int // Worker ceiling (default: 10)
+	MaxResultsPerPage int // Results ceiling (default: 100)
 }
 
 // ConfigProvider provides access to configuration from environment variables.

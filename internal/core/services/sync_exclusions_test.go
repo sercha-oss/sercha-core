@@ -218,10 +218,10 @@ func TestSyncOrchestrator_MatchesExclusionPattern(t *testing.T) {
 // - Custom patterns from UI are respected alongside enabled default patterns
 func TestSyncOrchestrator_ShouldExclude(t *testing.T) {
 	tests := []struct {
-		name      string
-		settings  *domain.Settings
-		docPath   string
-		expected  bool
+		name     string
+		settings *domain.Settings
+		docPath  string
+		expected bool
 	}{
 		{
 			name: "nil sync exclusions - no exclusion",

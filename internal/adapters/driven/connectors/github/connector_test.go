@@ -41,14 +41,14 @@ func TestConnector_FetchDocument_Issue(t *testing.T) {
 		if r.Method == "GET" && strings.Contains(r.URL.Path, "/repos/owner/repo/issues/42") {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(Issue{
-				ID:      1,
-				Number:  42,
-				Title:   "Test Issue",
-				Body:    "Issue body content",
-				State:   "open",
-				HTMLURL: "https://github.com/owner/repo/issues/42",
-				User:    &User{Login: "testuser"},
-				Labels:  []Label{{Name: "bug"}},
+				ID:        1,
+				Number:    42,
+				Title:     "Test Issue",
+				Body:      "Issue body content",
+				State:     "open",
+				HTMLURL:   "https://github.com/owner/repo/issues/42",
+				User:      &User{Login: "testuser"},
+				Labels:    []Label{{Name: "bug"}},
 				CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 				UpdatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 			})
@@ -88,15 +88,15 @@ func TestConnector_FetchDocument_PR(t *testing.T) {
 		if r.Method == "GET" && strings.Contains(r.URL.Path, "/repos/owner/repo/pulls/10") {
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(PullRequest{
-				ID:      2,
-				Number:  10,
-				Title:   "Test PR",
-				Body:    "PR description",
-				State:   "closed",
-				HTMLURL: "https://github.com/owner/repo/pull/10",
-				User:    &User{Login: "prauthor"},
-				Head:    &PRBranch{Ref: "feature-branch", SHA: "abc123"},
-				Base:    &PRBranch{Ref: "main", SHA: "def456"},
+				ID:        2,
+				Number:    10,
+				Title:     "Test PR",
+				Body:      "PR description",
+				State:     "closed",
+				HTMLURL:   "https://github.com/owner/repo/pull/10",
+				User:      &User{Login: "prauthor"},
+				Head:      &PRBranch{Ref: "feature-branch", SHA: "abc123"},
+				Base:      &PRBranch{Ref: "main", SHA: "def456"},
 				CreatedAt: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
 				UpdatedAt: time.Date(2024, 2, 5, 0, 0, 0, 0, time.UTC),
 			})

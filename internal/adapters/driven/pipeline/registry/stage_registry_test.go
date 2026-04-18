@@ -29,8 +29,8 @@ func newMockStageFactory(id string, stageType pipeline.StageType) *mockStageFact
 	}
 }
 
-func (f *mockStageFactory) StageID() string                        { return f.id }
-func (f *mockStageFactory) Descriptor() pipeline.StageDescriptor   { return f.descriptor }
+func (f *mockStageFactory) StageID() string                            { return f.id }
+func (f *mockStageFactory) Descriptor() pipeline.StageDescriptor       { return f.descriptor }
 func (f *mockStageFactory) Validate(config pipeline.StageConfig) error { return nil }
 func (f *mockStageFactory) Create(config pipeline.StageConfig, capabilities *pipeline.CapabilitySet) (pipelineport.Stage, error) {
 	return &mockStage{descriptor: f.descriptor}, nil

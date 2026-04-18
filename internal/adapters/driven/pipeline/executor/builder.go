@@ -144,6 +144,6 @@ func (p *executablePipeline) Run(ctx context.Context, input any) (any, error) {
 
 // Ensure types implement interfaces.
 var (
-	_ pipelineport.PipelineBuilder   = (*PipelineBuilder)(nil)
+	_ pipelineport.PipelineBuilder    = (*PipelineBuilder)(nil)
 	_ pipelineport.ExecutablePipeline = (*executablePipeline)(nil)
 )

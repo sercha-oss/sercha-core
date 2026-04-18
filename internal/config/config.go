@@ -135,6 +135,7 @@ func (c *Config) loadOAuthCredentials() {
 	}{
 		{domain.PlatformGitHub, "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"},
 		{domain.PlatformNotion, "NOTION_CLIENT_ID", "NOTION_CLIENT_SECRET"},
+		{domain.PlatformMicrosoft, "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"},
 	}
 
 	for _, p := range providers {

@@ -303,9 +303,9 @@ func TestVectorIndex_IndexBatchValidation(t *testing.T) {
 			}
 
 			// Build contents and sourceIDs slices matching ids length
-		contents := make([]string, len(tt.ids))
-		sourceIDs := make([]string, len(tt.ids))
-		err := vi.IndexBatch(context.Background(), tt.ids, tt.documentIDs, sourceIDs, contents, tt.embeddings)
+			contents := make([]string, len(tt.ids))
+			sourceIDs := make([]string, len(tt.ids))
+			err := vi.IndexBatch(context.Background(), tt.ids, tt.documentIDs, sourceIDs, contents, tt.embeddings)
 
 			if tt.wantErr {
 				if err == nil {

@@ -25,11 +25,11 @@ func TestNewJobStats(t *testing.T) {
 
 func TestJobStats_CalculateSuccessRate(t *testing.T) {
 	tests := []struct {
-		name          string
-		completed     int64
-		failed        int64
-		expectedRate  float64
-		description   string
+		name         string
+		completed    int64
+		failed       int64
+		expectedRate float64
+		description  string
 	}{
 		{
 			name:         "all successful",
@@ -110,11 +110,11 @@ func TestNewJobHistory(t *testing.T) {
 
 func TestJobHistory_HasMore(t *testing.T) {
 	tests := []struct {
-		name        string
-		jobCount    int
-		totalCount  int64
-		limit       int
-		expectMore  bool
+		name       string
+		jobCount   int
+		totalCount int64
+		limit      int
+		expectMore bool
 	}{
 		{
 			name:       "has more pages",

@@ -1131,9 +1131,9 @@ func TestSearchEngine_GetDocument(t *testing.T) {
 					if r.Method == "GET" && strings.Contains(r.URL.Path, "/sercha_chunks/_doc/doc-1") {
 						w.WriteHeader(http.StatusOK)
 						_ = json.NewEncoder(w).Encode(map[string]any{
-							"_index":   "sercha_chunks",
-							"_id":      "doc-1",
-							"found":    true,
+							"_index": "sercha_chunks",
+							"_id":    "doc-1",
+							"found":  true,
 							"_source": map[string]any{
 								"document_id": "doc-1",
 								"source_id":   "source-1",

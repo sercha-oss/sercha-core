@@ -1395,8 +1395,8 @@ func TestValidatePKCE(t *testing.T) {
 		expected  bool
 	}{
 		{
-			name:      "valid PKCE",
-			verifier:  "test-verifier-1234567890",
+			name:     "valid PKCE",
+			verifier: "test-verifier-1234567890",
 			challenge: func() string {
 				hash := sha256.Sum256([]byte("test-verifier-1234567890"))
 				return base64.RawURLEncoding.EncodeToString(hash[:])
@@ -1404,8 +1404,8 @@ func TestValidatePKCE(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:      "invalid verifier",
-			verifier:  "wrong-verifier",
+			name:     "invalid verifier",
+			verifier: "wrong-verifier",
 			challenge: func() string {
 				hash := sha256.Sum256([]byte("test-verifier-1234567890"))
 				return base64.RawURLEncoding.EncodeToString(hash[:])

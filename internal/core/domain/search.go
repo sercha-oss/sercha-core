@@ -65,5 +65,3 @@ type RankedChunk struct {
 	Score      float64   `json:"score"`
 	Highlights []string  `json:"highlights,omitempty"`
 }
-
-

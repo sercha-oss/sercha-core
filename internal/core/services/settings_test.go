@@ -360,7 +360,7 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		config := domain.NewRuntimeConfig("postgres")
 		services := runtime.NewServices(config)
 		configProvider := newMockConfigProvider()
-	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+		svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err != nil {
@@ -374,7 +374,7 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		services := runtime.NewServices(config)
 		services.SetEmbeddingService(&mockEmbeddingService{})
 		configProvider := newMockConfigProvider()
-	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+		svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err != nil {
@@ -388,7 +388,7 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		services := runtime.NewServices(config)
 		services.SetEmbeddingService(&mockEmbeddingService{healthCheckErr: errors.New("connection failed")})
 		configProvider := newMockConfigProvider()
-	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+		svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err == nil {
@@ -402,7 +402,7 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		services := runtime.NewServices(config)
 		services.SetLLMService(&mockLLMService{})
 		configProvider := newMockConfigProvider()
-	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+		svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err != nil {
@@ -416,7 +416,7 @@ func TestSettingsService_TestConnection(t *testing.T) {
 		services := runtime.NewServices(config)
 		services.SetLLMService(&mockLLMService{pingErr: errors.New("connection failed")})
 		configProvider := newMockConfigProvider()
-	svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
+		svc := NewSettingsService(store, &mockAIFactory{}, configProvider, services, "team-1")
 
 		err := svc.TestConnection(context.Background())
 		if err == nil {

@@ -32,6 +32,9 @@ type Container struct {
 	// Examples: "repository", "shared_drive", "space", "project", "channel"
 	Type string `json:"type"`
 
+	// HasChildren indicates if this container has child containers (for folder navigation).
+	HasChildren bool `json:"has_children,omitempty"`
+
 	// Metadata contains provider-specific additional data.
 	// Examples:
 	//   - GitHub: {"owner": "...", "private": "true", "archived": "false"}
@@ -47,11 +50,13 @@ type Container struct {
 type ContainerLister interface {
 	// ListContainers lists containers accessible with the current credentials.
 	// Pagination is handled via cursor - pass empty string for the first page.
+	// parentID can be used to list children of a specific container (for folder navigation).
+	// Pass empty string for root level containers.
 	// Returns:
 	//   - containers: list of available containers
 	//   - nextCursor: cursor for the next page, empty if no more pages
 	//   - err: any error that occurred
-	ListContainers(ctx context.Context, cursor string) ([]*Container, string, error)
+	ListContainers(ctx context.Context, cursor string, parentID string) ([]*Container, string, error)
 }
 
 // ContainerListerFactory creates ContainerListers for different providers.

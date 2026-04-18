@@ -36,7 +36,7 @@ type VersionResponse struct {
 
 // HealthResponse represents the health check response with component status
 type HealthResponse struct {
-	Status     string                    `json:"status"`               // overall status: "healthy" or "degraded"
+	Status     string                     `json:"status"`               // overall status: "healthy" or "degraded"
 	Components map[string]ComponentHealth `json:"components,omitempty"` // individual component health
 }
 
@@ -1094,7 +1094,7 @@ type aiSettingsResponse struct {
 type aiProviderInfo struct {
 	Provider     domain.AIProvider `json:"provider,omitempty" example:"openai"`
 	Model        string            `json:"model,omitempty" example:"text-embedding-3-small"`
-	HasAPIKey    bool              `json:"has_api_key" example:"true"` // True if credentials are configured via environment
+	HasAPIKey    bool              `json:"has_api_key" example:"true"`   // True if credentials are configured via environment
 	IsConfigured bool              `json:"is_configured" example:"true"` // True if provider and model are selected
 }
 
@@ -1535,8 +1535,9 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cursor := r.URL.Query().Get("cursor")
+	parentID := r.URL.Query().Get("parent")
 
-	containers, err := s.connectionService.ListContainers(r.Context(), id, cursor)
+	containers, err := s.connectionService.ListContainers(r.Context(), id, cursor, parentID)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
@@ -1992,11 +1993,11 @@ func (s *Server) handleDisableSource(w http.ResponseWriter, r *http.Request) {
 // AdminStatsResponse represents system-wide statistics
 // @Description System-wide statistics for the admin dashboard
 type AdminStatsResponse struct {
-	Documents     DocumentStats     `json:"documents"`
-	Chunks        ChunkStats        `json:"chunks"`
-	Sources       SourceStats       `json:"sources"`
+	Documents   DocumentStats   `json:"documents"`
+	Chunks      ChunkStats      `json:"chunks"`
+	Sources     SourceStats     `json:"sources"`
 	Connections ConnectionStats `json:"installations"`
-	Users         UserStats         `json:"users"`
+	Users       UserStats       `json:"users"`
 }
 
 // DocumentStats represents document statistics

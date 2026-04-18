@@ -34,11 +34,11 @@ func NewOAuthHandler() *OAuthHandler {
 // Notion OAuth uses owner=user parameter to specify workspace selection.
 func (h *OAuthHandler) BuildAuthURL(clientID, redirectURI, state, codeChallenge string, scopes []string) string {
 	params := url.Values{
-		"client_id":    {clientID},
-		"redirect_uri": {redirectURI},
+		"client_id":     {clientID},
+		"redirect_uri":  {redirectURI},
 		"response_type": {"code"},
-		"owner":        {"user"}, // Notion-specific: allows user to select workspace
-		"state":        {state},
+		"owner":         {"user"}, // Notion-specific: allows user to select workspace
+		"state":         {state},
 	}
 
 	// Notion doesn't use traditional scopes - permissions are granted at the page/database level

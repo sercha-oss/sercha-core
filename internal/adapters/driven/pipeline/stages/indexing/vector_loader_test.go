@@ -45,8 +45,8 @@ func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []flo
 	return nil, nil
 }
 
-func (s *stubVectorIndex) Delete(ctx context.Context, id string) error               { return nil }
-func (s *stubVectorIndex) DeleteBatch(ctx context.Context, ids []string) error        { return nil }
+func (s *stubVectorIndex) Delete(ctx context.Context, id string) error         { return nil }
+func (s *stubVectorIndex) DeleteBatch(ctx context.Context, ids []string) error { return nil }
 func (s *stubVectorIndex) DeleteByDocument(ctx context.Context, documentID string) error {
 	return nil
 }

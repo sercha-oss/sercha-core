@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
 )

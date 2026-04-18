@@ -90,8 +90,6 @@ func TestSearchService_WithSearchExecutor(t *testing.T) {
 	}
 }
 
-
-
 // TestSearchWithPipeline_Success tests successful pipeline search execution
 func TestSearchWithPipeline_Success(t *testing.T) {
 	searchEngine := mocks.NewMockSearchEngine()
@@ -443,7 +441,6 @@ func TestSearchBySource_WithPipeline(t *testing.T) {
 		t.Errorf("expected 1 result, got %d", len(result.Results))
 	}
 }
-
 
 // TestSearchWithPipeline_ResultMapping tests proper mapping from pipeline results to domain results
 func TestSearchWithPipeline_ResultMapping(t *testing.T) {

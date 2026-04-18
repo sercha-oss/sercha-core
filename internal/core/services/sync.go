@@ -726,7 +726,6 @@ func (o *SyncOrchestrator) processWithPipeline(
 	return nil
 }
 
-
 // failSync marks a sync as failed and returns the result.
 func (o *SyncOrchestrator) failSync(
 	ctx context.Context,

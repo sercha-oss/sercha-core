@@ -22,7 +22,6 @@ func TestProviderTypeConstants(t *testing.T) {
 	}
 }
 
-
 func TestAuthProvider(t *testing.T) {
 	provider := AuthProvider{
 		Type:         ProviderTypeGitHub,
@@ -57,7 +56,6 @@ func TestAuthProvider(t *testing.T) {
 		t.Errorf("expected ClientSecret client-secret-456, got %s", provider.ClientSecret)
 	}
 }
-
 
 func TestProviderConfig_IsConfigured(t *testing.T) {
 	tests := []struct {

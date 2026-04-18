@@ -57,19 +57,19 @@ type RepositoryOwner struct {
 
 // Issue represents a GitHub issue.
 type Issue struct {
-	ID        int64       `json:"id"`
-	Number    int         `json:"number"`
-	Title     string      `json:"title"`
-	Body      string      `json:"body"`
-	State     string      `json:"state"`
-	HTMLURL   string      `json:"html_url"`
-	User      *User       `json:"user"`
-	Labels    []Label     `json:"labels"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
-	ClosedAt  *time.Time  `json:"closed_at"`
-	Comments  int         `json:"comments"`
-	IsPR      bool        `json:"-"` // Set based on pull_request field presence
+	ID        int64      `json:"id"`
+	Number    int        `json:"number"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	State     string     `json:"state"`
+	HTMLURL   string     `json:"html_url"`
+	User      *User      `json:"user"`
+	Labels    []Label    `json:"labels"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	ClosedAt  *time.Time `json:"closed_at"`
+	Comments  int        `json:"comments"`
+	IsPR      bool       `json:"-"` // Set based on pull_request field presence
 }
 
 // PullRequest represents a GitHub pull request.
@@ -97,11 +97,11 @@ type PRBranch struct {
 
 // User represents a GitHub user.
 type User struct {
-	ID       int64  `json:"id"`
-	Login    string `json:"login"`
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	HTMLURL  string `json:"html_url"`
+	ID        int64  `json:"id"`
+	Login     string `json:"login"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	HTMLURL   string `json:"html_url"`
 	AvatarURL string `json:"avatar_url"`
 }
 
@@ -134,10 +134,10 @@ type FileContent struct {
 
 // Commit represents a GitHub commit.
 type Commit struct {
-	SHA     string     `json:"sha"`
-	Message string     `json:"message"`
+	SHA     string        `json:"sha"`
+	Message string        `json:"message"`
 	Author  *CommitAuthor `json:"author"`
-	Date    time.Time  `json:"date"`
+	Date    time.Time     `json:"date"`
 }
 
 // CommitAuthor represents commit author info.

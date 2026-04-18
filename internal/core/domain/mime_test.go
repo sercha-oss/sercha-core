@@ -211,10 +211,10 @@ func TestMatchesMimePattern(t *testing.T) {
 
 func TestShouldExcludeMimeType(t *testing.T) {
 	tests := []struct {
-		name               string
-		mimeType           string
-		exclusionPatterns  []string
-		expected           bool
+		name              string
+		mimeType          string
+		exclusionPatterns []string
+		expected          bool
 	}{
 		{
 			name:     "matches first pattern",
@@ -255,16 +255,16 @@ func TestShouldExcludeMimeType(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "empty patterns list",
-			mimeType: "image/png",
+			name:              "empty patterns list",
+			mimeType:          "image/png",
 			exclusionPatterns: []string{},
-			expected: false,
+			expected:          false,
 		},
 		{
-			name:     "nil patterns list",
-			mimeType: "image/png",
+			name:              "nil patterns list",
+			mimeType:          "image/png",
 			exclusionPatterns: nil,
-			expected: false,
+			expected:          false,
 		},
 		{
 			name:     "empty MIME type",

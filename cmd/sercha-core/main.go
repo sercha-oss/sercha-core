@@ -31,11 +31,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/ai"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/auth"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/github"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/localfs"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/microsoft"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/microsoft/onedrive"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/notion"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/opensearch"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pgvector"
@@ -59,7 +62,6 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/normalisers"
 	"github.com/sercha-oss/sercha-core/internal/runtime"
 	"github.com/sercha-oss/sercha-core/internal/worker"
-	"github.com/redis/go-redis/v9"
 )
 
 var version = "dev"
@@ -72,7 +74,6 @@ type redisPinger struct {
 func (r *redisPinger) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
-
 
 func main() {
 	// Get run mode: environment variable takes precedence, command arg as fallback
@@ -287,6 +288,14 @@ func main() {
 		return github.NewOAuthHandler().RefreshToken(ctx, creds.ClientID, creds.ClientSecret, refreshToken)
 	})
 
+	tokenProviderFactory.RegisterRefresher(domain.PlatformMicrosoft, func(ctx context.Context, refreshToken string) (*driven.OAuthToken, error) {
+		creds := cfg.GetOAuthCredentials(domain.PlatformMicrosoft)
+		if creds == nil {
+			return nil, fmt.Errorf("microsoft provider not configured - set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET")
+		}
+		return microsoft.NewOAuthHandler().RefreshToken(ctx, creds.ClientID, creds.ClientSecret, refreshToken)
+	})
+
 	// Create connector factory
 	factory := connectors.NewFactory(tokenProviderFactory)
 
@@ -297,6 +306,10 @@ func main() {
 	// Register Notion connector
 	factory.Register(notion.NewBuilder())
 	factory.RegisterOAuthHandler(domain.PlatformNotion, notion.NewOAuthHandler())
+
+	// Register Microsoft OneDrive connector
+	factory.Register(onedrive.NewBuilder())
+	factory.RegisterOAuthHandler(domain.PlatformMicrosoft, microsoft.NewOAuthHandler())
 
 	// Register LocalFS connector (for testing/development)
 	localfsAllowedRoots := []string{"/data", "/tmp"}
@@ -321,6 +334,10 @@ func main() {
 	// Register Notion container lister factory
 	containerListerFactory.Register(domain.ProviderTypeNotion,
 		notion.NewContainerListerFactory(installationStore, tokenProviderFactory))
+
+	// Register OneDrive container lister factory
+	containerListerFactory.Register(domain.ProviderTypeOneDrive,
+		onedrive.NewContainerListerFactory(installationStore, tokenProviderFactory))
 
 	// Register LocalFS container lister factory
 	containerListerFactory.Register(domain.ProviderTypeLocalFS,

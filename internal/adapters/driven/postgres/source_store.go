@@ -368,4 +368,3 @@ func (s *SourceStore) querySourcesWithConnection(ctx context.Context, query stri
 
 	return sources, nil
 }
-

@@ -758,8 +758,8 @@ func TestMultiRetrieverStage_Process_PartialFailures(t *testing.T) {
 
 	// Use a custom mock that can fail selectively
 	selectiveEngine := &selectiveErrorSearchEngine{
-		base:         searchEngine,
-		failOnQuery:  "query 2",
+		base:        searchEngine,
+		failOnQuery: "query 2",
 	}
 
 	stage := &MultiRetrieverStage{

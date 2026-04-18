@@ -11,7 +11,7 @@ type DocumentResult struct {
 	DocumentID string
 	SourceID   string
 	Title      string
-	Content    string  // Full document content (for snippet extraction)
+	Content    string // Full document content (for snippet extraction)
 	Score      float64
 }
 

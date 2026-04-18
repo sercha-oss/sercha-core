@@ -78,9 +78,9 @@ type Settings struct {
 	MaxResultsPerPage int        `json:"max_results_per_page"`
 
 	// Sync Configuration
-	SyncIntervalMinutes int                     `json:"sync_interval_minutes"`
-	SyncEnabled         bool                    `json:"sync_enabled"`
-	SyncExclusions      *SyncExclusionSettings  `json:"sync_exclusions,omitempty"`
+	SyncIntervalMinutes int                    `json:"sync_interval_minutes"`
+	SyncEnabled         bool                   `json:"sync_enabled"`
+	SyncExclusions      *SyncExclusionSettings `json:"sync_exclusions,omitempty"`
 
 	// Metadata
 	UpdatedAt time.Time `json:"updated_at"`
@@ -174,7 +174,6 @@ func DefaultSettings(teamID string) *Settings {
 	}
 }
 
-
 // EmbeddingConfig holds embedding model configuration
 type EmbeddingConfig struct {
 	Provider   AIProvider `json:"provider"`
@@ -261,17 +260,17 @@ func (s *AISettings) Validate() error {
 
 // AIModelInfo describes a specific model offered by a provider
 type AIModelInfo struct {
-	ID         string `json:"id"`           // Model identifier (e.g., "text-embedding-3-small")
-	Name       string `json:"name"`         // Display name
+	ID         string `json:"id"`                   // Model identifier (e.g., "text-embedding-3-small")
+	Name       string `json:"name"`                 // Display name
 	Dimensions int    `json:"dimensions,omitempty"` // For embedding models only
 }
 
 // AIProviderInfo provides metadata about an AI provider
 type AIProviderInfo struct {
-	ID               string        `json:"id"`                  // Provider identifier (matches AIProvider)
-	Name             string        `json:"name"`                // Display name
-	Models           []AIModelInfo `json:"models"`              // Available models
-	RequiresAPIKey   bool          `json:"requires_api_key"`    // Whether API key is needed
-	RequiresBaseURL  bool          `json:"requires_base_url"`   // Whether base URL is needed (e.g., Ollama)
-	APIKeyURL        string        `json:"api_key_url,omitempty"` // URL to get API key
+	ID              string        `json:"id"`                    // Provider identifier (matches AIProvider)
+	Name            string        `json:"name"`                  // Display name
+	Models          []AIModelInfo `json:"models"`                // Available models
+	RequiresAPIKey  bool          `json:"requires_api_key"`      // Whether API key is needed
+	RequiresBaseURL bool          `json:"requires_base_url"`     // Whether base URL is needed (e.g., Ollama)
+	APIKeyURL       string        `json:"api_key_url,omitempty"` // URL to get API key
 }

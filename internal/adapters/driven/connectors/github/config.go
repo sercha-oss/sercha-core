@@ -54,8 +54,8 @@ func DefaultConfig() *Config {
 		IncludeFiles:       true,
 		IncludeIssues:      true,
 		IncludePRs:         true,
-		IncludeDiscussions: false, // Requires GraphQL API
-		IncludeWiki:        false, // Wiki has separate API
+		IncludeDiscussions: false,      // Requires GraphQL API
+		IncludeWiki:        false,      // Wiki has separate API
 		FileExtensions:     []string{}, // All text files
 		ExcludePaths: []string{
 			"vendor/",
