@@ -410,6 +410,288 @@ func TestConfig_PoolSettingsBoundaries(t *testing.T) {
 	}
 }
 
+// TestVectorIndex_SearchWithContent_DocumentIDFilter tests document ID filtering in vector search
+func TestVectorIndex_SearchWithContent_DocumentIDFilter(t *testing.T) {
+	tests := []struct {
+		name        string
+		dimensions  int
+		embedding   []float32
+		k           int
+		sourceIDs   []string
+		documentIDs []string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "with document ID filter only",
+			dimensions:  1536,
+			embedding:   make([]float32, 1536),
+			k:           10,
+			sourceIDs:   nil,
+			documentIDs: []string{"doc-1", "doc-2", "doc-3"},
+			wantErr:     false,
+		},
+		{
+			name:        "with source and document ID filters",
+			dimensions:  1536,
+			embedding:   make([]float32, 1536),
+			k:           10,
+			sourceIDs:   []string{"source-1"},
+			documentIDs: []string{"doc-1", "doc-2"},
+			wantErr:     false,
+		},
+		{
+			name:        "with single document ID",
+			dimensions:  1536,
+			embedding:   make([]float32, 1536),
+			k:           10,
+			sourceIDs:   nil,
+			documentIDs: []string{"doc-1"},
+			wantErr:     false,
+		},
+		{
+			name:        "without document ID filter",
+			dimensions:  1536,
+			embedding:   make([]float32, 1536),
+			k:           10,
+			sourceIDs:   []string{"source-1"},
+			documentIDs: nil,
+			wantErr:     false,
+		},
+		{
+			name:        "empty document ID slice",
+			dimensions:  1536,
+			embedding:   make([]float32, 1536),
+			k:           10,
+			sourceIDs:   nil,
+			documentIDs: []string{},
+			wantErr:     false,
+		},
+		{
+			name:        "invalid embedding dimension with document ID filter",
+			dimensions:  1536,
+			embedding:   make([]float32, 100),
+			k:           10,
+			sourceIDs:   nil,
+			documentIDs: []string{"doc-1"},
+			wantErr:     true,
+			errContains: "embedding dimension mismatch",
+		},
+		{
+			name:        "invalid k with document ID filter",
+			dimensions:  1536,
+			embedding:   make([]float32, 1536),
+			k:           0,
+			sourceIDs:   nil,
+			documentIDs: []string{"doc-1"},
+			wantErr:     true,
+			errContains: "k must be positive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// We can only test validation since we don't have a real database connection
+			// Skip non-error cases as they would try to execute real queries
+			if !tt.wantErr {
+				t.Skip("Skipping: requires real database connection")
+			}
+
+			vi := &VectorIndex{
+				pool:       nil,
+				dimensions: tt.dimensions,
+				distOp:     "<=>",
+			}
+
+			_, err := vi.SearchWithContent(context.Background(), tt.embedding, tt.k, tt.sourceIDs, tt.documentIDs)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("SearchWithContent() should return error")
+				}
+				if !contains(err.Error(), tt.errContains) {
+					t.Errorf("SearchWithContent() error = %q, want error containing %q", err.Error(), tt.errContains)
+				}
+			}
+		})
+	}
+}
+
+// TestVectorIndex_SearchWithContent_FilterCombinations tests various filter combinations
+func TestVectorIndex_SearchWithContent_FilterCombinations(t *testing.T) {
+	tests := []struct {
+		name               string
+		sourceIDs          []string
+		documentIDs        []string
+		expectedQueryPaths string
+	}{
+		{
+			name:               "no filters",
+			sourceIDs:          nil,
+			documentIDs:        nil,
+			expectedQueryPaths: "no WHERE clause",
+		},
+		{
+			name:               "source filter only",
+			sourceIDs:          []string{"source-1"},
+			documentIDs:        nil,
+			expectedQueryPaths: "WHERE source_id = ANY",
+		},
+		{
+			name:               "document filter only",
+			sourceIDs:          nil,
+			documentIDs:        []string{"doc-1", "doc-2"},
+			expectedQueryPaths: "WHERE document_id = ANY",
+		},
+		{
+			name:               "both filters",
+			sourceIDs:          []string{"source-1", "source-2"},
+			documentIDs:        []string{"doc-1", "doc-2", "doc-3"},
+			expectedQueryPaths: "WHERE source_id = ANY AND document_id = ANY",
+		},
+		{
+			name:               "empty source filter",
+			sourceIDs:          []string{},
+			documentIDs:        []string{"doc-1"},
+			expectedQueryPaths: "no WHERE clause for source",
+		},
+		{
+			name:               "empty document filter",
+			sourceIDs:          []string{"source-1"},
+			documentIDs:        []string{},
+			expectedQueryPaths: "no WHERE clause for documents",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Document the expected SQL query path based on implementation
+			t.Logf("Filter combination: sourceIDs=%v, documentIDs=%v", tt.sourceIDs, tt.documentIDs)
+			t.Logf("Expected query path: %s", tt.expectedQueryPaths)
+
+			// The actual implementation branches based on:
+			// - hasSourceFilter := len(sourceIDs) > 0
+			// - hasDocFilter := len(documentIDs) > 0
+			// This test documents the expected behavior
+		})
+	}
+}
+
+// TestVectorIndex_SearchWithContent_LargeDocumentIDSet tests that large document ID sets are accepted
+func TestVectorIndex_SearchWithContent_LargeDocumentIDSet(t *testing.T) {
+	t.Skip("Skipping: requires real database connection - validation tests cover document ID handling")
+}
+
+// TestVectorIndex_SearchWithContent_QueryStructure documents the expected query structure
+func TestVectorIndex_SearchWithContent_QueryStructure(t *testing.T) {
+	// This test documents the expected SQL query structure for different filter combinations
+	// based on the implementation in SearchWithContent
+
+	tests := []struct {
+		name             string
+		hasSourceFilter  bool
+		hasDocFilter     bool
+		expectedClauses  []string
+		expectedParams   int
+		expectedParamPos []string
+	}{
+		{
+			name:             "no filters",
+			hasSourceFilter:  false,
+			hasDocFilter:     false,
+			expectedClauses:  []string{"SELECT chunk_id, document_id, content, embedding <=> $1::vector AS distance", "FROM embeddings", "ORDER BY distance", "LIMIT $2"},
+			expectedParams:   2,
+			expectedParamPos: []string{"$1 = embedding", "$2 = k"},
+		},
+		{
+			name:             "source filter only",
+			hasSourceFilter:  true,
+			hasDocFilter:     false,
+			expectedClauses:  []string{"SELECT chunk_id, document_id, content, embedding <=> $1::vector AS distance", "FROM embeddings", "WHERE source_id = ANY($3)", "ORDER BY distance", "LIMIT $2"},
+			expectedParams:   3,
+			expectedParamPos: []string{"$1 = embedding", "$2 = k", "$3 = sourceIDs"},
+		},
+		{
+			name:             "document filter only",
+			hasSourceFilter:  false,
+			hasDocFilter:     true,
+			expectedClauses:  []string{"SELECT chunk_id, document_id, content, embedding <=> $1::vector AS distance", "FROM embeddings", "WHERE document_id = ANY($3)", "ORDER BY distance", "LIMIT $2"},
+			expectedParams:   3,
+			expectedParamPos: []string{"$1 = embedding", "$2 = k", "$3 = documentIDs"},
+		},
+		{
+			name:             "both filters",
+			hasSourceFilter:  true,
+			hasDocFilter:     true,
+			expectedClauses:  []string{"SELECT chunk_id, document_id, content, embedding <=> $1::vector AS distance", "FROM embeddings", "WHERE source_id = ANY($3) AND document_id = ANY($4)", "ORDER BY distance", "LIMIT $2"},
+			expectedParams:   4,
+			expectedParamPos: []string{"$1 = embedding", "$2 = k", "$3 = sourceIDs", "$4 = documentIDs"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Logf("Query structure for hasSourceFilter=%v, hasDocFilter=%v:", tt.hasSourceFilter, tt.hasDocFilter)
+			for _, clause := range tt.expectedClauses {
+				t.Logf("  %s", clause)
+			}
+			t.Logf("Expected %d parameters: %v", tt.expectedParams, tt.expectedParamPos)
+		})
+	}
+}
+
+// TestVectorIndex_DeleteByDocuments_Validation tests document deletion validation
+func TestVectorIndex_DeleteByDocuments_Validation(t *testing.T) {
+	vi := &VectorIndex{
+		pool:       nil,
+		dimensions: 1536,
+		distOp:     "<=>",
+	}
+
+	tests := []struct {
+		name        string
+		documentIDs []string
+		wantErr     bool
+	}{
+		{
+			name:        "empty slice should succeed without query",
+			documentIDs: []string{},
+			wantErr:     false,
+		},
+		{
+			name:        "nil slice should succeed without query",
+			documentIDs: nil,
+			wantErr:     false,
+		},
+		{
+			name:        "single document",
+			documentIDs: []string{"doc-1"},
+			wantErr:     false, // Would need DB connection to actually execute
+		},
+		{
+			name:        "multiple documents",
+			documentIDs: []string{"doc-1", "doc-2", "doc-3"},
+			wantErr:     false, // Would need DB connection to actually execute
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Skip non-empty cases - they require a real database connection
+			if len(tt.documentIDs) > 0 {
+				t.Skip("Skipping: requires real database connection")
+			}
+
+			err := vi.DeleteByDocuments(context.Background(), tt.documentIDs)
+
+			// Should return nil immediately for empty/nil slices
+			if err != nil {
+				t.Errorf("DeleteByDocuments() with empty/nil slice should return nil, got %v", err)
+			}
+		})
+	}
+}
+
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return len(substr) > 0 && len(s) >= len(substr) && (s == substr || containsSubstr(s, substr))

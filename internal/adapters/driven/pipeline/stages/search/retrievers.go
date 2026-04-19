@@ -90,9 +90,10 @@ func (s *BM25RetrieverStage) Process(ctx context.Context, input any) (any, error
 	}
 
 	opts := domain.SearchOptions{
-		Limit:     s.topK,
-		Mode:      domain.SearchModeTextOnly,
-		SourceIDs: parsed.SearchFilters.Sources,
+		Limit:       s.topK,
+		Mode:        domain.SearchModeTextOnly,
+		SourceIDs:   parsed.SearchFilters.Sources,
+		DocumentIDs: parsed.SearchFilters.DocumentIDs,
 	}
 
 	// Use SearchDocuments for document-level BM25 results
@@ -190,7 +191,7 @@ func (s *VectorRetrieverStage) Process(ctx context.Context, input any) (any, err
 	}
 
 	// Search pgvector for similar chunks (returns content alongside)
-	results, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, parsed.SearchFilters.Sources)
+	results, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, parsed.SearchFilters.Sources, parsed.SearchFilters.DocumentIDs)
 	if err != nil {
 		return nil, &StageError{Stage: s.descriptor.ID, Message: "vector search failed", Err: err}
 	}
@@ -295,9 +296,10 @@ func (s *HybridRetrieverStage) Process(ctx context.Context, input any) (any, err
 
 	// BM25 search: document-level results from OpenSearch
 	bm25Opts := domain.SearchOptions{
-		Limit:     s.topK,
-		Mode:      domain.SearchModeTextOnly,
-		SourceIDs: parsed.SearchFilters.Sources,
+		Limit:       s.topK,
+		Mode:        domain.SearchModeTextOnly,
+		SourceIDs:   parsed.SearchFilters.Sources,
+		DocumentIDs: parsed.SearchFilters.DocumentIDs,
 	}
 	bm25Results, _, err := s.searchEngine.SearchDocuments(ctx, queryStr, bm25Opts)
 	if err != nil {
@@ -310,7 +312,7 @@ func (s *HybridRetrieverStage) Process(ctx context.Context, input any) (any, err
 		return nil, &StageError{Stage: s.descriptor.ID, Message: "embedding failed", Err: err}
 	}
 
-	vectorResults, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, parsed.SearchFilters.Sources)
+	vectorResults, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, parsed.SearchFilters.Sources, parsed.SearchFilters.DocumentIDs)
 	if err != nil {
 		return nil, &StageError{Stage: s.descriptor.ID, Message: "vector search failed", Err: err}
 	}

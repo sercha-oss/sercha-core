@@ -20,7 +20,7 @@ func TestMockVectorIndex_SearchWithContent_NoFilter(t *testing.T) {
 	)
 
 	// Search without source filter — should return all
-	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, nil)
+	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, nil, nil)
 	if err != nil {
 		t.Fatalf("SearchWithContent() error = %v", err)
 	}
@@ -44,7 +44,7 @@ func TestMockVectorIndex_SearchWithContent_EmptyFilter(t *testing.T) {
 	)
 
 	// Empty slice = no filter
-	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{})
+	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{}, nil)
 	if err != nil {
 		t.Fatalf("SearchWithContent() error = %v", err)
 	}
@@ -68,7 +68,7 @@ func TestMockVectorIndex_SearchWithContent_SourceFilter(t *testing.T) {
 	)
 
 	// Filter to src-A only
-	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{"src-A"})
+	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{"src-A"}, nil)
 	if err != nil {
 		t.Fatalf("SearchWithContent() error = %v", err)
 	}
@@ -100,7 +100,7 @@ func TestMockVectorIndex_SearchWithContent_MultiSourceFilter(t *testing.T) {
 	)
 
 	// Filter to src-A and src-C
-	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{"src-A", "src-C"})
+	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{"src-A", "src-C"}, nil)
 	if err != nil {
 		t.Fatalf("SearchWithContent() error = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestMockVectorIndex_SearchWithContent_NoMatch(t *testing.T) {
 		[][]float32{{0.1}},
 	)
 
-	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{"src-NONEXISTENT"})
+	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 10, []string{"src-NONEXISTENT"}, nil)
 	if err != nil {
 		t.Fatalf("SearchWithContent() error = %v", err)
 	}
@@ -146,7 +146,7 @@ func TestMockVectorIndex_SearchWithContent_KLimit(t *testing.T) {
 		[][]float32{{0.1}, {0.2}, {0.3}},
 	)
 
-	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 2, nil)
+	results, err := mock.SearchWithContent(ctx, []float32{0.1}, 2, nil, nil)
 	if err != nil {
 		t.Fatalf("SearchWithContent() error = %v", err)
 	}

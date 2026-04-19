@@ -50,11 +50,12 @@ func (s *stubSearchEngine) GetDocument(ctx context.Context, documentID string) (
 }
 
 type stubVectorIndex struct {
-	lastEmbedding []float32
-	lastK         int
-	lastSourceIDs []string
-	searchResults []driven.VectorSearchResult
-	searchCalled  bool
+	lastEmbedding  []float32
+	lastK          int
+	lastSourceIDs  []string
+	lastDocumentIDs []string
+	searchResults  []driven.VectorSearchResult
+	searchCalled   bool
 }
 
 func (s *stubVectorIndex) Index(ctx context.Context, id string, documentID string, embedding []float32) error {
@@ -66,11 +67,12 @@ func (s *stubVectorIndex) IndexBatch(ctx context.Context, ids []string, document
 func (s *stubVectorIndex) Search(ctx context.Context, embedding []float32, k int) ([]string, []float64, error) {
 	return nil, nil, nil
 }
-func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string) ([]driven.VectorSearchResult, error) {
+func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
 	s.searchCalled = true
 	s.lastEmbedding = embedding
 	s.lastK = k
 	s.lastSourceIDs = sourceIDs
+	s.lastDocumentIDs = documentIDs
 	return s.searchResults, nil
 }
 func (s *stubVectorIndex) Delete(ctx context.Context, id string) error         { return nil }

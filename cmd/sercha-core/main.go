@@ -380,6 +380,9 @@ func main() {
 	if err := stageRegistry.Register(searchstages.NewQueryParserFactory()); err != nil {
 		log.Fatalf("Failed to register query-parser stage: %v", err)
 	}
+	if err := stageRegistry.Register(searchstages.NewDocumentIDFilterFactory()); err != nil {
+		log.Fatalf("Failed to register document-id-filter stage: %v", err)
+	}
 	if err := stageRegistry.Register(searchstages.NewQueryExpanderFactory()); err != nil {
 		log.Fatalf("Failed to register query-expander stage: %v", err)
 	}
@@ -489,6 +492,7 @@ func main() {
 		Type: pipeline.PipelineTypeSearch,
 		Stages: []pipeline.StageConfig{
 			{StageID: "query-parser", Enabled: true},
+			{StageID: "document-id-filter", Enabled: false}, // Disabled by default - enable when DocumentIDProvider is available
 			{StageID: "query-expander", Enabled: true},
 			{StageID: "multi-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
 			{StageID: "ranker", Enabled: true, Parameters: map[string]any{"limit": 100}},

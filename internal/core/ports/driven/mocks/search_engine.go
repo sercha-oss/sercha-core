@@ -314,7 +314,7 @@ func (m *MockVectorIndex) Search(ctx context.Context, embedding []float32, k int
 	return ids, distances, nil
 }
 
-func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string) ([]driven.VectorSearchResult, error) {
+func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -326,6 +326,20 @@ func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []flo
 			found := false
 			for _, sid := range sourceIDs {
 				if chunkSourceID == sid {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		// Apply document ID filter if specified
+		if len(documentIDs) > 0 {
+			chunkDocumentID := m.documentIDs[id]
+			found := false
+			for _, did := range documentIDs {
+				if chunkDocumentID == did {
 					found = true
 					break
 				}

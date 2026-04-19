@@ -176,9 +176,10 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 
 	// BM25 search (required)
 	opts := domain.SearchOptions{
-		Limit:     s.topK,
-		Mode:      domain.SearchModeTextOnly,
-		SourceIDs: q.SearchFilters.Sources,
+		Limit:       s.topK,
+		Mode:        domain.SearchModeTextOnly,
+		SourceIDs:   q.SearchFilters.Sources,
+		DocumentIDs: q.SearchFilters.DocumentIDs,
 	}
 
 	bm25Results, _, err := s.searchEngine.SearchDocuments(ctx, queryStr, opts)
@@ -195,7 +196,7 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 			return candidates, nil
 		}
 
-		vectorResults, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, q.SearchFilters.Sources)
+		vectorResults, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, q.SearchFilters.Sources, q.SearchFilters.DocumentIDs)
 		if err != nil {
 			return candidates, nil
 		}

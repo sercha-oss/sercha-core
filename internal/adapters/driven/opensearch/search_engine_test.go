@@ -1272,6 +1272,403 @@ func TestSearchEngine_GetDocument(t *testing.T) {
 	}
 }
 
+// TestSearchEngine_SearchDocuments_WithDocumentIDFilter validates document ID filtering
+func TestSearchEngine_SearchDocuments_WithDocumentIDFilter(t *testing.T) {
+	tests := []struct {
+		name        string
+		query       string
+		opts        domain.SearchOptions
+		setupServer func(*testing.T) *httptest.Server
+		wantCount   int
+		wantTotal   int
+		wantErr     bool
+	}{
+		{
+			name:  "search with document ID filter",
+			query: "test query",
+			opts: domain.SearchOptions{
+				Limit:       10,
+				Offset:      0,
+				DocumentIDs: []string{"doc-1", "doc-2"},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						// Verify document_id filter is present in request
+						var reqBody map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&reqBody)
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						filterClauses, ok := boolQuery["filter"].([]any)
+						if !ok {
+							t.Error("Expected filter in query")
+						}
+
+						// Verify document_id terms filter exists
+						foundDocIDFilter := false
+						for _, clause := range filterClauses {
+							if clauseMap, ok := clause.(map[string]any); ok {
+								if terms, ok := clauseMap["terms"].(map[string]any); ok {
+									if _, ok := terms["document_id"]; ok {
+										foundDocIDFilter = true
+										break
+									}
+								}
+							}
+						}
+						if !foundDocIDFilter {
+							t.Error("Expected document_id terms filter in query")
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 2},
+								"hits": []map[string]any{
+									{
+										"_id":    "doc-1",
+										"_score": 1.5,
+										"_source": map[string]any{
+											"document_id": "doc-1",
+											"source_id":   "source-1",
+											"title":       "First Document",
+											"content":     "First test content",
+										},
+									},
+									{
+										"_id":    "doc-2",
+										"_score": 1.2,
+										"_source": map[string]any{
+											"document_id": "doc-2",
+											"source_id":   "source-1",
+											"title":       "Second Document",
+											"content":     "Second test content",
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 2,
+			wantTotal: 2,
+			wantErr:   false,
+		},
+		{
+			name:  "search with source ID and document ID filters combined",
+			query: "test query",
+			opts: domain.SearchOptions{
+				Limit:       10,
+				Offset:      0,
+				SourceIDs:   []string{"source-1"},
+				DocumentIDs: []string{"doc-1", "doc-2", "doc-3"},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						// Verify both source_id and document_id filters are present
+						var reqBody map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&reqBody)
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						filterClauses, ok := boolQuery["filter"].([]any)
+						if !ok || len(filterClauses) != 2 {
+							t.Errorf("Expected 2 filter clauses, got %d", len(filterClauses))
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 1},
+								"hits": []map[string]any{
+									{
+										"_id":    "doc-1",
+										"_score": 1.5,
+										"_source": map[string]any{
+											"document_id": "doc-1",
+											"source_id":   "source-1",
+											"title":       "Filtered Document",
+											"content":     "Content",
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 1,
+			wantTotal: 1,
+			wantErr:   false,
+		},
+		{
+			name:  "search without document ID filter",
+			query: "test query",
+			opts: domain.SearchOptions{
+				Limit:  10,
+				Offset: 0,
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						// Verify no document_id filter is present
+						var reqBody map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&reqBody)
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						if filterClauses, ok := boolQuery["filter"].([]any); ok {
+							for _, clause := range filterClauses {
+								if clauseMap, ok := clause.(map[string]any); ok {
+									if terms, ok := clauseMap["terms"].(map[string]any); ok {
+										if _, ok := terms["document_id"]; ok {
+											t.Error("Should not have document_id filter when DocumentIDs is empty")
+										}
+									}
+								}
+							}
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 5},
+								"hits": []map[string]any{
+									{
+										"_id":    "doc-x",
+										"_score": 1.0,
+										"_source": map[string]any{
+											"document_id": "doc-x",
+											"source_id":   "source-1",
+											"title":       "Unfiltered",
+											"content":     "Content",
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 1,
+			wantTotal: 5,
+			wantErr:   false,
+		},
+		{
+			name:  "search with empty document ID slice",
+			query: "test query",
+			opts: domain.SearchOptions{
+				Limit:       10,
+				Offset:      0,
+				DocumentIDs: []string{},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 0},
+								"hits":  []map[string]any{},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 0,
+			wantTotal: 0,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := tt.setupServer(t)
+			defer ts.Close()
+
+			cfg := Config{
+				URL:       ts.URL,
+				IndexName: "sercha_chunks",
+				Timeout:   5 * time.Second,
+			}
+
+			engine, err := NewSearchEngine(cfg)
+			if err != nil {
+				t.Fatalf("NewSearchEngine() error = %v", err)
+			}
+
+			results, total, err := engine.SearchDocuments(context.Background(), tt.query, tt.opts)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SearchDocuments() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				if len(results) != tt.wantCount {
+					t.Errorf("SearchDocuments() returned %d results, want %d", len(results), tt.wantCount)
+				}
+				if total != tt.wantTotal {
+					t.Errorf("SearchDocuments() total = %d, want %d", total, tt.wantTotal)
+				}
+			}
+		})
+	}
+}
+
+// TestSearchEngine_Search_WithDocumentIDFilter validates document ID filtering in chunk search
+func TestSearchEngine_Search_WithDocumentIDFilter(t *testing.T) {
+	tests := []struct {
+		name        string
+		query       string
+		opts        domain.SearchOptions
+		setupServer func(*testing.T) *httptest.Server
+		wantCount   int
+		wantErr     bool
+	}{
+		{
+			name:  "chunk search with document ID filter",
+			query: "test query",
+			opts: domain.SearchOptions{
+				Limit:       10,
+				Offset:      0,
+				DocumentIDs: []string{"doc-1"},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						// Verify document_id filter is present
+						var reqBody map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&reqBody)
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						if _, ok := boolQuery["filter"]; !ok {
+							t.Error("Expected filter in query")
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 2},
+								"hits": []map[string]any{
+									{
+										"_id":    "chunk-1",
+										"_score": 1.5,
+										"_source": map[string]any{
+											"id":             "chunk-1",
+											"document_id":    "doc-1",
+											"source_id":      "source-1",
+											"content":        "Chunk 1 content",
+											"chunk_position": 0,
+										},
+									},
+									{
+										"_id":    "chunk-2",
+										"_score": 1.2,
+										"_source": map[string]any{
+											"id":             "chunk-2",
+											"document_id":    "doc-1",
+											"source_id":      "source-1",
+											"content":        "Chunk 2 content",
+											"chunk_position": 1,
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 2,
+			wantErr:   false,
+		},
+		{
+			name:  "chunk search with combined filters",
+			query: "test query",
+			opts: domain.SearchOptions{
+				Limit:       10,
+				Offset:      0,
+				SourceIDs:   []string{"source-1"},
+				DocumentIDs: []string{"doc-1", "doc-2"},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&reqBody)
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						filterClauses, ok := boolQuery["filter"].([]any)
+						if !ok || len(filterClauses) != 2 {
+							t.Errorf("Expected 2 filter clauses, got %d", len(filterClauses))
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 1},
+								"hits": []map[string]any{
+									{
+										"_id":    "chunk-1",
+										"_score": 1.5,
+										"_source": map[string]any{
+											"id":             "chunk-1",
+											"document_id":    "doc-1",
+											"source_id":      "source-1",
+											"content":        "Filtered chunk content",
+											"chunk_position": 0,
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 1,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := tt.setupServer(t)
+			defer ts.Close()
+
+			cfg := Config{
+				URL:       ts.URL,
+				IndexName: "sercha_chunks",
+				Timeout:   5 * time.Second,
+			}
+
+			engine, err := NewSearchEngine(cfg)
+			if err != nil {
+				t.Fatalf("NewSearchEngine() error = %v", err)
+			}
+
+			results, _, err := engine.Search(context.Background(), tt.query, nil, tt.opts)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Search() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && len(results) != tt.wantCount {
+				t.Errorf("Search() returned %d results, want %d", len(results), tt.wantCount)
+			}
+		})
+	}
+}
+
 // TestSearchEngine_InterfaceCompliance validates interface implementation
 func TestSearchEngine_InterfaceCompliance(t *testing.T) {
 	// This test verifies that SearchEngine implements the driven.SearchEngine interface
