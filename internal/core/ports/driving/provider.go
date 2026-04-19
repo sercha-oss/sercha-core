@@ -16,12 +16,11 @@ type ProviderService interface {
 
 // ProviderListItem represents a provider in the list response.
 type ProviderListItem struct {
-	Type         domain.ProviderType   `json:"type"`
-	Name         string                `json:"name"`
-	Description  string                `json:"description"`
-	AuthMethods  []domain.AuthMethod   `json:"auth_methods"`
-	Configured   bool                  `json:"configured"`
-	Enabled      bool                  `json:"enabled"`
-	DocsURL      string                `json:"docs_url,omitempty"`
+	Type        domain.ProviderType `json:"type"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	AuthMethods []domain.AuthMethod `json:"auth_methods"`
+	Configured  bool                `json:"configured"`
+	Enabled     bool                `json:"enabled"`
+	DocsURL     string              `json:"docs_url,omitempty"`
 }
-

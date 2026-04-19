@@ -10,11 +10,11 @@ import (
 // Note: AI configuration is managed via UpdateAISettingsRequest and /settings/ai endpoint
 // Note: Semantic/vector search is now controlled via CapabilityPreferences
 type UpdateSettingsRequest struct {
-	DefaultSearchMode   *domain.SearchMode              `json:"default_search_mode,omitempty"`
-	ResultsPerPage      *int                            `json:"results_per_page,omitempty"`
-	SyncIntervalMinutes *int                            `json:"sync_interval_minutes,omitempty"`
-	SyncEnabled         *bool                           `json:"sync_enabled,omitempty"`
-	SyncExclusions      *domain.SyncExclusionSettings   `json:"sync_exclusions,omitempty"`
+	DefaultSearchMode   *domain.SearchMode            `json:"default_search_mode,omitempty"`
+	ResultsPerPage      *int                          `json:"results_per_page,omitempty"`
+	SyncIntervalMinutes *int                          `json:"sync_interval_minutes,omitempty"`
+	SyncEnabled         *bool                         `json:"sync_enabled,omitempty"`
+	SyncExclusions      *domain.SyncExclusionSettings `json:"sync_exclusions,omitempty"`
 }
 
 // SettingsService manages team-wide settings (admin only)

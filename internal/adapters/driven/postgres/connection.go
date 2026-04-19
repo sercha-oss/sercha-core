@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
-	"github.com/lib/pq"
 )
 
 // Ensure ConnectionStore implements the interface.

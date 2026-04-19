@@ -14,15 +14,15 @@ type SearchResponse struct {
 
 // SearchResult represents a single search result (page or database).
 type SearchResult struct {
-	Object         string         `json:"object"` // "page" or "database"
-	ID             string         `json:"id"`
-	CreatedTime    time.Time      `json:"created_time"`
-	LastEditedTime time.Time      `json:"last_edited_time"`
-	Archived       bool           `json:"archived"`
-	Parent         Parent         `json:"parent"`
-	Properties     Properties     `json:"properties,omitempty"`
-	Title          []RichText     `json:"title,omitempty"` // For databases
-	URL            string         `json:"url"`
+	Object         string     `json:"object"` // "page" or "database"
+	ID             string     `json:"id"`
+	CreatedTime    time.Time  `json:"created_time"`
+	LastEditedTime time.Time  `json:"last_edited_time"`
+	Archived       bool       `json:"archived"`
+	Parent         Parent     `json:"parent"`
+	Properties     Properties `json:"properties,omitempty"`
+	Title          []RichText `json:"title,omitempty"` // For databases
+	URL            string     `json:"url"`
 }
 
 // Parent represents the parent of a page or database.
@@ -42,26 +42,26 @@ type Properties map[string]Property
 // For page values, they contain actual data (arrays, objects, primitives).
 // We use json.RawMessage for fields that differ between schema and values.
 type Property struct {
-	ID          string          `json:"id"`
-	Type        string          `json:"type"`
-	Name        string          `json:"name,omitempty"` // Present in database schema
-	Title       json.RawMessage `json:"title,omitempty"`
-	RichText    json.RawMessage `json:"rich_text,omitempty"`
-	Number      json.RawMessage `json:"number,omitempty"`
-	Select      json.RawMessage `json:"select,omitempty"`
-	MultiSelect json.RawMessage `json:"multi_select,omitempty"`
-	Date        json.RawMessage `json:"date,omitempty"`
-	People      json.RawMessage `json:"people,omitempty"`
-	Files       json.RawMessage `json:"files,omitempty"`
-	Checkbox    json.RawMessage `json:"checkbox,omitempty"`
-	URL         json.RawMessage `json:"url,omitempty"`
-	Email       json.RawMessage `json:"email,omitempty"`
-	PhoneNumber json.RawMessage `json:"phone_number,omitempty"`
-	Formula     json.RawMessage `json:"formula,omitempty"`
-	Relation    json.RawMessage `json:"relation,omitempty"`
-	Rollup      json.RawMessage `json:"rollup,omitempty"`
-	CreatedTime json.RawMessage `json:"created_time,omitempty"`
-	CreatedBy   json.RawMessage `json:"created_by,omitempty"`
+	ID             string          `json:"id"`
+	Type           string          `json:"type"`
+	Name           string          `json:"name,omitempty"` // Present in database schema
+	Title          json.RawMessage `json:"title,omitempty"`
+	RichText       json.RawMessage `json:"rich_text,omitempty"`
+	Number         json.RawMessage `json:"number,omitempty"`
+	Select         json.RawMessage `json:"select,omitempty"`
+	MultiSelect    json.RawMessage `json:"multi_select,omitempty"`
+	Date           json.RawMessage `json:"date,omitempty"`
+	People         json.RawMessage `json:"people,omitempty"`
+	Files          json.RawMessage `json:"files,omitempty"`
+	Checkbox       json.RawMessage `json:"checkbox,omitempty"`
+	URL            json.RawMessage `json:"url,omitempty"`
+	Email          json.RawMessage `json:"email,omitempty"`
+	PhoneNumber    json.RawMessage `json:"phone_number,omitempty"`
+	Formula        json.RawMessage `json:"formula,omitempty"`
+	Relation       json.RawMessage `json:"relation,omitempty"`
+	Rollup         json.RawMessage `json:"rollup,omitempty"`
+	CreatedTime    json.RawMessage `json:"created_time,omitempty"`
+	CreatedBy      json.RawMessage `json:"created_by,omitempty"`
 	LastEditedTime json.RawMessage `json:"last_edited_time,omitempty"`
 	LastEditedBy   json.RawMessage `json:"last_edited_by,omitempty"`
 }
@@ -174,11 +174,11 @@ func MustMarshal(v interface{}) json.RawMessage {
 
 // RichText represents rich text content.
 type RichText struct {
-	Type        string          `json:"type"` // "text", "mention", "equation"
-	Text        *TextContent    `json:"text,omitempty"`
-	Annotations *Annotations    `json:"annotations,omitempty"`
-	PlainText   string          `json:"plain_text"`
-	Href        string          `json:"href,omitempty"`
+	Type        string       `json:"type"` // "text", "mention", "equation"
+	Text        *TextContent `json:"text,omitempty"`
+	Annotations *Annotations `json:"annotations,omitempty"`
+	PlainText   string       `json:"plain_text"`
+	Href        string       `json:"href,omitempty"`
 }
 
 // TextContent represents text content.
@@ -218,10 +218,10 @@ type DateValue struct {
 
 // FileValue represents a file property value.
 type FileValue struct {
-	Name string `json:"name"`
-	Type string `json:"type"` // "external" or "file"
+	Name     string        `json:"name"`
+	Type     string        `json:"type"` // "external" or "file"
 	External *ExternalFile `json:"external,omitempty"`
-	File *InternalFile `json:"file,omitempty"`
+	File     *InternalFile `json:"file,omitempty"`
 }
 
 // ExternalFile represents an external file reference.
@@ -249,16 +249,16 @@ type Page struct {
 
 // Database represents a Notion database.
 type Database struct {
-	Object         string     `json:"object"` // "database"
-	ID             string     `json:"id"`
-	CreatedTime    time.Time  `json:"created_time"`
-	LastEditedTime time.Time  `json:"last_edited_time"`
-	Title          []RichText `json:"title"`
-	Description    []RichText `json:"description"`
+	Object         string                      `json:"object"` // "database"
+	ID             string                      `json:"id"`
+	CreatedTime    time.Time                   `json:"created_time"`
+	LastEditedTime time.Time                   `json:"last_edited_time"`
+	Title          []RichText                  `json:"title"`
+	Description    []RichText                  `json:"description"`
 	Properties     map[string]DatabaseProperty `json:"properties"`
-	Parent         Parent     `json:"parent"`
-	Archived       bool       `json:"archived"`
-	URL            string     `json:"url"`
+	Parent         Parent                      `json:"parent"`
+	Archived       bool                        `json:"archived"`
+	URL            string                      `json:"url"`
 }
 
 // DatabaseProperty represents a database property definition.
@@ -286,19 +286,19 @@ type Block struct {
 	HasChildren    bool      `json:"has_children"`
 
 	// Block type-specific content
-	Paragraph       *ParagraphBlock       `json:"paragraph,omitempty"`
-	Heading1        *HeadingBlock         `json:"heading_1,omitempty"`
-	Heading2        *HeadingBlock         `json:"heading_2,omitempty"`
-	Heading3        *HeadingBlock         `json:"heading_3,omitempty"`
-	BulletedListItem *ListItemBlock       `json:"bulleted_list_item,omitempty"`
-	NumberedListItem *ListItemBlock       `json:"numbered_list_item,omitempty"`
-	ToDo            *ToDoBlock            `json:"to_do,omitempty"`
-	Toggle          *ToggleBlock          `json:"toggle,omitempty"`
-	Code            *CodeBlock            `json:"code,omitempty"`
-	Quote           *QuoteBlock           `json:"quote,omitempty"`
-	Callout         *CalloutBlock         `json:"callout,omitempty"`
-	ChildPage       *ChildPageBlock       `json:"child_page,omitempty"`
-	ChildDatabase   *ChildDatabaseBlock   `json:"child_database,omitempty"`
+	Paragraph        *ParagraphBlock     `json:"paragraph,omitempty"`
+	Heading1         *HeadingBlock       `json:"heading_1,omitempty"`
+	Heading2         *HeadingBlock       `json:"heading_2,omitempty"`
+	Heading3         *HeadingBlock       `json:"heading_3,omitempty"`
+	BulletedListItem *ListItemBlock      `json:"bulleted_list_item,omitempty"`
+	NumberedListItem *ListItemBlock      `json:"numbered_list_item,omitempty"`
+	ToDo             *ToDoBlock          `json:"to_do,omitempty"`
+	Toggle           *ToggleBlock        `json:"toggle,omitempty"`
+	Code             *CodeBlock          `json:"code,omitempty"`
+	Quote            *QuoteBlock         `json:"quote,omitempty"`
+	Callout          *CalloutBlock       `json:"callout,omitempty"`
+	ChildPage        *ChildPageBlock     `json:"child_page,omitempty"`
+	ChildDatabase    *ChildDatabaseBlock `json:"child_database,omitempty"`
 }
 
 // ParagraphBlock represents a paragraph block.
@@ -354,8 +354,8 @@ type CalloutBlock struct {
 
 // Icon represents an icon (emoji or external).
 type Icon struct {
-	Type  string `json:"type"` // "emoji" or "external"
-	Emoji string `json:"emoji,omitempty"`
+	Type     string        `json:"type"` // "emoji" or "external"
+	Emoji    string        `json:"emoji,omitempty"`
 	External *ExternalFile `json:"external,omitempty"`
 }
 
@@ -378,11 +378,11 @@ type QueryDatabaseResponse struct {
 
 // User represents a Notion user.
 type User struct {
-	Object    string `json:"object"` // "user"
-	ID        string `json:"id"`
-	Type      string `json:"type"` // "person" or "bot"
-	Name      string `json:"name,omitempty"`
-	AvatarURL string `json:"avatar_url,omitempty"`
+	Object    string  `json:"object"` // "user"
+	ID        string  `json:"id"`
+	Type      string  `json:"type"` // "person" or "bot"
+	Name      string  `json:"name,omitempty"`
+	AvatarURL string  `json:"avatar_url,omitempty"`
 	Person    *Person `json:"person,omitempty"`
 	Bot       *Bot    `json:"bot,omitempty"`
 }
@@ -405,12 +405,12 @@ type BotOwner struct {
 
 // UserResponse represents the /v1/users/me response.
 type UserResponse struct {
-	Object    string `json:"object"` // "user"
-	ID        string `json:"id"`
-	Type      string `json:"type"` // "person" or "bot"
-	Name      string `json:"name,omitempty"`
-	AvatarURL string `json:"avatar_url,omitempty"`
-	Person    *Person `json:"person,omitempty"`
+	Object    string        `json:"object"` // "user"
+	ID        string        `json:"id"`
+	Type      string        `json:"type"` // "person" or "bot"
+	Name      string        `json:"name,omitempty"`
+	AvatarURL string        `json:"avatar_url,omitempty"`
+	Person    *Person       `json:"person,omitempty"`
 	Bot       *BotOwnerInfo `json:"bot,omitempty"`
 }
 
@@ -425,13 +425,13 @@ type BotOwnerInfo struct {
 
 // TokenResponse represents the OAuth token exchange response.
 type TokenResponse struct {
-	AccessToken  string    `json:"access_token"`
-	TokenType    string    `json:"token_type"`
-	BotID        string    `json:"bot_id"`
-	WorkspaceID  string    `json:"workspace_id,omitempty"`
-	WorkspaceName string   `json:"workspace_name,omitempty"`
-	WorkspaceIcon string   `json:"workspace_icon,omitempty"`
-	Owner        *UserInfo `json:"owner,omitempty"`
+	AccessToken   string    `json:"access_token"`
+	TokenType     string    `json:"token_type"`
+	BotID         string    `json:"bot_id"`
+	WorkspaceID   string    `json:"workspace_id,omitempty"`
+	WorkspaceName string    `json:"workspace_name,omitempty"`
+	WorkspaceIcon string    `json:"workspace_icon,omitempty"`
+	Owner         *UserInfo `json:"owner,omitempty"`
 }
 
 // UserInfo represents user information in the OAuth response.

@@ -5,7 +5,7 @@ type IndexingInput struct {
 	DocumentID string         `json:"document_id"`
 	SourceID   string         `json:"source_id"`
 	Title      string         `json:"title"`
-	Content    string         `json:"content"`  // Raw normalized content
+	Content    string         `json:"content"` // Raw normalized content
 	MimeType   string         `json:"mime_type"`
 	Path       string         `json:"path"`
 	Metadata   map[string]any `json:"metadata"`
@@ -26,10 +26,10 @@ type SearchInput struct {
 
 // SearchOutput is the final output from a search pipeline.
 type SearchOutput struct {
-	Results    []PresentedResult     `json:"results"`
-	TotalCount int64                 `json:"total_count"`
-	Facets     map[string][]Facet    `json:"facets,omitempty"`
-	Timing     ExecutionTiming       `json:"timing"`
+	Results    []PresentedResult  `json:"results"`
+	TotalCount int64              `json:"total_count"`
+	Facets     map[string][]Facet `json:"facets,omitempty"`
+	Timing     ExecutionTiming    `json:"timing"`
 }
 
 // PresentedResult is a single search result ready for display.

@@ -25,6 +25,7 @@ import {
   Calendar,
   X,
   Search,
+  Folder,
 } from "lucide-react";
 import { AdminLayout } from "@/components/layout";
 import {
@@ -104,6 +105,8 @@ function SourceDetailContent() {
   const [selectedContainerIds, setSelectedContainerIds] = useState<Set<string>>(new Set());
   const [loadingContainers, setLoadingContainers] = useState(false);
   const [containerSearchQuery, setContainerSearchQuery] = useState("");
+  // Folder navigation state
+  const [containerPath, setContainerPath] = useState<Array<{ id: string; name: string }>>([]);
 
   // Fetch source and connection data
   const fetchSource = useCallback(async () => {
@@ -257,6 +260,7 @@ function SourceDetailContent() {
 
     setLoadingContainers(true);
     setShowContainerPicker(true);
+    setContainerPath([]); // Reset navigation path
 
     try {
       const result = await getConnectionContainers(connection.id);
@@ -270,6 +274,38 @@ function SourceDetailContent() {
     } catch (err) {
       console.error("Failed to load containers:", err);
       setShowContainerPicker(false);
+    } finally {
+      setLoadingContainers(false);
+    }
+  };
+
+  const handleDrillIntoFolder = async (container: Container) => {
+    if (!connection) return;
+
+    setLoadingContainers(true);
+    try {
+      const result = await getConnectionContainers(connection.id, undefined, container.id);
+      setAvailableContainers(result.containers);
+      setContainerPath(prev => [...prev, { id: container.id, name: container.name }]);
+    } catch (err) {
+      console.error("Failed to load folder contents:", err);
+    } finally {
+      setLoadingContainers(false);
+    }
+  };
+
+  const handleNavigateBack = async () => {
+    if (!connection || containerPath.length === 0) return;
+
+    setLoadingContainers(true);
+    try {
+      const newPath = containerPath.slice(0, -1);
+      const parentId = newPath.length > 0 ? newPath[newPath.length - 1].id : undefined;
+      const result = await getConnectionContainers(connection.id, undefined, parentId);
+      setAvailableContainers(result.containers);
+      setContainerPath(newPath);
+    } catch (err) {
+      console.error("Failed to navigate back:", err);
     } finally {
       setLoadingContainers(false);
     }
@@ -668,6 +704,17 @@ function SourceDetailContent() {
                     </div>
                   </div>
 
+                  {/* Breadcrumb / Back Navigation */}
+                  {containerPath.length > 0 && (
+                    <button
+                      onClick={handleNavigateBack}
+                      className="flex items-center gap-2 mb-3 text-sm text-sercha-indigo hover:underline"
+                    >
+                      <ChevronLeft size={16} />
+                      Back to {containerPath.length === 1 ? "root" : containerPath[containerPath.length - 2].name}
+                    </button>
+                  )}
+
                   {/* Search */}
                   <div className="relative mb-3">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sercha-fog-grey" />
@@ -692,18 +739,32 @@ function SourceDetailContent() {
                       </p>
                     ) : (
                       filteredAvailableContainers.map((container) => (
-                        <label
+                        <div
                           key={container.id}
-                          className="flex items-center gap-3 rounded-lg p-2 hover:bg-sercha-mist cursor-pointer"
+                          className="flex items-center gap-3 rounded-lg p-2 hover:bg-sercha-mist"
                         >
                           <input
                             type="checkbox"
                             checked={selectedContainerIds.has(container.id)}
                             onChange={() => toggleContainerSelection(container.id)}
-                            className="h-4 w-4 rounded border-sercha-silverline text-sercha-indigo focus:ring-sercha-indigo/20"
+                            className="h-4 w-4 rounded border-sercha-silverline text-sercha-indigo focus:ring-sercha-indigo/20 cursor-pointer"
                           />
-                          <span className="text-sm text-sercha-ink-slate truncate">{container.name}</span>
-                        </label>
+                          {container.has_children ? (
+                            <button
+                              onClick={() => handleDrillIntoFolder(container)}
+                              className="flex items-center gap-2 flex-1 text-left text-sm text-sercha-ink-slate hover:text-sercha-indigo"
+                            >
+                              <Folder size={16} className="text-sercha-fog-grey flex-shrink-0" />
+                              <span className="truncate">{container.name}</span>
+                              <ChevronRight size={14} className="ml-auto text-sercha-fog-grey" />
+                            </button>
+                          ) : (
+                            <label className="flex items-center gap-2 flex-1 cursor-pointer">
+                              <Folder size={16} className="text-sercha-fog-grey flex-shrink-0" />
+                              <span className="text-sm text-sercha-ink-slate truncate">{container.name}</span>
+                            </label>
+                          )}
+                        </div>
                       ))
                     )}
                   </div>

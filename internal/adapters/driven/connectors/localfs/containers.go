@@ -26,7 +26,8 @@ func NewContainerLister(basePath string) *ContainerLister {
 
 // ListContainers lists immediate subdirectories as containers.
 // Cursor is not used (all dirs returned at once for simplicity).
-func (l *ContainerLister) ListContainers(ctx context.Context, cursor string) ([]*driven.Container, string, error) {
+func (l *ContainerLister) ListContainers(ctx context.Context, cursor string, _ string) ([]*driven.Container, string, error) {
+	// parentID ignored - localfs lists from basePath only
 	entries, err := os.ReadDir(l.basePath)
 	if err != nil {
 		return nil, "", fmt.Errorf("read directory: %w", err)

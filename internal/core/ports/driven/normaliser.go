@@ -44,7 +44,6 @@ type NormaliserRegistry interface {
 	List() []string
 }
 
-
 // CredentialsStore handles credential persistence (PostgreSQL, encrypted)
 type CredentialsStore interface {
 	// Save stores credentials (encrypts sensitive fields)

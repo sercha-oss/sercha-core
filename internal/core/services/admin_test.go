@@ -236,12 +236,12 @@ func TestAdminService_ListJobs(t *testing.T) {
 
 func TestAdminService_GetUpcomingJobs(t *testing.T) {
 	tests := []struct {
-		name                string
-		teamID              string
-		setupMocks          func(*mocks.MockTaskQueue, *mocks.MockSchedulerStore)
-		wantErr             bool
-		wantPendingCount    int
-		wantScheduledCount  int
+		name                 string
+		teamID               string
+		setupMocks           func(*mocks.MockTaskQueue, *mocks.MockSchedulerStore)
+		wantErr              bool
+		wantPendingCount     int
+		wantScheduledCount   int
 		wantNextScheduledRun bool
 	}{
 		{
@@ -411,13 +411,13 @@ func TestAdminService_GetUpcomingJobs(t *testing.T) {
 
 func TestAdminService_GetJob(t *testing.T) {
 	tests := []struct {
-		name              string
-		teamID            string
-		jobID             string
-		setupMocks        func(*mocks.MockTaskQueue, *mocks.MockSourceStore)
-		wantErr           error
-		wantSourceName    string
-		hasSourceName     bool
+		name           string
+		teamID         string
+		jobID          string
+		setupMocks     func(*mocks.MockTaskQueue, *mocks.MockSourceStore)
+		wantErr        error
+		wantSourceName string
+		hasSourceName  bool
 	}{
 		{
 			name:   "successful get with source enrichment",

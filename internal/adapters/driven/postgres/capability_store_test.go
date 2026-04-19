@@ -30,8 +30,11 @@ func TestCapabilityStore_GetPreferences_Found(t *testing.T) {
 		"embedding_indexing_enabled",
 		"bm25_search_enabled",
 		"vector_search_enabled",
+		"query_expansion_enabled",
+		"query_rewriting_enabled",
+		"summarization_enabled",
 		"updated_at",
-	}).AddRow(teamID, true, false, true, true, updatedAt)
+	}).AddRow(teamID, true, false, true, true, true, true, true, updatedAt)
 
 	mock.ExpectQuery(`SELECT team_id, text_indexing_enabled, embedding_indexing_enabled`).
 		WithArgs(teamID).
@@ -56,6 +59,15 @@ func TestCapabilityStore_GetPreferences_Found(t *testing.T) {
 	}
 	if !prefs.VectorSearchEnabled {
 		t.Error("VectorSearchEnabled = false, want true")
+	}
+	if !prefs.QueryExpansionEnabled {
+		t.Error("QueryExpansionEnabled = false, want true")
+	}
+	if !prefs.QueryRewritingEnabled {
+		t.Error("QueryRewritingEnabled = false, want true")
+	}
+	if !prefs.SummarizationEnabled {
+		t.Error("SummarizationEnabled = false, want true")
 	}
 	if !prefs.UpdatedAt.Equal(updatedAt) {
 		t.Errorf("UpdatedAt = %v, want %v", prefs.UpdatedAt, updatedAt)
@@ -102,6 +114,15 @@ func TestCapabilityStore_GetPreferences_NotFound(t *testing.T) {
 	}
 	if !prefs.VectorSearchEnabled {
 		t.Error("VectorSearchEnabled = false, want true (default)")
+	}
+	if !prefs.QueryExpansionEnabled {
+		t.Error("QueryExpansionEnabled = false, want true (default)")
+	}
+	if !prefs.QueryRewritingEnabled {
+		t.Error("QueryRewritingEnabled = false, want true (default)")
+	}
+	if !prefs.SummarizationEnabled {
+		t.Error("SummarizationEnabled = false, want true (default)")
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -155,6 +176,9 @@ func TestCapabilityStore_SavePreferences_Create(t *testing.T) {
 		EmbeddingIndexingEnabled: true,
 		BM25SearchEnabled:        true,
 		VectorSearchEnabled:      true,
+		QueryExpansionEnabled:    true,
+		QueryRewritingEnabled:    true,
+		SummarizationEnabled:     true,
 		UpdatedAt:                time.Now(),
 	}
 
@@ -165,6 +189,9 @@ func TestCapabilityStore_SavePreferences_Create(t *testing.T) {
 			prefs.EmbeddingIndexingEnabled,
 			prefs.BM25SearchEnabled,
 			prefs.VectorSearchEnabled,
+			prefs.QueryExpansionEnabled,
+			prefs.QueryRewritingEnabled,
+			prefs.SummarizationEnabled,
 			sqlmock.AnyArg(), // UpdatedAt is set by SavePreferences
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -200,6 +227,9 @@ func TestCapabilityStore_SavePreferences_Update(t *testing.T) {
 		EmbeddingIndexingEnabled: true,
 		BM25SearchEnabled:        false,
 		VectorSearchEnabled:      true,
+		QueryExpansionEnabled:    false,
+		QueryRewritingEnabled:    true,
+		SummarizationEnabled:     false,
 		UpdatedAt:                time.Now(),
 	}
 
@@ -211,6 +241,9 @@ func TestCapabilityStore_SavePreferences_Update(t *testing.T) {
 			prefs.EmbeddingIndexingEnabled,
 			prefs.BM25SearchEnabled,
 			prefs.VectorSearchEnabled,
+			prefs.QueryExpansionEnabled,
+			prefs.QueryRewritingEnabled,
+			prefs.SummarizationEnabled,
 			sqlmock.AnyArg(), // UpdatedAt is set by SavePreferences
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -246,6 +279,9 @@ func TestCapabilityStore_SavePreferences_DatabaseError(t *testing.T) {
 		EmbeddingIndexingEnabled: false,
 		BM25SearchEnabled:        true,
 		VectorSearchEnabled:      false,
+		QueryExpansionEnabled:    true,
+		QueryRewritingEnabled:    true,
+		SummarizationEnabled:     true,
 		UpdatedAt:                time.Now(),
 	}
 
@@ -258,6 +294,9 @@ func TestCapabilityStore_SavePreferences_DatabaseError(t *testing.T) {
 			prefs.EmbeddingIndexingEnabled,
 			prefs.BM25SearchEnabled,
 			prefs.VectorSearchEnabled,
+			prefs.QueryExpansionEnabled,
+			prefs.QueryRewritingEnabled,
+			prefs.SummarizationEnabled,
 			sqlmock.AnyArg(),
 		).
 		WillReturnError(expectedErr)
@@ -288,12 +327,18 @@ func TestCapabilityStore_SavePreferences_AllFalse(t *testing.T) {
 		EmbeddingIndexingEnabled: false,
 		BM25SearchEnabled:        false,
 		VectorSearchEnabled:      false,
+		QueryExpansionEnabled:    false,
+		QueryRewritingEnabled:    false,
+		SummarizationEnabled:     false,
 		UpdatedAt:                time.Now(),
 	}
 
 	mock.ExpectExec(`INSERT INTO capability_preferences`).
 		WithArgs(
 			prefs.TeamID,
+			false,
+			false,
+			false,
 			false,
 			false,
 			false,
@@ -328,12 +373,18 @@ func TestCapabilityStore_SavePreferences_AllTrue(t *testing.T) {
 		EmbeddingIndexingEnabled: true,
 		BM25SearchEnabled:        true,
 		VectorSearchEnabled:      true,
+		QueryExpansionEnabled:    true,
+		QueryRewritingEnabled:    true,
+		SummarizationEnabled:     true,
 		UpdatedAt:                time.Now(),
 	}
 
 	mock.ExpectExec(`INSERT INTO capability_preferences`).
 		WithArgs(
 			prefs.TeamID,
+			true,
+			true,
+			true,
 			true,
 			true,
 			true,
@@ -369,6 +420,9 @@ func TestCapabilityStore_RoundTrip(t *testing.T) {
 		EmbeddingIndexingEnabled: false,
 		BM25SearchEnabled:        true,
 		VectorSearchEnabled:      false,
+		QueryExpansionEnabled:    true,
+		QueryRewritingEnabled:    false,
+		SummarizationEnabled:     true,
 		UpdatedAt:                time.Now(),
 	}
 
@@ -380,6 +434,9 @@ func TestCapabilityStore_RoundTrip(t *testing.T) {
 			originalPrefs.EmbeddingIndexingEnabled,
 			originalPrefs.BM25SearchEnabled,
 			originalPrefs.VectorSearchEnabled,
+			originalPrefs.QueryExpansionEnabled,
+			originalPrefs.QueryRewritingEnabled,
+			originalPrefs.SummarizationEnabled,
 			sqlmock.AnyArg(),
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -396,6 +453,9 @@ func TestCapabilityStore_RoundTrip(t *testing.T) {
 		"embedding_indexing_enabled",
 		"bm25_search_enabled",
 		"vector_search_enabled",
+		"query_expansion_enabled",
+		"query_rewriting_enabled",
+		"summarization_enabled",
 		"updated_at",
 	}).AddRow(
 		originalPrefs.TeamID,
@@ -403,6 +463,9 @@ func TestCapabilityStore_RoundTrip(t *testing.T) {
 		originalPrefs.EmbeddingIndexingEnabled,
 		originalPrefs.BM25SearchEnabled,
 		originalPrefs.VectorSearchEnabled,
+		originalPrefs.QueryExpansionEnabled,
+		originalPrefs.QueryRewritingEnabled,
+		originalPrefs.SummarizationEnabled,
 		originalPrefs.UpdatedAt,
 	)
 
@@ -430,6 +493,15 @@ func TestCapabilityStore_RoundTrip(t *testing.T) {
 	}
 	if retrievedPrefs.VectorSearchEnabled != originalPrefs.VectorSearchEnabled {
 		t.Errorf("VectorSearchEnabled = %v, want %v", retrievedPrefs.VectorSearchEnabled, originalPrefs.VectorSearchEnabled)
+	}
+	if retrievedPrefs.QueryExpansionEnabled != originalPrefs.QueryExpansionEnabled {
+		t.Errorf("QueryExpansionEnabled = %v, want %v", retrievedPrefs.QueryExpansionEnabled, originalPrefs.QueryExpansionEnabled)
+	}
+	if retrievedPrefs.QueryRewritingEnabled != originalPrefs.QueryRewritingEnabled {
+		t.Errorf("QueryRewritingEnabled = %v, want %v", retrievedPrefs.QueryRewritingEnabled, originalPrefs.QueryRewritingEnabled)
+	}
+	if retrievedPrefs.SummarizationEnabled != originalPrefs.SummarizationEnabled {
+		t.Errorf("SummarizationEnabled = %v, want %v", retrievedPrefs.SummarizationEnabled, originalPrefs.SummarizationEnabled)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -35,9 +35,10 @@ type SearchContext struct {
 
 // SearchFilters contains user-applied search filters.
 type SearchFilters struct {
-	Sources      []string       `json:"sources,omitempty"`       // Filter by source/connector
+	Sources      []string       `json:"sources,omitempty"` // Filter by source/connector
 	DateRange    *DateRange     `json:"date_range,omitempty"`
 	ContentTypes []string       `json:"content_types,omitempty"`
+	DocumentIDs  []string       `json:"document_ids,omitempty"` // Filter by specific document IDs
 	Custom       map[string]any `json:"custom,omitempty"`
 }
 

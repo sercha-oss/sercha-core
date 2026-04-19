@@ -51,7 +51,7 @@ func (r *mockStageRegistry) ListByType(stageType pipeline.StageType) []pipeline.
 
 // mockStage is a mock implementation of Stage
 type mockStage struct {
-	descriptor pipeline.StageDescriptor
+	descriptor  pipeline.StageDescriptor
 	processFunc func(ctx context.Context, input any) (any, error)
 }
 

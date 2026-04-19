@@ -8,6 +8,7 @@ require (
 	github.com/cucumber/godog v0.15.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
+	github.com/heussd/pdftotext-go v0.0.0-20240804143356-fe57a0d73567
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/lib/pq v1.10.9
 	github.com/modelcontextprotocol/go-sdk v1.5.0
@@ -21,6 +22,7 @@ require (
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
+	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

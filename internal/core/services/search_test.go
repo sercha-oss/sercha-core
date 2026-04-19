@@ -304,7 +304,6 @@ func TestSearchService_Search_HybridMode(t *testing.T) {
 	}
 }
 
-
 func TestSearchService_Search_Timing(t *testing.T) {
 	searchEngine := mocks.NewMockSearchEngine()
 	embeddingService := mocks.NewMockEmbeddingService()

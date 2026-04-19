@@ -10,8 +10,8 @@ import (
 
 // MockSchedulerStore is a mock implementation of SchedulerStore for testing
 type MockSchedulerStore struct {
-	mu                    sync.RWMutex
-	scheduledTasks        map[string]*domain.ScheduledTask
+	mu                     sync.RWMutex
+	scheduledTasks         map[string]*domain.ScheduledTask
 	listScheduledTasksFunc func(ctx context.Context, teamID string) ([]*domain.ScheduledTask, error)
 }
 

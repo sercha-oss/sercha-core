@@ -136,8 +136,6 @@ func TestSyncOrchestrator_WithPipelineExecutor(t *testing.T) {
 	}
 }
 
-
-
 // TestProcessWithPipeline_Success tests successful pipeline execution
 func TestProcessWithPipeline_Success(t *testing.T) {
 	orchestrator, sourceStore, documentStore, _, _, _ := createTestSyncOrchestrator(t)
@@ -439,4 +437,3 @@ func TestProcessWithPipeline_ContextPassing(t *testing.T) {
 		t.Error("expected capabilities to be passed through")
 	}
 }
-

@@ -82,11 +82,6 @@ func NewCohereEmbedding(apiKey, model string) (driven.EmbeddingService, error) {
 	return nil, fmt.Errorf("cohere embedding adapter not yet implemented")
 }
 
-func NewOpenAILLM(apiKey, model, baseURL string) (driven.LLMService, error) {
-	// TODO: Implement OpenAI LLM adapter
-	return nil, fmt.Errorf("OpenAI LLM adapter not yet implemented")
-}
-
 func NewAnthropicLLM(apiKey, model string) (driven.LLMService, error) {
 	// TODO: Implement Anthropic LLM adapter
 	return nil, fmt.Errorf("anthropic LLM adapter not yet implemented")

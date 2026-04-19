@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { getAIStatus, AISettingsStatus } from "@/lib/api";
+import { getAIStatus, AISettingsStatus, getCapabilityPreferences } from "@/lib/api";
 
 interface ToggleProps {
   enabled: boolean;
@@ -86,13 +86,13 @@ export default function SearchHomePage() {
   const [aiStatus, setAiStatus] = useState<AISettingsStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
 
-  // Derived AI configuration from status
+  // Derived AI configuration from status AND capability preferences
+  // Vector search available only if embedding provider is configured AND preference is enabled
   const embeddingConfigured = aiStatus?.embedding?.available ?? false;
-  const llmConfigured = aiStatus?.llm?.available ?? false;
 
-  // Search enhancement toggles (binary: vectorEnabled, llmExpansionEnabled)
+  // Vector search toggle state
   const [vectorEnabled, setVectorEnabled] = useState(false);
-  const [llmExpansionEnabled, setLlmExpansionEnabled] = useState(false);
+  const [vectorSearchEnabled, setVectorSearchEnabled] = useState(true);
 
   // Dropdown states
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -100,24 +100,30 @@ export default function SearchHomePage() {
   const settingsRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
 
-  // Fetch AI status only after auth is ready
+  // Fetch AI status and capability preferences only after auth is ready
   useEffect(() => {
     // Don't fetch until auth check is complete to avoid 401 race condition
     if (authLoading) return;
 
-    getAIStatus()
-      .then((status) => {
+    Promise.all([
+      getAIStatus().catch((err) => {
+        console.error("Failed to fetch AI status:", err);
+        return null;
+      }),
+      getCapabilityPreferences().catch((err) => {
+        console.error("Failed to fetch capability preferences:", err);
+        return null;
+      }),
+    ])
+      .then(([status, prefs]) => {
         setAiStatus(status);
-        // Auto-enable toggles if configured
-        if (status.embedding?.available) {
+        const vectorPrefEnabled = prefs?.vector_search_enabled ?? true;
+        setVectorSearchEnabled(vectorPrefEnabled);
+
+        // Auto-enable vector search if both provider is available AND preference is enabled
+        if (status?.embedding?.available && vectorPrefEnabled) {
           setVectorEnabled(true);
         }
-        if (status.llm?.available) {
-          setLlmExpansionEnabled(true);
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to fetch AI status:", err);
       })
       .finally(() => {
         setLoadingStatus(false);
@@ -307,16 +313,13 @@ export default function SearchHomePage() {
                   <Toggle
                     enabled={vectorEnabled}
                     onChange={setVectorEnabled}
-                    disabled={!embeddingConfigured}
+                    disabled={!embeddingConfigured || !vectorSearchEnabled}
                     label="Vector Search"
-                    tooltip="Use AI embeddings to find semantically similar content, even when exact keywords don't match."
-                  />
-                  <Toggle
-                    enabled={llmExpansionEnabled}
-                    onChange={setLlmExpansionEnabled}
-                    disabled={!llmConfigured}
-                    label="Query Expansion"
-                    tooltip="Use an LLM to expand your query with related terms and synonyms for broader, smarter results."
+                    tooltip={!embeddingConfigured
+                      ? "Requires embedding provider to be configured."
+                      : !vectorSearchEnabled
+                        ? "Disabled by admin in Capabilities settings."
+                        : "Use AI embeddings to find semantically similar content, even when exact keywords don't match."}
                   />
                 </>
               )}

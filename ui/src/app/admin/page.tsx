@@ -536,6 +536,22 @@ export default function AdminDashboardPage() {
                         />
                         Vector Search
                       </span>
+                      {aiStatus?.llm?.available && (
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                            capabilityPrefs.query_expansion_enabled
+                              ? "bg-purple-100 text-purple-700"
+                              : "bg-gray-100 text-gray-500"
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              capabilityPrefs.query_expansion_enabled ? "bg-purple-500" : "bg-gray-400"
+                            }`}
+                          />
+                          Query Expansion
+                        </span>
+                      )}
                     </div>
                     <p className="mt-2 text-xs text-sercha-fog-grey">
                       {[
@@ -543,7 +559,8 @@ export default function AdminDashboardPage() {
                         capabilityPrefs.embedding_indexing_enabled,
                         capabilityPrefs.bm25_search_enabled,
                         capabilityPrefs.vector_search_enabled,
-                      ].filter(Boolean).length} of 4 capabilities enabled
+                        aiStatus?.llm?.available && capabilityPrefs.query_expansion_enabled,
+                      ].filter(Boolean).length} of {aiStatus?.llm?.available ? 5 : 4} capabilities enabled
                     </p>
                   </>
                 ) : (

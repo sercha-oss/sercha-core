@@ -29,7 +29,8 @@ func NewContainerLister(tokenProvider driven.TokenProvider, config *Config) *Con
 // Only returns databases and standalone pages (pages NOT in a database).
 // Pages that belong to databases are excluded - they are indexed when their
 // parent database is synced, avoiding duplicate indexing and slow sync times.
-func (l *ContainerLister) ListContainers(ctx context.Context, cursor string) ([]*driven.Container, string, error) {
+func (l *ContainerLister) ListContainers(ctx context.Context, cursor string, _ string) ([]*driven.Container, string, error) {
+	// parentID ignored - Notion pages/databases are flat
 	// Search for all pages and databases
 	resp, err := l.client.Search(ctx, nil, cursor)
 	if err != nil {
@@ -53,9 +54,9 @@ func (l *ContainerLister) ListContainers(ctx context.Context, cursor string) ([]
 			ID:   result.ID,
 			Type: result.Object, // "page" or "database"
 			Metadata: map[string]string{
-				"url":               result.URL,
-				"created_time":      result.CreatedTime.Format("2006-01-02"),
-				"last_edited_time":  result.LastEditedTime.Format("2006-01-02"),
+				"url":              result.URL,
+				"created_time":     result.CreatedTime.Format("2006-01-02"),
+				"last_edited_time": result.LastEditedTime.Format("2006-01-02"),
 			},
 		}
 

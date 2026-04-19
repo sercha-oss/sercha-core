@@ -26,7 +26,9 @@ func NewCapabilityStore(db *DB) *CapabilityStore {
 func (s *CapabilityStore) GetPreferences(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error) {
 	query := `
 		SELECT team_id, text_indexing_enabled, embedding_indexing_enabled,
-		       bm25_search_enabled, vector_search_enabled, updated_at
+		       bm25_search_enabled, vector_search_enabled,
+		       query_expansion_enabled, query_rewriting_enabled, summarization_enabled,
+		       updated_at
 		FROM capability_preferences
 		WHERE team_id = $1
 	`
@@ -39,6 +41,9 @@ func (s *CapabilityStore) GetPreferences(ctx context.Context, teamID string) (*d
 		&prefs.EmbeddingIndexingEnabled,
 		&prefs.BM25SearchEnabled,
 		&prefs.VectorSearchEnabled,
+		&prefs.QueryExpansionEnabled,
+		&prefs.QueryRewritingEnabled,
+		&prefs.SummarizationEnabled,
 		&prefs.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -56,13 +61,18 @@ func (s *CapabilityStore) GetPreferences(ctx context.Context, teamID string) (*d
 func (s *CapabilityStore) SavePreferences(ctx context.Context, prefs *domain.CapabilityPreferences) error {
 	query := `
 		INSERT INTO capability_preferences (team_id, text_indexing_enabled, embedding_indexing_enabled,
-		                                     bm25_search_enabled, vector_search_enabled, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		                                     bm25_search_enabled, vector_search_enabled,
+		                                     query_expansion_enabled, query_rewriting_enabled, summarization_enabled,
+		                                     updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (team_id) DO UPDATE SET
 			text_indexing_enabled = EXCLUDED.text_indexing_enabled,
 			embedding_indexing_enabled = EXCLUDED.embedding_indexing_enabled,
 			bm25_search_enabled = EXCLUDED.bm25_search_enabled,
 			vector_search_enabled = EXCLUDED.vector_search_enabled,
+			query_expansion_enabled = EXCLUDED.query_expansion_enabled,
+			query_rewriting_enabled = EXCLUDED.query_rewriting_enabled,
+			summarization_enabled = EXCLUDED.summarization_enabled,
 			updated_at = EXCLUDED.updated_at
 	`
 
@@ -74,6 +84,9 @@ func (s *CapabilityStore) SavePreferences(ctx context.Context, prefs *domain.Cap
 		prefs.EmbeddingIndexingEnabled,
 		prefs.BM25SearchEnabled,
 		prefs.VectorSearchEnabled,
+		prefs.QueryExpansionEnabled,
+		prefs.QueryRewritingEnabled,
+		prefs.SummarizationEnabled,
 		prefs.UpdatedAt,
 	)
 	return err

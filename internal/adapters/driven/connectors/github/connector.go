@@ -382,10 +382,10 @@ func (c *Connector) TestConnection(ctx context.Context, source *domain.Source) e
 // issueToDocument converts a GitHub issue to a domain document.
 func (c *Connector) issueToDocument(issue *Issue) *domain.Document {
 	metadata := map[string]string{
-		"number":    fmt.Sprintf("%d", issue.Number),
-		"state":     issue.State,
-		"comments":  fmt.Sprintf("%d", issue.Comments),
-		"repo":      FormatContainerID(c.owner, c.repo),
+		"number":   fmt.Sprintf("%d", issue.Number),
+		"state":    issue.State,
+		"comments": fmt.Sprintf("%d", issue.Comments),
+		"repo":     FormatContainerID(c.owner, c.repo),
 	}
 
 	if issue.User != nil {
@@ -454,7 +454,6 @@ func (c *Connector) fileToDocument(entry *TreeEntry, content *FileContent) *doma
 		},
 	}
 }
-
 
 // formatIssueContent formats issue content for indexing.
 func (c *Connector) formatIssueContent(issue *Issue) string {

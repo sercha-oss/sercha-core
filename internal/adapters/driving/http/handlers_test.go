@@ -202,12 +202,12 @@ func (m *mockSourceService) UpdateContainers(ctx context.Context, id string, con
 }
 
 type mockConnectionService struct {
-	getFn             func(ctx context.Context, id string) (*domain.ConnectionSummary, error)
-	listFn            func(ctx context.Context) ([]*domain.ConnectionSummary, error)
-	createFn          func(ctx context.Context, req driving.CreateConnectionRequest) (*domain.ConnectionSummary, error)
-	deleteFn          func(ctx context.Context, id string) error
-	listContainersFn  func(ctx context.Context, id string, cursor string) (*driving.ListContainersResponse, error)
-	testConnectionFn  func(ctx context.Context, id string) error
+	getFn            func(ctx context.Context, id string) (*domain.ConnectionSummary, error)
+	listFn           func(ctx context.Context) ([]*domain.ConnectionSummary, error)
+	createFn         func(ctx context.Context, req driving.CreateConnectionRequest) (*domain.ConnectionSummary, error)
+	deleteFn         func(ctx context.Context, id string) error
+	listContainersFn func(ctx context.Context, id string, cursor string, parentID string) (*driving.ListContainersResponse, error)
+	testConnectionFn func(ctx context.Context, id string) error
 }
 
 func (m *mockConnectionService) Create(ctx context.Context, req driving.CreateConnectionRequest) (*domain.ConnectionSummary, error) {
@@ -238,9 +238,9 @@ func (m *mockConnectionService) Delete(ctx context.Context, id string) error {
 	return errors.New("not implemented")
 }
 
-func (m *mockConnectionService) ListContainers(ctx context.Context, id string, cursor string) (*driving.ListContainersResponse, error) {
+func (m *mockConnectionService) ListContainers(ctx context.Context, id string, cursor string, parentID string) (*driving.ListContainersResponse, error) {
 	if m.listContainersFn != nil {
-		return m.listContainersFn(ctx, id, cursor)
+		return m.listContainersFn(ctx, id, cursor, parentID)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -355,8 +355,8 @@ func (m *mockSettingsService) RestoreAIServices(ctx context.Context) error {
 }
 
 type mockCapabilitiesService struct {
-	getCapabilitiesFn           func(ctx context.Context, teamID string) (*driving.CapabilitiesResponse, error)
-	getCapabilityPreferencesFn  func(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error)
+	getCapabilitiesFn             func(ctx context.Context, teamID string) (*driving.CapabilitiesResponse, error)
+	getCapabilityPreferencesFn    func(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error)
 	updateCapabilityPreferencesFn func(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error)
 }
 
@@ -2028,7 +2028,7 @@ func TestHandleGetAISettings_Success(t *testing.T) {
 	mockCapabilities := &mockCapabilitiesService{}
 
 	server := &Server{
-		settingsService:      mockSettings,
+		settingsService:     mockSettings,
 		capabilitiesService: mockCapabilities,
 	}
 

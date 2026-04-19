@@ -37,6 +37,7 @@ func (s *capabilitiesService) GetCapabilities(ctx context.Context, teamID string
 	capabilities := s.configProvider.GetCapabilities()
 
 	hasEmbeddings := len(capabilities.EmbeddingProviders) > 0
+	hasLLM := len(capabilities.LLMProviders) > 0
 
 	// Build availability map from backend status
 	available := map[domain.CapabilityType]bool{
@@ -44,6 +45,9 @@ func (s *capabilitiesService) GetCapabilities(ctx context.Context, teamID string
 		domain.CapabilityEmbeddingIndexing: hasEmbeddings && capabilities.VectorStoreAvailable,
 		domain.CapabilityBM25Search:        capabilities.SearchEngineAvailable,
 		domain.CapabilityVectorSearch:      hasEmbeddings && capabilities.VectorStoreAvailable,
+		domain.CapabilityQueryExpansion:    hasLLM,
+		domain.CapabilityQueryRewriting:    false,
+		domain.CapabilitySummarization:     false,
 	}
 
 	// Fetch team preferences to merge with availability
@@ -75,6 +79,12 @@ func (s *capabilitiesService) GetCapabilities(ctx context.Context, teamID string
 			features.BM25Search = status
 		case domain.CapabilityVectorSearch:
 			features.VectorSearch = status
+		case domain.CapabilityQueryExpansion:
+			features.QueryExpansion = status
+		case domain.CapabilityQueryRewriting:
+			features.QueryRewriting = status
+		case domain.CapabilitySummarization:
+			features.Summarization = status
 		}
 	}
 
@@ -139,6 +149,22 @@ func (s *capabilitiesService) UpdateCapabilityPreferences(ctx context.Context, t
 
 	if req.VectorSearchEnabled != nil {
 		prefs.VectorSearchEnabled = *req.VectorSearchEnabled
+		prefs.UpdatedAt = time.Now()
+	}
+
+	// LLM-powered feature preferences
+	if req.QueryExpansionEnabled != nil {
+		prefs.QueryExpansionEnabled = *req.QueryExpansionEnabled
+		prefs.UpdatedAt = time.Now()
+	}
+
+	if req.QueryRewritingEnabled != nil {
+		prefs.QueryRewritingEnabled = *req.QueryRewritingEnabled
+		prefs.UpdatedAt = time.Now()
+	}
+
+	if req.SummarizationEnabled != nil {
+		prefs.SummarizationEnabled = *req.SummarizationEnabled
 		prefs.UpdatedAt = time.Now()
 	}
 

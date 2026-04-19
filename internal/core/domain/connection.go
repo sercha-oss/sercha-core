@@ -48,7 +48,7 @@ type ConnectionSecrets struct {
 type ConnectionSummary struct {
 	ID           string       `json:"id"`
 	Name         string       `json:"name"`
-	Platform     PlatformType `json:"platform"`      // NEW
+	Platform     PlatformType `json:"platform"` // NEW
 	ProviderType ProviderType `json:"provider_type"`
 	AuthMethod   AuthMethod   `json:"auth_method"`
 	AccountID    string       `json:"account_id,omitempty"`

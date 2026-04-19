@@ -80,7 +80,8 @@ func (v *VectorIndex) Index(ctx context.Context, id string, documentID string, e
 
 // SearchWithContent finds similar vectors and returns chunk content alongside IDs/distances.
 // sourceIDs optionally filters results to specific sources (nil or empty = no filter).
-func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string) ([]driven.VectorSearchResult, error) {
+// documentIDs optionally filters results to specific documents (nil or empty = no filter).
+func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
 	if len(embedding) != v.dimensions {
 		return nil, fmt.Errorf("embedding dimension mismatch: expected %d, got %d", v.dimensions, len(embedding))
 	}
@@ -94,7 +95,20 @@ func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32
 	var rows pgx.Rows
 	var err error
 
-	if len(sourceIDs) > 0 {
+	// Build WHERE clause conditions
+	hasSourceFilter := len(sourceIDs) > 0
+	hasDocFilter := len(documentIDs) > 0
+
+	if hasSourceFilter && hasDocFilter {
+		query := fmt.Sprintf(`
+			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance
+			FROM embeddings
+			WHERE source_id = ANY($3) AND document_id = ANY($4)
+			ORDER BY distance
+			LIMIT $2
+		`, v.distOp)
+		rows, err = v.pool.Query(ctx, query, vec, k, sourceIDs, documentIDs)
+	} else if hasSourceFilter {
 		query := fmt.Sprintf(`
 			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance
 			FROM embeddings
@@ -103,6 +117,15 @@ func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32
 			LIMIT $2
 		`, v.distOp)
 		rows, err = v.pool.Query(ctx, query, vec, k, sourceIDs)
+	} else if hasDocFilter {
+		query := fmt.Sprintf(`
+			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance
+			FROM embeddings
+			WHERE document_id = ANY($3)
+			ORDER BY distance
+			LIMIT $2
+		`, v.distOp)
+		rows, err = v.pool.Query(ctx, query, vec, k, documentIDs)
 	} else {
 		query := fmt.Sprintf(`
 			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance

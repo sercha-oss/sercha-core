@@ -42,8 +42,8 @@ type ConnectionService interface {
 	ListByProvider(ctx context.Context, providerType domain.ProviderType) ([]*domain.ConnectionSummary, error)
 
 	// ListContainers lists available containers (repos, drives, spaces) for a connection.
-	// Supports pagination via cursor.
-	ListContainers(ctx context.Context, connectionID string, cursor string) (*ListContainersResponse, error)
+	// Supports pagination via cursor. parentID is optional for folder navigation.
+	ListContainers(ctx context.Context, connectionID string, cursor string, parentID string) (*ListContainersResponse, error)
 
 	// TestConnection tests if the connection's credentials are still valid.
 	TestConnection(ctx context.Context, id string) error

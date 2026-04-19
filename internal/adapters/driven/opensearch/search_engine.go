@@ -167,16 +167,21 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		},
 	}
 
-	// Add source filter if specified
+	// Add filters if specified
+	var filterClauses []any
 	if len(opts.SourceIDs) > 0 {
+		filterClauses = append(filterClauses, map[string]any{
+			"terms": map[string]any{"source_id": opts.SourceIDs},
+		})
+	}
+	if len(opts.DocumentIDs) > 0 {
+		filterClauses = append(filterClauses, map[string]any{
+			"terms": map[string]any{"document_id": opts.DocumentIDs},
+		})
+	}
+	if len(filterClauses) > 0 {
 		boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
-		boolQuery["filter"] = []any{
-			map[string]any{
-				"terms": map[string]any{
-					"source_id": opts.SourceIDs,
-				},
-			},
-		}
+		boolQuery["filter"] = filterClauses
 	}
 
 	queryBody, err := json.Marshal(searchQuery)
@@ -244,16 +249,21 @@ func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding 
 		},
 	}
 
-	// Add source filter if specified
+	// Add filters if specified
+	var filterClauses []any
 	if len(opts.SourceIDs) > 0 {
+		filterClauses = append(filterClauses, map[string]any{
+			"terms": map[string]any{"source_id": opts.SourceIDs},
+		})
+	}
+	if len(opts.DocumentIDs) > 0 {
+		filterClauses = append(filterClauses, map[string]any{
+			"terms": map[string]any{"document_id": opts.DocumentIDs},
+		})
+	}
+	if len(filterClauses) > 0 {
 		boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
-		boolQuery["filter"] = []any{
-			map[string]any{
-				"terms": map[string]any{
-					"source_id": opts.SourceIDs,
-				},
-			},
-		}
+		boolQuery["filter"] = filterClauses
 	}
 
 	// Marshal query

@@ -31,11 +31,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/ai"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/auth"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/github"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/localfs"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/microsoft"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/microsoft/onedrive"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/notion"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/opensearch"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pgvector"
@@ -59,7 +62,6 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/normalisers"
 	"github.com/sercha-oss/sercha-core/internal/runtime"
 	"github.com/sercha-oss/sercha-core/internal/worker"
-	"github.com/redis/go-redis/v9"
 )
 
 var version = "dev"
@@ -72,7 +74,6 @@ type redisPinger struct {
 func (r *redisPinger) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }
-
 
 func main() {
 	// Get run mode: environment variable takes precedence, command arg as fallback
@@ -287,6 +288,14 @@ func main() {
 		return github.NewOAuthHandler().RefreshToken(ctx, creds.ClientID, creds.ClientSecret, refreshToken)
 	})
 
+	tokenProviderFactory.RegisterRefresher(domain.PlatformMicrosoft, func(ctx context.Context, refreshToken string) (*driven.OAuthToken, error) {
+		creds := cfg.GetOAuthCredentials(domain.PlatformMicrosoft)
+		if creds == nil {
+			return nil, fmt.Errorf("microsoft provider not configured - set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET")
+		}
+		return microsoft.NewOAuthHandler().RefreshToken(ctx, creds.ClientID, creds.ClientSecret, refreshToken)
+	})
+
 	// Create connector factory
 	factory := connectors.NewFactory(tokenProviderFactory)
 
@@ -297,6 +306,10 @@ func main() {
 	// Register Notion connector
 	factory.Register(notion.NewBuilder())
 	factory.RegisterOAuthHandler(domain.PlatformNotion, notion.NewOAuthHandler())
+
+	// Register Microsoft OneDrive connector
+	factory.Register(onedrive.NewBuilder())
+	factory.RegisterOAuthHandler(domain.PlatformMicrosoft, microsoft.NewOAuthHandler())
 
 	// Register LocalFS connector (for testing/development)
 	localfsAllowedRoots := []string{"/data", "/tmp"}
@@ -321,6 +334,10 @@ func main() {
 	// Register Notion container lister factory
 	containerListerFactory.Register(domain.ProviderTypeNotion,
 		notion.NewContainerListerFactory(installationStore, tokenProviderFactory))
+
+	// Register OneDrive container lister factory
+	containerListerFactory.Register(domain.ProviderTypeOneDrive,
+		onedrive.NewContainerListerFactory(installationStore, tokenProviderFactory))
 
 	// Register LocalFS container lister factory
 	containerListerFactory.Register(domain.ProviderTypeLocalFS,
@@ -363,6 +380,12 @@ func main() {
 	if err := stageRegistry.Register(searchstages.NewQueryParserFactory()); err != nil {
 		log.Fatalf("Failed to register query-parser stage: %v", err)
 	}
+	if err := stageRegistry.Register(searchstages.NewDocumentIDFilterFactory()); err != nil {
+		log.Fatalf("Failed to register document-id-filter stage: %v", err)
+	}
+	if err := stageRegistry.Register(searchstages.NewQueryExpanderFactory()); err != nil {
+		log.Fatalf("Failed to register query-expander stage: %v", err)
+	}
 	if err := stageRegistry.Register(searchstages.NewBM25RetrieverFactory()); err != nil {
 		log.Fatalf("Failed to register bm25-retriever stage: %v", err)
 	}
@@ -371,6 +394,9 @@ func main() {
 	}
 	if err := stageRegistry.Register(searchstages.NewHybridRetrieverFactory()); err != nil {
 		log.Fatalf("Failed to register hybrid-retriever stage: %v", err)
+	}
+	if err := stageRegistry.Register(searchstages.NewMultiRetrieverFactory()); err != nil {
+		log.Fatalf("Failed to register multi-retriever stage: %v", err)
 	}
 	if err := stageRegistry.Register(searchstages.NewRankerFactory()); err != nil {
 		log.Fatalf("Failed to register ranker stage: %v", err)
@@ -393,6 +419,21 @@ func main() {
 		},
 	}); err != nil {
 		log.Fatalf("Failed to register embedder capability: %v", err)
+	}
+
+	// LLM - dynamically available via runtimeServices
+	// The instance is resolved at runtime when needed
+	if err := capabilityRegistry.Register(&providers.CapabilityProvider{
+		CapType:    pipeline.CapabilityLLM,
+		ProviderID: "default",
+		InstanceResolver: func() any {
+			return runtimeServices.LLMService()
+		},
+		AvailFn: func() bool {
+			return runtimeServices.LLMService() != nil
+		},
+	}); err != nil {
+		log.Fatalf("Failed to register llm capability: %v", err)
 	}
 
 	// SearchEngine - OpenSearch if configured
@@ -442,17 +483,18 @@ func main() {
 		log.Fatalf("Failed to set default indexing pipeline: %v", err)
 	}
 
-	// Register default search pipeline with all retriever variants.
-	// applyPreferences enables exactly one retriever based on the requested search mode.
+	// Register default search pipeline with query expansion and multi-query retrieval.
+	// The query-expander generates multiple query variants (1:N).
+	// The multi-retriever searches all variants in parallel and merges with RRF (N:1).
 	searchPipeline := pipeline.PipelineDefinition{
 		ID:   "default-search",
 		Name: "Default Search Pipeline",
 		Type: pipeline.PipelineTypeSearch,
 		Stages: []pipeline.StageConfig{
 			{StageID: "query-parser", Enabled: true},
-			{StageID: "bm25-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
-			{StageID: "vector-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
-			{StageID: "hybrid-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
+			{StageID: "document-id-filter", Enabled: false}, // Disabled by default - enable when DocumentIDProvider is available
+			{StageID: "query-expander", Enabled: true},
+			{StageID: "multi-retriever", Enabled: true, Parameters: map[string]any{"top_k": 100}},
 			{StageID: "ranker", Enabled: true, Parameters: map[string]any{"limit": 100}},
 			{StageID: "presenter", Enabled: true, Parameters: map[string]any{"snippet_length": 200}},
 		},

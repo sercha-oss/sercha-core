@@ -24,7 +24,8 @@ func NewContainerLister(tokenProvider driven.TokenProvider, baseURL string) *Con
 
 // ListContainers lists all repositories accessible to the authenticated user.
 // Returns repositories as containers in the format "owner/repo".
-func (l *ContainerLister) ListContainers(ctx context.Context, cursor string) ([]*driven.Container, string, error) {
+func (l *ContainerLister) ListContainers(ctx context.Context, cursor string, _ string) ([]*driven.Container, string, error) {
+	// parentID ignored - GitHub repos are flat
 	resp, err := l.client.ListAccessibleRepos(ctx, cursor)
 	if err != nil {
 		return nil, "", fmt.Errorf("list repos: %w", err)

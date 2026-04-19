@@ -56,3 +56,17 @@ export function getProviderHelpUrl(providerType: string): string | undefined {
 export function getProviderName(providerType: string): string {
   return PROVIDER_NAMES[providerType] || providerType;
 }
+
+// Maps provider types to their OAuth platform
+// Most providers use the same name for both, but Microsoft services share a platform
+export const PROVIDER_TO_PLATFORM: Record<string, string> = {
+  github: "github",
+  notion: "notion",
+  onedrive: "microsoft",
+  sharepoint: "microsoft",
+  // Add more mappings as needed
+};
+
+export function getProviderPlatform(providerType: string): string {
+  return PROVIDER_TO_PLATFORM[providerType] || providerType;
+}

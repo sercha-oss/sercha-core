@@ -9,11 +9,11 @@ import (
 
 // MockSearchQueryRepository is a mock implementation of SearchQueryRepository for testing
 type MockSearchQueryRepository struct {
-	mu                      sync.RWMutex
-	queries                 []*domain.SearchQuery
-	getSearchHistoryFunc    func(ctx context.Context, teamID string, limit int) ([]*domain.SearchQuery, error)
-	getSearchAnalyticsFunc  func(ctx context.Context, teamID string, period domain.AnalyticsPeriod) (*domain.SearchAnalytics, error)
-	getSearchMetricsFunc    func(ctx context.Context, teamID string, period domain.AnalyticsPeriod) (*domain.SearchMetrics, error)
+	mu                     sync.RWMutex
+	queries                []*domain.SearchQuery
+	getSearchHistoryFunc   func(ctx context.Context, teamID string, limit int) ([]*domain.SearchQuery, error)
+	getSearchAnalyticsFunc func(ctx context.Context, teamID string, period domain.AnalyticsPeriod) (*domain.SearchAnalytics, error)
+	getSearchMetricsFunc   func(ctx context.Context, teamID string, period domain.AnalyticsPeriod) (*domain.SearchMetrics, error)
 }
 
 // NewMockSearchQueryRepository creates a new MockSearchQueryRepository

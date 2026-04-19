@@ -101,6 +101,9 @@ func (s *searchService) searchWithPipeline(
 	if len(opts.SourceIDs) > 0 {
 		pipelineInput.Filters.Sources = opts.SourceIDs
 	}
+	if len(opts.DocumentIDs) > 0 {
+		pipelineInput.Filters.DocumentIDs = opts.DocumentIDs
+	}
 
 	// Build pipeline context
 	pipelineContext := &pipeline.SearchContext{
@@ -189,7 +192,6 @@ func (s *searchService) searchWithPipeline(
 	}, nil
 }
 
-
 // SearchBySource performs a search within a specific source
 func (s *searchService) SearchBySource(ctx context.Context, sourceID string, query string, opts domain.SearchOptions) (*domain.SearchResult, error) {
 	// Add source filter
@@ -204,4 +206,3 @@ func (s *searchService) loadSettings(ctx context.Context) (*domain.Settings, err
 	}
 	return s.settingsStore.GetSettings(ctx, s.teamID)
 }
-

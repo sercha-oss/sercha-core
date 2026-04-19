@@ -13,6 +13,11 @@ const (
 	// Search capabilities (derived from indexing, toggleable)
 	CapabilityBM25Search   CapabilityType = "bm25_search"   // Keyword search
 	CapabilityVectorSearch CapabilityType = "vector_search" // Semantic search
+
+	// LLM-powered search enhancements (requires LLM provider)
+	CapabilityQueryExpansion CapabilityType = "query_expansion" // Expands queries with related terms
+	CapabilityQueryRewriting CapabilityType = "query_rewriting" // Reformulates queries for better matching
+	CapabilitySummarization  CapabilityType = "summarization"   // Generates result snippets
 )
 
 // PipelinePhase represents which phase of the pipeline a capability belongs to
@@ -69,6 +74,11 @@ type CapabilityPreferences struct {
 	// Search preferences (can toggle down, but requires indexing to be enabled)
 	BM25SearchEnabled   bool `json:"bm25_search_enabled"`   // Enable BM25 search (if text indexing enabled)
 	VectorSearchEnabled bool `json:"vector_search_enabled"` // Enable vector search (if embedding indexing enabled)
+
+	// LLM-powered search enhancements (requires LLM provider)
+	QueryExpansionEnabled bool `json:"query_expansion_enabled"` // Enable query expansion
+	QueryRewritingEnabled bool `json:"query_rewriting_enabled"` // Enable query rewriting
+	SummarizationEnabled  bool `json:"summarization_enabled"`   // Enable result summarization
 
 	// UpdatedAt tracks when preferences were last modified
 	UpdatedAt time.Time `json:"updated_at"`
@@ -152,6 +162,42 @@ func NewVectorSearchCapability(backendID string, available bool) *Capability {
 	}
 }
 
+// NewQueryExpansionCapability creates a query expansion capability with defaults.
+func NewQueryExpansionCapability(available bool) *Capability {
+	return &Capability{
+		ID:        "query_expansion",
+		Type:      CapabilityQueryExpansion,
+		Phase:     PipelinePhaseSearch,
+		BackendID: "llm",
+		Available: available,
+		Enabled:   true, // Default enabled when LLM is available
+	}
+}
+
+// NewQueryRewritingCapability creates a query rewriting capability with defaults.
+func NewQueryRewritingCapability(available bool) *Capability {
+	return &Capability{
+		ID:        "query_rewriting",
+		Type:      CapabilityQueryRewriting,
+		Phase:     PipelinePhaseSearch,
+		BackendID: "llm",
+		Available: available,
+		Enabled:   true, // Default enabled when LLM is available
+	}
+}
+
+// NewSummarizationCapability creates a summarization capability with defaults.
+func NewSummarizationCapability(available bool) *Capability {
+	return &Capability{
+		ID:        "summarization",
+		Type:      CapabilitySummarization,
+		Phase:     PipelinePhaseSearch,
+		BackendID: "llm",
+		Available: available,
+		Enabled:   true, // Default enabled when LLM is available
+	}
+}
+
 // DefaultCapabilityPreferences returns default preferences for a team.
 func DefaultCapabilityPreferences(teamID string) *CapabilityPreferences {
 	return &CapabilityPreferences{
@@ -160,6 +206,9 @@ func DefaultCapabilityPreferences(teamID string) *CapabilityPreferences {
 		EmbeddingIndexingEnabled: false, // Vectors disabled by default (requires AI setup)
 		BM25SearchEnabled:        true,  // BM25 search enabled by default
 		VectorSearchEnabled:      true,  // Vector search enabled by default (when available)
+		QueryExpansionEnabled:    true,  // LLM features enabled by default (when available)
+		QueryRewritingEnabled:    true,
+		SummarizationEnabled:     true,
 		UpdatedAt:                time.Now(),
 	}
 }
@@ -222,6 +271,9 @@ func (p *CapabilityPreferences) DisableEmbeddingIndexing() {
 // - CapabilityEmbeddingIndexing: whether embeddings + vector store are available
 // - CapabilityBM25Search: same as text_indexing (derived)
 // - CapabilityVectorSearch: same as embedding_indexing (derived)
+// - CapabilityQueryExpansion: whether LLM is available
+// - CapabilityQueryRewriting: whether LLM is available
+// - CapabilitySummarization: whether LLM is available
 //
 // Dependency rules are enforced: if a dependency is not enabled, the dependent
 // capability is also not enabled (e.g., bm25_search requires text_indexing).
@@ -232,12 +284,21 @@ func ResolveCapabilities(prefs *CapabilityPreferences, available map[CapabilityT
 	bm25Search := NewBM25SearchCapability("opensearch", available[CapabilityBM25Search])
 	vectorSearch := NewVectorSearchCapability("pgvector", available[CapabilityVectorSearch])
 
+	// LLM-powered capabilities
+	llmAvailable := available[CapabilityQueryExpansion] // All LLM caps share same availability
+	queryExpansion := NewQueryExpansionCapability(llmAvailable)
+	queryRewriting := NewQueryRewritingCapability(llmAvailable)
+	summarization := NewSummarizationCapability(llmAvailable)
+
 	// Apply user preferences if provided
 	if prefs != nil {
 		textIndexing.Enabled = prefs.TextIndexingEnabled
 		embeddingIndexing.Enabled = prefs.EmbeddingIndexingEnabled
 		bm25Search.Enabled = prefs.BM25SearchEnabled
 		vectorSearch.Enabled = prefs.VectorSearchEnabled
+		queryExpansion.Enabled = prefs.QueryExpansionEnabled
+		queryRewriting.Enabled = prefs.QueryRewritingEnabled
+		summarization.Enabled = prefs.SummarizationEnabled
 	}
 
 	// Enforce dependency rules:
@@ -251,5 +312,15 @@ func ResolveCapabilities(prefs *CapabilityPreferences, available map[CapabilityT
 		vectorSearch.Enabled = false
 	}
 
-	return []*Capability{textIndexing, embeddingIndexing, bm25Search, vectorSearch}
+	// LLM features don't have dependencies, but if LLM is not available, they can't be enabled
+	if !llmAvailable {
+		queryExpansion.Enabled = false
+		queryRewriting.Enabled = false
+		summarization.Enabled = false
+	}
+
+	return []*Capability{
+		textIndexing, embeddingIndexing, bm25Search, vectorSearch,
+		queryExpansion, queryRewriting, summarization,
+	}
 }

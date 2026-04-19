@@ -35,6 +35,15 @@ type UpdateCapabilityPreferencesRequest struct {
 
 	// VectorSearchEnabled controls vector search (requires embedding indexing)
 	VectorSearchEnabled *bool `json:"vector_search_enabled,omitempty"`
+
+	// QueryExpansionEnabled controls LLM-powered query expansion
+	QueryExpansionEnabled *bool `json:"query_expansion_enabled,omitempty"`
+
+	// QueryRewritingEnabled controls LLM-powered query rewriting
+	QueryRewritingEnabled *bool `json:"query_rewriting_enabled,omitempty"`
+
+	// SummarizationEnabled controls LLM-powered result summarization
+	SummarizationEnabled *bool `json:"summarization_enabled,omitempty"`
 }
 
 // CapabilitiesResponse represents the capabilities available to the application.
@@ -89,6 +98,15 @@ type FeaturesCapability struct {
 
 	// VectorSearch indicates vector similarity search capability state (requires embedding service + vector store)
 	VectorSearch CapabilityStatus `json:"vector_search"`
+
+	// QueryExpansion indicates LLM-powered query expansion capability state (requires LLM provider)
+	QueryExpansion CapabilityStatus `json:"query_expansion"`
+
+	// QueryRewriting indicates LLM-powered query rewriting capability state (requires LLM provider)
+	QueryRewriting CapabilityStatus `json:"query_rewriting"`
+
+	// Summarization indicates LLM-powered result summarization capability state (requires LLM provider)
+	Summarization CapabilityStatus `json:"summarization"`
 }
 
 // LimitsCapability defines operational boundaries

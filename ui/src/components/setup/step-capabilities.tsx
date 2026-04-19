@@ -109,6 +109,7 @@ export function StepCapabilities({ onComplete, onSkip }: StepCapabilitiesProps) 
   // Local state for toggles
   const [textIndexing, setTextIndexing] = useState(true);
   const [embeddingIndexing, setEmbeddingIndexing] = useState(true);
+  const [hasLLM, setHasLLM] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -121,6 +122,10 @@ export function StepCapabilities({ onComplete, onSkip }: StepCapabilitiesProps) 
 
         setPreferences(prefsData); // Store for potential future use
         setCapabilities(capsData);
+
+        // Check if LLM is available
+        const llmProviders = capsData?.ai_providers?.llm || [];
+        setHasLLM(llmProviders.length > 0);
 
         // Initialize local state from preferences if available
         if (prefsData) {
@@ -280,6 +285,26 @@ export function StepCapabilities({ onComplete, onSkip }: StepCapabilitiesProps) 
             Search capabilities are automatically enabled when their corresponding indexing is enabled.
           </p>
         </div>
+
+        {/* LLM Enhancements Preview */}
+        {hasLLM && (
+          <div className="rounded-xl border border-purple-200 bg-purple-50 p-4">
+            <h3 className="mb-3 text-sm font-medium text-sercha-ink-slate">
+              LLM Enhancements Available
+            </h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-purple-600" />
+                <span className="text-sercha-ink-slate">
+                  Query Expansion - Expands queries with related terms for better recall
+                </span>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-sercha-fog-grey">
+              LLM enhancements can be enabled/disabled in the admin dashboard. They are admin-controlled and not available to end users.
+            </p>
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (

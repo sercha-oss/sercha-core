@@ -265,7 +265,7 @@ type mockContainerLister struct {
 	nextCursor string
 }
 
-func (m *mockContainerLister) ListContainers(ctx context.Context, cursor string) ([]*driven.Container, string, error) {
+func (m *mockContainerLister) ListContainers(ctx context.Context, cursor string, parentID string) ([]*driven.Container, string, error) {
 	return m.containers, m.nextCursor, nil
 }
 
@@ -282,8 +282,8 @@ func TestConnectionService_ListContainers(t *testing.T) {
 	factory := &mockContainerListerFactory{lister: lister}
 
 	svc := NewConnectionService(ConnectionServiceConfig{
-		ConnectionStore:       connStore,
-		SourceStore:           sourceStore,
+		ConnectionStore:        connStore,
+		SourceStore:            sourceStore,
 		ContainerListerFactory: factory,
 	})
 
@@ -302,7 +302,7 @@ func TestConnectionService_ListContainers(t *testing.T) {
 	_ = connStore.Save(ctx, conn)
 
 	// List containers
-	resp, err := svc.ListContainers(ctx, "conn-1", "")
+	resp, err := svc.ListContainers(ctx, "conn-1", "", "")
 	if err != nil {
 		t.Fatalf("ListContainers() error = %v", err)
 	}
@@ -323,8 +323,8 @@ func TestConnectionService_ListContainers_UnsupportedProvider(t *testing.T) {
 	}
 
 	svc := NewConnectionService(ConnectionServiceConfig{
-		ConnectionStore:       connStore,
-		SourceStore:           sourceStore,
+		ConnectionStore:        connStore,
+		SourceStore:            sourceStore,
 		ContainerListerFactory: factory,
 	})
 
@@ -343,7 +343,7 @@ func TestConnectionService_ListContainers_UnsupportedProvider(t *testing.T) {
 	_ = connStore.Save(ctx, conn)
 
 	// List containers should return empty list
-	resp, err := svc.ListContainers(ctx, "conn-1", "")
+	resp, err := svc.ListContainers(ctx, "conn-1", "", "")
 	if err != nil {
 		t.Fatalf("ListContainers() error = %v", err)
 	}

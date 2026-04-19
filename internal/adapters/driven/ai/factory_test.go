@@ -180,13 +180,17 @@ func TestFactory_CreateLLMService_OpenAI(t *testing.T) {
 		Model:    "gpt-4o-mini",
 	}
 
-	// Currently returns error since not implemented
 	credentials := &driven.AICredentials{
 		APIKey: "test-key",
 	}
-	_, err := factory.CreateLLMService(settings, credentials)
-	if err == nil {
-		t.Error("expected error since OpenAI LLM not yet implemented")
+
+	// OpenAI LLM is now implemented
+	svc, err := factory.CreateLLMService(settings, credentials)
+	if err != nil {
+		t.Errorf("expected no error for OpenAI, got %v", err)
+	}
+	if svc == nil {
+		t.Error("expected non-nil service for OpenAI")
 	}
 }
 

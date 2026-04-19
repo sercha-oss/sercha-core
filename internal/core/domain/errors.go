@@ -86,4 +86,15 @@ var (
 
 	// ErrTokenRevoked indicates the token has been revoked
 	ErrTokenRevoked = errors.New("token revoked")
+
+	// LLM service errors
+
+	// ErrRateLimitExceeded indicates the LLM service rate limit was exceeded
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+
+	// ErrContextLengthExceeded indicates the input exceeds the LLM's context window
+	ErrContextLengthExceeded = errors.New("context length exceeded")
+
+	// ErrInvalidModel indicates the specified model is not available or supported
+	ErrInvalidModel = errors.New("invalid model")
 )

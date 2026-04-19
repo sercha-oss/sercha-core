@@ -478,7 +478,7 @@ func TestSyncExclusionSettings_GetActivePatterns(t *testing.T) {
 			expected: 4, // 2 enabled + 2 custom (disabled patterns not included)
 		},
 		{
-			name: "default settings",
+			name:      "default settings",
 			exclusion: DefaultSyncExclusions(),
 			expected:  len(DefaultSyncExclusions().EnabledPatterns),
 		},

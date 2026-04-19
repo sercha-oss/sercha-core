@@ -154,8 +154,16 @@ CREATE TABLE IF NOT EXISTS capability_preferences (
     embedding_indexing_enabled BOOLEAN NOT NULL DEFAULT false,
     bm25_search_enabled BOOLEAN NOT NULL DEFAULT true,
     vector_search_enabled BOOLEAN NOT NULL DEFAULT true,
+    query_expansion_enabled BOOLEAN NOT NULL DEFAULT true,
+    query_rewriting_enabled BOOLEAN NOT NULL DEFAULT true,
+    summarization_enabled BOOLEAN NOT NULL DEFAULT true,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add LLM capability columns if they don't exist (for existing databases)
+ALTER TABLE capability_preferences ADD COLUMN IF NOT EXISTS query_expansion_enabled BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE capability_preferences ADD COLUMN IF NOT EXISTS query_rewriting_enabled BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE capability_preferences ADD COLUMN IF NOT EXISTS summarization_enabled BOOLEAN NOT NULL DEFAULT true;
 
 -- Tasks table (task queue for background processing)
 -- Used as fallback when Redis is unavailable

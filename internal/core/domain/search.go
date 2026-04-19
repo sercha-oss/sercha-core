@@ -13,11 +13,12 @@ const (
 
 // SearchOptions configures a search request
 type SearchOptions struct {
-	Mode      SearchMode `json:"mode"`
-	Limit     int        `json:"limit"`
-	Offset    int        `json:"offset"`
-	SourceIDs []string   `json:"source_ids,omitempty"` // Filter by sources
-	Filters   Filters    `json:"filters,omitempty"`
+	Mode        SearchMode `json:"mode"`
+	Limit       int        `json:"limit"`
+	Offset      int        `json:"offset"`
+	SourceIDs   []string   `json:"source_ids,omitempty"`   // Filter by sources
+	DocumentIDs []string   `json:"document_ids,omitempty"` // Filter by specific document IDs
+	Filters     Filters    `json:"filters,omitempty"`
 }
 
 // Filters provides additional search filters
@@ -65,5 +66,3 @@ type RankedChunk struct {
 	Score      float64   `json:"score"`
 	Highlights []string  `json:"highlights,omitempty"`
 }
-
-

@@ -23,10 +23,10 @@ var _ driving.OAuthServerService = (*oauthServerService)(nil)
 
 // OAuthServerServiceConfig holds configuration for the OAuth Server service
 type OAuthServerServiceConfig struct {
-	ClientStore driven.OAuthClientStore
-	CodeStore   driven.AuthorizationCodeStore
-	TokenStore  driven.OAuthTokenStore
-	JWTSecret   string // For signing access tokens
+	ClientStore  driven.OAuthClientStore
+	CodeStore    driven.AuthorizationCodeStore
+	TokenStore   driven.OAuthTokenStore
+	JWTSecret    string // For signing access tokens
 	MCPServerURL string // For audience validation
 }
 

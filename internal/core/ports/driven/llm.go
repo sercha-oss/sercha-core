@@ -2,26 +2,22 @@ package driven
 
 import (
 	"context"
+
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 )
 
-// LLMService provides large language model capabilities for search enhancement
+// LLMService provides a generic completion interface for Large Language Models.
+// This is a pure provider interface - task-specific logic (query expansion,
+// summarization, etc.) is implemented in pipeline stages.
 type LLMService interface {
-	// ExpandQuery takes a search query and returns expanded/related terms
-	// Useful for improving search recall
-	ExpandQuery(ctx context.Context, query string) ([]string, error)
+	// Complete sends a completion request to the LLM and returns the response.
+	// This is the primary method for all LLM interactions.
+	Complete(ctx context.Context, req domain.CompletionRequest) (domain.CompletionResponse, error)
 
-	// Summarise generates a summary of the given content
-	// maxLen is a hint for maximum length (model may not respect exactly)
-	Summarise(ctx context.Context, content string, maxLen int) (string, error)
-
-	// RewriteQuery rewrites the query for better search results
-	// Returns the rewritten query
-	RewriteQuery(ctx context.Context, query string) (string, error)
-
-	// Model returns the model name being used
+	// Model returns the model name being used (e.g., "gpt-4o", "claude-3-5-sonnet")
 	Model() string
 
-	// Ping verifies the LLM service is available
+	// Ping verifies the LLM service is reachable and properly configured
 	Ping(ctx context.Context) error
 
 	// Close releases resources held by the LLM service

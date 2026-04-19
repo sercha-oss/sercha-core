@@ -26,7 +26,7 @@ import {
   ProviderListItem,
   ApiError,
 } from "@/lib/api";
-import { getProviderIcon, PROVIDER_NAMES } from "@/lib/providers";
+import { getProviderIcon, getProviderPlatform, PROVIDER_NAMES } from "@/lib/providers";
 
 // Combined view: sources grouped by their connection + available/unavailable providers
 interface SourceWithConnection extends SourceSummary {
@@ -260,7 +260,9 @@ export default function SourcesPage() {
           // Already has a source, skip (shown in connected section)
           continue;
         }
-        if (configuredProviders.has(provider.type)) {
+        // Map provider type to platform (e.g., onedrive -> microsoft)
+        const platform = getProviderPlatform(provider.type);
+        if (configuredProviders.has(platform)) {
           available.push(provider);
         } else {
           unavailable.push(provider);

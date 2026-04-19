@@ -279,6 +279,8 @@ export interface SearchResultItem {
   snippet: string;
   score: number;
   indexed_at: string;
+  matched_queries?: string[]; // which query variants matched this result
+  rrf_score?: number; // the RRF fusion score
 }
 
 export interface SearchResponse {
@@ -1213,6 +1215,9 @@ export interface CapabilityPreferencesResponse {
   embedding_indexing_enabled: boolean;
   bm25_search_enabled: boolean;
   vector_search_enabled: boolean;
+  query_expansion_enabled: boolean;
+  query_rewriting_enabled: boolean;
+  summarization_enabled: boolean;
   updated_at: string;
 }
 
@@ -1222,6 +1227,9 @@ export interface UpdateCapabilityPreferencesRequest {
   embedding_indexing_enabled?: boolean;
   bm25_search_enabled?: boolean;
   vector_search_enabled?: boolean;
+  query_expansion_enabled?: boolean;
+  query_rewriting_enabled?: boolean;
+  summarization_enabled?: boolean;
 }
 
 export async function getCapabilityPreferences(): Promise<CapabilityPreferencesResponse> {

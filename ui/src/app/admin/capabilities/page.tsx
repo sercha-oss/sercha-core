@@ -69,6 +69,14 @@ const CAPABILITY_CONFIGS: CapabilityConfig[] = [
     dependsOn: "embedding_indexing_enabled",
     dependsOnLabel: "Embedding Indexing",
   },
+  {
+    id: "query_expansion",
+    name: "Query Expansion",
+    description: "Expands queries with related terms using LLM",
+    phase: "search",
+    backend: "LLM",
+    prefKey: "query_expansion_enabled",
+  },
 ];
 
 export default function CapabilitiesPage() {
@@ -131,9 +139,10 @@ export default function CapabilitiesPage() {
     }
   };
 
-  // Separate capabilities by phase
+  // Separate capabilities by phase and backend
   const indexingCapabilities = CAPABILITY_CONFIGS.filter((c) => c.phase === "indexing");
-  const searchCapabilities = CAPABILITY_CONFIGS.filter((c) => c.phase === "search");
+  const searchCapabilities = CAPABILITY_CONFIGS.filter((c) => c.phase === "search" && c.backend !== "LLM");
+  const llmCapabilities = CAPABILITY_CONFIGS.filter((c) => c.backend === "LLM");
 
   if (loading) {
     return (
@@ -184,6 +193,7 @@ export default function CapabilitiesPage() {
                 { key: "embedding_indexing", label: "Embedding Indexing" },
                 { key: "bm25_search", label: "BM25 Search" },
                 { key: "vector_search", label: "Vector Search" },
+                { key: "query_expansion", label: "Query Expansion" },
               ].map(({ key, label }) => {
                 const feature = (capabilities.features as Record<string, { available: boolean; enabled: boolean; active: boolean }>)[key];
                 const available = feature?.available ?? false;
@@ -294,6 +304,49 @@ export default function CapabilitiesPage() {
           </div>
         </section>
 
+        {/* LLM Enhancements */}
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-sercha-ink-slate">
+            LLM Enhancements
+          </h2>
+          <p className="mb-4 text-sm text-sercha-fog-grey">
+            AI-powered features that enhance search quality. Requires an LLM provider to be configured.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {llmCapabilities.map((config) => {
+              const isEnabled = preferences?.[config.prefKey] as boolean ?? false;
+              const available = isCapabilityAvailable(config.id);
+              const isSaving = saving === config.prefKey;
+              const justSaved = savedKey === config.prefKey;
+
+              return (
+                <div key={config.id} className="relative">
+                  <CapabilityCard
+                    name={config.name}
+                    description={config.description}
+                    backend={config.backend}
+                    phase={config.phase}
+                    available={available}
+                    enabled={isEnabled}
+                    onToggle={(enabled) => handleToggle(config.prefKey, enabled)}
+                    disabled={isSaving}
+                  />
+                  {/* Saving/saved indicator */}
+                  {(isSaving || justSaved) && (
+                    <div className="absolute right-2 top-2">
+                      {isSaving ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-sercha-indigo" />
+                      ) : (
+                        <Check className="h-4 w-4 text-emerald-500" />
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
         {/* Info note */}
         <div className="rounded-xl border border-sercha-indigo/20 bg-sercha-indigo/5 p-4">
           <h3 className="mb-2 text-sm font-medium text-sercha-ink-slate">
@@ -305,6 +358,9 @@ export default function CapabilitiesPage() {
             </li>
             <li>
               <strong>Search capabilities</strong> control which search methods are available.
+            </li>
+            <li>
+              <strong>LLM enhancements</strong> use AI to improve search quality (requires LLM provider).
             </li>
             <li>
               Disabling an indexing capability will automatically disable its dependent search capability.

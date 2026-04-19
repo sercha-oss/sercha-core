@@ -130,6 +130,7 @@ func DefaultRegistry() *Registry {
 	r.Register(&PlaintextNormaliser{})
 	r.Register(&MarkdownNormaliser{})
 	r.Register(&HTMLNormaliser{})
+	r.Register(&PDFNormaliser{})
 
 	// Register connector-specific normalisers (high priority)
 	r.Register(&GitHubIssueNormaliser{})

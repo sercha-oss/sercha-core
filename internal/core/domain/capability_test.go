@@ -403,10 +403,10 @@ func TestCapabilityPreferences_HasEmbeddingIndexing(t *testing.T) {
 // Test CapabilityPreferences.CanUseBM25Search
 func TestCapabilityPreferences_CanUseBM25Search(t *testing.T) {
 	tests := []struct {
-		name          string
-		textIndexing  bool
-		bm25Search    bool
-		want          bool
+		name         string
+		textIndexing bool
+		bm25Search   bool
+		want         bool
 	}{
 		{"both enabled", true, true, true},
 		{"text disabled", false, true, false},
@@ -430,10 +430,10 @@ func TestCapabilityPreferences_CanUseBM25Search(t *testing.T) {
 // Test CapabilityPreferences.CanUseVectorSearch
 func TestCapabilityPreferences_CanUseVectorSearch(t *testing.T) {
 	tests := []struct {
-		name             string
+		name              string
 		embeddingIndexing bool
-		vectorSearch     bool
-		want             bool
+		vectorSearch      bool
+		want              bool
 	}{
 		{"both enabled", true, true, true},
 		{"embedding disabled", false, true, false},

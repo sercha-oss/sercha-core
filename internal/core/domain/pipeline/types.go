@@ -24,6 +24,7 @@ const (
 	// Search shapes
 	ShapeQuery           ShapeName = "query"
 	ShapeParsedQuery     ShapeName = "parsed_query"
+	ShapeQuerySet        ShapeName = "query_set"
 	ShapeExpandedQuery   ShapeName = "expanded_query"
 	ShapeCandidate       ShapeName = "candidate"
 	ShapeRankedResult    ShapeName = "ranked_result"
@@ -34,13 +35,14 @@ const (
 type CapabilityType string
 
 const (
-	CapabilityLLM          CapabilityType = "llm"
-	CapabilityEmbedder     CapabilityType = "embedder"
-	CapabilitySearchEngine CapabilityType = "search_engine"  // BM25/text search (driven.SearchEngine)
-	CapabilityVectorStore  CapabilityType = "vector_store"   // Vector similarity (driven.VectorIndex)
-	CapabilityGraphStore   CapabilityType = "graph_store"
-	CapabilityDocStore     CapabilityType = "doc_store"
-	CapabilityOntology     CapabilityType = "ontology"
+	CapabilityLLM                CapabilityType = "llm"
+	CapabilityEmbedder           CapabilityType = "embedder"
+	CapabilitySearchEngine       CapabilityType = "search_engine"        // BM25/text search (driven.SearchEngine)
+	CapabilityVectorStore        CapabilityType = "vector_store"         // Vector similarity (driven.VectorIndex)
+	CapabilityGraphStore         CapabilityType = "graph_store"
+	CapabilityDocStore           CapabilityType = "doc_store"
+	CapabilityOntology           CapabilityType = "ontology"
+	CapabilityDocumentIDProvider CapabilityType = "document_id_provider" // Provides allowed document IDs for filtering
 )
 
 // CapabilityMode describes how a stage depends on a capability.

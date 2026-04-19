@@ -13,10 +13,10 @@ import (
 // - Sync operations check `sync_enabled` and skip gracefully when disabled
 func TestSyncOrchestrator_RespectsSyncEnabled(t *testing.T) {
 	tests := []struct {
-		name            string
-		syncEnabled     bool
-		expectSuccess   bool
-		expectErrorMsg  string
+		name           string
+		syncEnabled    bool
+		expectSuccess  bool
+		expectErrorMsg string
 	}{
 		{
 			name:           "sync enabled - proceeds normally",

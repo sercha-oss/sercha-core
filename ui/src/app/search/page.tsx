@@ -18,6 +18,7 @@ import {
   User,
   LogOut,
   Settings,
+  Zap,
 } from "lucide-react";
 import { search, getDocumentURL, SearchResultItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -334,6 +335,29 @@ function SearchResultsContent() {
                       <span className="rounded-full bg-sercha-indigo-soft px-2.5 py-0.5 text-xs font-medium text-sercha-indigo">
                         {Math.round(result.score)}%
                       </span>
+                      {result.matched_queries && result.matched_queries.length > 0 && (
+                        <div className="group relative">
+                          <div className="flex items-center gap-1.5 rounded-full bg-purple-100 px-2.5 py-1 text-xs font-medium text-purple-700 cursor-help">
+                            <Zap size={14} />
+                            {result.matched_queries.length} {result.matched_queries.length === 1 ? 'variant' : 'variants'}
+                          </div>
+                          <div className="invisible group-hover:visible absolute right-0 top-full mt-1 z-10 w-64 rounded-lg border border-sercha-silverline bg-white p-3 shadow-lg">
+                            <p className="mb-2 text-xs font-medium text-sercha-ink-slate">Matched Query Variants:</p>
+                            <ul className="space-y-1">
+                              {result.matched_queries.map((variant, idx) => (
+                                <li key={idx} className="text-xs text-sercha-fog-grey">
+                                  {variant}
+                                </li>
+                              ))}
+                            </ul>
+                            {result.rrf_score !== undefined && (
+                              <p className="mt-2 text-xs text-sercha-silverline">
+                                RRF Score: {result.rrf_score.toFixed(4)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {isGitHub && (
                         <div className="flex items-center gap-1.5 rounded-full bg-sercha-mist px-2.5 py-1 text-xs font-medium text-sercha-fog-grey">
                           <Github size={14} />

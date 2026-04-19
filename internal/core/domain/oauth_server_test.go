@@ -445,67 +445,67 @@ func TestOAuthRefreshToken_IsExpired(t *testing.T) {
 
 func TestOAuthRefreshToken_IsValid(t *testing.T) {
 	tests := []struct {
-		name       string
-		expiresAt  time.Time
-		revoked    bool
-		rotatedTo  string
-		expected   bool
+		name      string
+		expiresAt time.Time
+		revoked   bool
+		rotatedTo string
+		expected  bool
 	}{
 		{
-			name:       "valid - not expired, not revoked, not rotated",
-			expiresAt:  time.Now().Add(15 * 24 * time.Hour),
-			revoked:    false,
-			rotatedTo:  "",
-			expected:   true,
+			name:      "valid - not expired, not revoked, not rotated",
+			expiresAt: time.Now().Add(15 * 24 * time.Hour),
+			revoked:   false,
+			rotatedTo: "",
+			expected:  true,
 		},
 		{
-			name:       "expired",
-			expiresAt:  time.Now().Add(-1 * time.Hour),
-			revoked:    false,
-			rotatedTo:  "",
-			expected:   false,
+			name:      "expired",
+			expiresAt: time.Now().Add(-1 * time.Hour),
+			revoked:   false,
+			rotatedTo: "",
+			expected:  false,
 		},
 		{
-			name:       "revoked",
-			expiresAt:  time.Now().Add(15 * 24 * time.Hour),
-			revoked:    true,
-			rotatedTo:  "",
-			expected:   false,
+			name:      "revoked",
+			expiresAt: time.Now().Add(15 * 24 * time.Hour),
+			revoked:   true,
+			rotatedTo: "",
+			expected:  false,
 		},
 		{
-			name:       "rotated",
-			expiresAt:  time.Now().Add(15 * 24 * time.Hour),
-			revoked:    false,
-			rotatedTo:  "new-token-id",
-			expected:   false,
+			name:      "rotated",
+			expiresAt: time.Now().Add(15 * 24 * time.Hour),
+			revoked:   false,
+			rotatedTo: "new-token-id",
+			expected:  false,
 		},
 		{
-			name:       "expired and revoked",
-			expiresAt:  time.Now().Add(-1 * time.Hour),
-			revoked:    true,
-			rotatedTo:  "",
-			expected:   false,
+			name:      "expired and revoked",
+			expiresAt: time.Now().Add(-1 * time.Hour),
+			revoked:   true,
+			rotatedTo: "",
+			expected:  false,
 		},
 		{
-			name:       "expired and rotated",
-			expiresAt:  time.Now().Add(-1 * time.Hour),
-			revoked:    false,
-			rotatedTo:  "new-token-id",
-			expected:   false,
+			name:      "expired and rotated",
+			expiresAt: time.Now().Add(-1 * time.Hour),
+			revoked:   false,
+			rotatedTo: "new-token-id",
+			expected:  false,
 		},
 		{
-			name:       "revoked and rotated",
-			expiresAt:  time.Now().Add(15 * 24 * time.Hour),
-			revoked:    true,
-			rotatedTo:  "new-token-id",
-			expected:   false,
+			name:      "revoked and rotated",
+			expiresAt: time.Now().Add(15 * 24 * time.Hour),
+			revoked:   true,
+			rotatedTo: "new-token-id",
+			expected:  false,
 		},
 		{
-			name:       "all invalid - expired, revoked, rotated",
-			expiresAt:  time.Now().Add(-1 * time.Hour),
-			revoked:    true,
-			rotatedTo:  "new-token-id",
-			expected:   false,
+			name:      "all invalid - expired, revoked, rotated",
+			expiresAt: time.Now().Add(-1 * time.Hour),
+			revoked:   true,
+			rotatedTo: "new-token-id",
+			expected:  false,
 		},
 	}
 

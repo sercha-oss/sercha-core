@@ -59,10 +59,10 @@ type Server struct {
 	uiBaseURL string // Frontend URL for OAuth redirects
 
 	// Infrastructure
-	taskQueue           driven.TaskQueue
-	searchQueryRepo     driven.SearchQueryRepository // for search tracking
-	db                  Pinger                       // PostgreSQL health check
-	redisClient         Pinger                       // Redis health check (optional)
+	taskQueue       driven.TaskQueue
+	searchQueryRepo driven.SearchQueryRepository // for search tracking
+	db              Pinger                       // PostgreSQL health check
+	redisClient     Pinger                       // Redis health check (optional)
 }
 
 // Config holds server configuration

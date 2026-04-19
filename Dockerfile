@@ -24,8 +24,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Runtime stage
 FROM alpine:3.20
 
-# Add ca-certificates for HTTPS and tzdata for timezones
-RUN apk --no-cache add ca-certificates tzdata
+# Add ca-certificates for HTTPS, tzdata for timezones, and poppler-utils for PDF text extraction
+RUN apk --no-cache add ca-certificates tzdata poppler-utils
 
 WORKDIR /app
 

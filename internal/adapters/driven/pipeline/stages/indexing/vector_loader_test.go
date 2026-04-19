@@ -41,12 +41,12 @@ func (s *stubVectorIndex) Search(ctx context.Context, embedding []float32, k int
 	return nil, nil, nil
 }
 
-func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string) ([]driven.VectorSearchResult, error) {
+func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
 	return nil, nil
 }
 
-func (s *stubVectorIndex) Delete(ctx context.Context, id string) error               { return nil }
-func (s *stubVectorIndex) DeleteBatch(ctx context.Context, ids []string) error        { return nil }
+func (s *stubVectorIndex) Delete(ctx context.Context, id string) error         { return nil }
+func (s *stubVectorIndex) DeleteBatch(ctx context.Context, ids []string) error { return nil }
 func (s *stubVectorIndex) DeleteByDocument(ctx context.Context, documentID string) error {
 	return nil
 }

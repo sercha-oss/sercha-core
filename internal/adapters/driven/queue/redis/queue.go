@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
-	"github.com/redis/go-redis/v9"
 )
 
 const (

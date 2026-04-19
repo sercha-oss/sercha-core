@@ -115,7 +115,8 @@ func (s *connectionService) ListByProvider(ctx context.Context, providerType dom
 }
 
 // ListContainers lists available containers for a connection.
-func (s *connectionService) ListContainers(ctx context.Context, connectionID string, cursor string) (*driving.ListContainersResponse, error) {
+// parentID is optional - if provided, lists children of that container (for folder navigation).
+func (s *connectionService) ListContainers(ctx context.Context, connectionID string, cursor string, parentID string) (*driving.ListContainersResponse, error) {
 	// Get the connection to determine provider type
 	conn, err := s.connectionStore.Get(ctx, connectionID)
 	if err != nil {
@@ -143,7 +144,7 @@ func (s *connectionService) ListContainers(ctx context.Context, connectionID str
 	}
 
 	// List containers
-	containers, nextCursor, err := lister.ListContainers(ctx, cursor)
+	containers, nextCursor, err := lister.ListContainers(ctx, cursor, parentID)
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}

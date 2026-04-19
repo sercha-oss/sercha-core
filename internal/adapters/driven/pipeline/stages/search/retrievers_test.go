@@ -12,11 +12,11 @@ import (
 // --- Inline test doubles ---
 
 type stubSearchEngine struct {
-	lastQuery     string
-	lastOpts      domain.SearchOptions
-	docResults    []driven.DocumentResult
-	docTotal      int
-	searchCalled  bool
+	lastQuery    string
+	lastOpts     domain.SearchOptions
+	docResults   []driven.DocumentResult
+	docTotal     int
+	searchCalled bool
 }
 
 func (s *stubSearchEngine) Index(ctx context.Context, chunks []*domain.Chunk) error { return nil }
@@ -32,7 +32,7 @@ func (s *stubSearchEngine) SearchDocuments(ctx context.Context, query string, op
 	s.lastOpts = opts
 	return s.docResults, s.docTotal, nil
 }
-func (s *stubSearchEngine) Delete(ctx context.Context, chunkIDs []string) error     { return nil }
+func (s *stubSearchEngine) Delete(ctx context.Context, chunkIDs []string) error { return nil }
 func (s *stubSearchEngine) DeleteByDocument(ctx context.Context, documentID string) error {
 	return nil
 }
@@ -53,6 +53,7 @@ type stubVectorIndex struct {
 	lastEmbedding  []float32
 	lastK          int
 	lastSourceIDs  []string
+	lastDocumentIDs []string
 	searchResults  []driven.VectorSearchResult
 	searchCalled   bool
 }
@@ -66,15 +67,16 @@ func (s *stubVectorIndex) IndexBatch(ctx context.Context, ids []string, document
 func (s *stubVectorIndex) Search(ctx context.Context, embedding []float32, k int) ([]string, []float64, error) {
 	return nil, nil, nil
 }
-func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string) ([]driven.VectorSearchResult, error) {
+func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
 	s.searchCalled = true
 	s.lastEmbedding = embedding
 	s.lastK = k
 	s.lastSourceIDs = sourceIDs
+	s.lastDocumentIDs = documentIDs
 	return s.searchResults, nil
 }
-func (s *stubVectorIndex) Delete(ctx context.Context, id string) error               { return nil }
-func (s *stubVectorIndex) DeleteBatch(ctx context.Context, ids []string) error        { return nil }
+func (s *stubVectorIndex) Delete(ctx context.Context, id string) error         { return nil }
+func (s *stubVectorIndex) DeleteBatch(ctx context.Context, ids []string) error { return nil }
 func (s *stubVectorIndex) DeleteByDocument(ctx context.Context, documentID string) error {
 	return nil
 }
@@ -96,10 +98,10 @@ func (s *stubEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 func (s *stubEmbedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	return s.queryEmbedding, nil
 }
-func (s *stubEmbedder) Dimensions() int                        { return len(s.queryEmbedding) }
-func (s *stubEmbedder) Model() string                          { return "test-model" }
-func (s *stubEmbedder) HealthCheck(ctx context.Context) error  { return nil }
-func (s *stubEmbedder) Close() error                           { return nil }
+func (s *stubEmbedder) Dimensions() int                       { return len(s.queryEmbedding) }
+func (s *stubEmbedder) Model() string                         { return "test-model" }
+func (s *stubEmbedder) HealthCheck(ctx context.Context) error { return nil }
+func (s *stubEmbedder) Close() error                          { return nil }
 
 // --- Query Parser Tests ---
 

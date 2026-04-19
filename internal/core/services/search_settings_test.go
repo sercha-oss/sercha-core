@@ -94,10 +94,10 @@ func TestSearchService_AppliesMaxResultsPerPageSetting(t *testing.T) {
 // - Search uses `default_search_mode` when mode not specified by client
 func TestSearchService_AppliesDefaultSearchMode(t *testing.T) {
 	tests := []struct {
-		name               string
-		defaultMode        domain.SearchMode
-		clientMode         domain.SearchMode
-		expectedMode       domain.SearchMode
+		name         string
+		defaultMode  domain.SearchMode
+		clientMode   domain.SearchMode
+		expectedMode domain.SearchMode
 	}{
 		{
 			name:         "uses default mode when client doesn't specify",
