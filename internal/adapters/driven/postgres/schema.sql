@@ -406,3 +406,26 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_access ON oauth_refresh_toke
 CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_client ON oauth_refresh_tokens(client_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_user ON oauth_refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires ON oauth_refresh_tokens(expires_at);
+
+-- Sync events table (for audit logging)
+CREATE TABLE IF NOT EXISTS sync_events (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    source_name TEXT,
+    provider_type TEXT,
+    status TEXT NOT NULL,
+    documents_added INT NOT NULL DEFAULT 0,
+    documents_updated INT NOT NULL DEFAULT 0,
+    documents_deleted INT NOT NULL DEFAULT 0,
+    chunks_indexed INT NOT NULL DEFAULT 0,
+    error_count INT NOT NULL DEFAULT 0,
+    error_message TEXT,
+    duration_seconds DECIMAL(10,2),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_events_team_id ON sync_events(team_id);
+CREATE INDEX IF NOT EXISTS idx_sync_events_source_id ON sync_events(source_id);
+CREATE INDEX IF NOT EXISTS idx_sync_events_created_at ON sync_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_sync_events_team_created ON sync_events(team_id, created_at DESC);

@@ -36,6 +36,7 @@ type SyncOrchestrator struct {
 	capabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 	capabilityStore  driven.CapabilityStore        // For fetching capability preferences
 	settingsStore    driven.SettingsStore          // For loading team settings
+	syncEventRepo    driven.SyncEventRepository    // For audit logging of sync events
 	teamID           string                        // Team ID for settings lookup
 }
 
@@ -54,6 +55,7 @@ type SyncOrchestratorConfig struct {
 	CapabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
 	CapabilityStore  driven.CapabilityStore        // For fetching capability preferences
 	SettingsStore    driven.SettingsStore          // For loading team settings
+	SyncEventRepo    driven.SyncEventRepository    // For audit logging of sync events
 	TeamID           string                        // Team ID for settings lookup
 }
 
@@ -83,6 +85,7 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		capabilitySet:    cfg.CapabilitySet,
 		capabilityStore:  cfg.CapabilityStore,
 		settingsStore:    cfg.SettingsStore,
+		syncEventRepo:    cfg.SyncEventRepo,
 		teamID:           cfg.TeamID,
 	}
 }
@@ -346,6 +349,25 @@ func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*do
 		"chunks_indexed", aggregatedStats.ChunksIndexed,
 		"errors", aggregatedStats.Errors,
 	)
+
+	// Log sync event for audit trail
+	if o.syncEventRepo != nil {
+		syncEvent := domain.NewSyncEvent(
+			o.teamID,
+			sourceID,
+			source.Name,
+			source.ProviderType,
+			syncState.Status,
+			aggregatedStats,
+			duration,
+		)
+		if syncState.Error != "" {
+			syncEvent.WithError(syncState.Error)
+		}
+		if err := o.syncEventRepo.Save(ctx, syncEvent); err != nil {
+			o.logger.Warn("failed to save sync event", "error", err)
+		}
+	}
 
 	success := syncState.Status == domain.SyncStatusCompleted && syncState.Error == ""
 	return &domain.SyncResult{
@@ -745,6 +767,26 @@ func (o *SyncOrchestrator) failSync(
 		syncState.CompletedAt = &now
 		syncState.Error = err.Error()
 		_ = o.syncStore.Save(ctx, syncState)
+	}
+
+	// Log sync event for audit trail
+	if o.syncEventRepo != nil {
+		// Get source info for event logging
+		source, sourceErr := o.sourceStore.Get(ctx, sourceID)
+		if sourceErr == nil {
+			syncEvent := domain.NewSyncEvent(
+				o.teamID,
+				sourceID,
+				source.Name,
+				source.ProviderType,
+				domain.SyncStatusFailed,
+				domain.SyncStats{}, // Empty stats for failed sync
+				duration,
+			).WithError(err.Error())
+			if saveErr := o.syncEventRepo.Save(ctx, syncEvent); saveErr != nil {
+				o.logger.Warn("failed to save sync event", "error", saveErr)
+			}
+		}
 	}
 
 	return &domain.SyncResult{

@@ -18,7 +18,7 @@ We take security seriously. If you discover a security vulnerability in Sercha C
 
 Instead, please report them via email to:
 
-**security@custodia.dev**
+**security@sercha.dev**
 
 Include the following information in your report:
 

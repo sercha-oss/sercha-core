@@ -220,6 +220,7 @@ func main() {
 	schedulerStore := postgres.NewSchedulerStore(db)
 	capabilityStore := postgres.NewCapabilityStore(db)
 	searchQueryRepo := postgres.NewSearchQueryRepository(db)
+	syncEventRepo := postgres.NewSyncEventRepository(db)
 
 	// ===== Session Store (Redis if available, otherwise PostgreSQL) =====
 	var sessionStore driven.SessionStore
@@ -619,6 +620,7 @@ func main() {
 		CapabilitySet:    nil, // Built per-execution by executor
 		CapabilityStore:  capabilityStore,
 		SettingsStore:    settingsStore,
+		SyncEventRepo:    syncEventRepo,
 		TeamID:           teamID,
 	})
 
