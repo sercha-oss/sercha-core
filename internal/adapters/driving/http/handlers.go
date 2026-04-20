@@ -631,11 +631,12 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 // SearchRequest represents a search query request
 // @Description Search query request
 type searchRequest struct {
-	Query     string            `json:"query" example:"how to configure authentication"`
-	Mode      domain.SearchMode `json:"mode,omitempty" example:"hybrid" enums:"hybrid,text,semantic"`
-	Limit     int               `json:"limit,omitempty" example:"20"`
-	Offset    int               `json:"offset,omitempty" example:"0"`
-	SourceIDs []string          `json:"source_ids,omitempty"`
+	Query      string             `json:"query" example:"how to configure authentication"`
+	Mode       domain.SearchMode  `json:"mode,omitempty" example:"hybrid" enums:"hybrid,text,semantic"`
+	Limit      int                `json:"limit,omitempty" example:"20"`
+	Offset     int                `json:"offset,omitempty" example:"0"`
+	SourceIDs  []string           `json:"source_ids,omitempty"`
+	BoostTerms map[string]float64 `json:"boost_terms,omitempty" example:"{\"kubernetes\":2.0,\"helm\":1.5}"`
 }
 
 // handleSearch godoc
@@ -664,10 +665,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opts := domain.SearchOptions{
-		Mode:      req.Mode,
-		Limit:     req.Limit,
-		Offset:    req.Offset,
-		SourceIDs: req.SourceIDs,
+		Mode:       req.Mode,
+		Limit:      req.Limit,
+		Offset:     req.Offset,
+		SourceIDs:  req.SourceIDs,
+		BoostTerms: req.BoostTerms,
 	}
 
 	result, err := s.searchService.Search(r.Context(), req.Query, opts)

@@ -1669,6 +1669,622 @@ func TestSearchEngine_Search_WithDocumentIDFilter(t *testing.T) {
 	}
 }
 
+// TestSearchEngine_SearchDocuments_WithBoostTerms validates keyword boosting in document search
+func TestSearchEngine_SearchDocuments_WithBoostTerms(t *testing.T) {
+	tests := []struct {
+		name           string
+		query          string
+		opts           domain.SearchOptions
+		setupServer    func(*testing.T) *httptest.Server
+		wantCount      int
+		wantTotal      int
+		wantErr        bool
+		validateQuery  func(*testing.T, map[string]any)
+	}{
+		{
+			name:  "search with boost terms",
+			query: "kubernetes deployment",
+			opts: domain.SearchOptions{
+				Limit:  10,
+				Offset: 0,
+				BoostTerms: map[string]float64{
+					"helm":       2.0,
+					"production": 1.5,
+				},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						// Parse request body
+						var reqBody map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+							t.Fatalf("Failed to decode request body: %v", err)
+						}
+
+						// Verify query structure
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						// Verify must clause exists
+						mustClauses, ok := boolQuery["must"].([]any)
+						if !ok || len(mustClauses) == 0 {
+							t.Error("Expected must clause in bool query")
+						}
+
+						// Verify should clauses for boost terms
+						shouldClauses, ok := boolQuery["should"].([]any)
+						if !ok {
+							t.Error("Expected should clauses for boost terms")
+						}
+						if len(shouldClauses) != 2 {
+							t.Errorf("Expected 2 should clauses, got %d", len(shouldClauses))
+						}
+
+						// Verify boost term structure
+						for _, clause := range shouldClauses {
+							clauseMap := clause.(map[string]any)
+							multiMatch, ok := clauseMap["multi_match"].(map[string]any)
+							if !ok {
+								t.Error("Expected multi_match in should clause")
+								continue
+							}
+
+							// Check required fields
+							if _, ok := multiMatch["query"]; !ok {
+								t.Error("Expected query in multi_match")
+							}
+							if _, ok := multiMatch["boost"]; !ok {
+								t.Error("Expected boost in multi_match")
+							}
+
+							fields, ok := multiMatch["fields"].([]any)
+							if !ok || len(fields) != 2 {
+								t.Error("Expected fields [title, content] in multi_match")
+							}
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 1},
+								"hits": []map[string]any{
+									{
+										"_id":    "doc-1",
+										"_score": 2.5,
+										"_source": map[string]any{
+											"document_id": "doc-1",
+											"source_id":   "source-1",
+											"title":       "Kubernetes Helm Guide",
+											"content":     "Production deployment with helm",
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 1,
+			wantTotal: 1,
+			wantErr:   false,
+		},
+		{
+			name:  "search without boost terms",
+			query: "kubernetes deployment",
+			opts: domain.SearchOptions{
+				Limit:  10,
+				Offset: 0,
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+							t.Fatalf("Failed to decode request body: %v", err)
+						}
+
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						// Verify NO should clauses when boost terms not specified
+						if _, ok := boolQuery["should"]; ok {
+							t.Error("Should not have should clauses when BoostTerms is empty")
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 1},
+								"hits": []map[string]any{
+									{
+										"_id":    "doc-1",
+										"_score": 1.0,
+										"_source": map[string]any{
+											"document_id": "doc-1",
+											"source_id":   "source-1",
+											"title":       "Kubernetes Guide",
+											"content":     "Deployment guide",
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 1,
+			wantTotal: 1,
+			wantErr:   false,
+		},
+		{
+			name:  "search with single boost term",
+			query: "kubernetes",
+			opts: domain.SearchOptions{
+				Limit:  10,
+				Offset: 0,
+				BoostTerms: map[string]float64{
+					"production": 3.0,
+				},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+							t.Fatalf("Failed to decode request body: %v", err)
+						}
+
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						shouldClauses, ok := boolQuery["should"].([]any)
+						if !ok || len(shouldClauses) != 1 {
+							t.Errorf("Expected 1 should clause, got %d", len(shouldClauses))
+						}
+
+						// Verify boost value
+						clause := shouldClauses[0].(map[string]any)
+						multiMatch := clause["multi_match"].(map[string]any)
+						if multiMatch["query"] != "production" {
+							t.Errorf("Expected query 'production', got %v", multiMatch["query"])
+						}
+						if multiMatch["boost"].(float64) != 3.0 {
+							t.Errorf("Expected boost 3.0, got %v", multiMatch["boost"])
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 1},
+								"hits":  []map[string]any{},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 0,
+			wantTotal: 1,
+			wantErr:   false,
+		},
+		{
+			name:  "search with boost terms and filters",
+			query: "kubernetes",
+			opts: domain.SearchOptions{
+				Limit:     10,
+				Offset:    0,
+				SourceIDs: []string{"source-1"},
+				BoostTerms: map[string]float64{
+					"helm": 2.0,
+				},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+							t.Fatalf("Failed to decode request body: %v", err)
+						}
+
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						// Verify both should and filter clauses exist
+						if _, ok := boolQuery["should"]; !ok {
+							t.Error("Expected should clause for boost terms")
+						}
+						if _, ok := boolQuery["filter"]; !ok {
+							t.Error("Expected filter clause for source IDs")
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 1},
+								"hits":  []map[string]any{},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 0,
+			wantTotal: 1,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := tt.setupServer(t)
+			defer ts.Close()
+
+			cfg := Config{
+				URL:       ts.URL,
+				IndexName: "sercha_chunks",
+				Timeout:   5 * time.Second,
+			}
+
+			engine, err := NewSearchEngine(cfg)
+			if err != nil {
+				t.Fatalf("NewSearchEngine() error = %v", err)
+			}
+
+			results, total, err := engine.SearchDocuments(context.Background(), tt.query, tt.opts)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SearchDocuments() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				if len(results) != tt.wantCount {
+					t.Errorf("SearchDocuments() returned %d results, want %d", len(results), tt.wantCount)
+				}
+				if total != tt.wantTotal {
+					t.Errorf("SearchDocuments() total = %d, want %d", total, tt.wantTotal)
+				}
+			}
+		})
+	}
+}
+
+// TestSearchEngine_Search_WithBoostTerms validates keyword boosting in chunk search
+func TestSearchEngine_Search_WithBoostTerms(t *testing.T) {
+	tests := []struct {
+		name        string
+		query       string
+		opts        domain.SearchOptions
+		setupServer func(*testing.T) *httptest.Server
+		wantCount   int
+		wantTotal   int
+		wantErr     bool
+	}{
+		{
+			name:  "chunk search with boost terms",
+			query: "kubernetes deployment",
+			opts: domain.SearchOptions{
+				Limit:  10,
+				Offset: 0,
+				BoostTerms: map[string]float64{
+					"helm":       2.0,
+					"production": 1.5,
+				},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+							t.Fatalf("Failed to decode request body: %v", err)
+						}
+
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						// Verify should clauses exist
+						shouldClauses, ok := boolQuery["should"].([]any)
+						if !ok || len(shouldClauses) != 2 {
+							t.Errorf("Expected 2 should clauses, got %d", len(shouldClauses))
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 2},
+								"hits": []map[string]any{
+									{
+										"_id":    "chunk-1",
+										"_score": 2.5,
+										"_source": map[string]any{
+											"id":             "chunk-1",
+											"document_id":    "doc-1",
+											"source_id":      "source-1",
+											"content":        "Kubernetes deployment with helm",
+											"chunk_position": 0,
+										},
+									},
+									{
+										"_id":    "chunk-2",
+										"_score": 2.0,
+										"_source": map[string]any{
+											"id":             "chunk-2",
+											"document_id":    "doc-1",
+											"source_id":      "source-1",
+											"content":        "Production kubernetes setup",
+											"chunk_position": 1,
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 2,
+			wantTotal: 2,
+			wantErr:   false,
+		},
+		{
+			name:  "chunk search without boost terms",
+			query: "kubernetes",
+			opts: domain.SearchOptions{
+				Limit:  10,
+				Offset: 0,
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+							t.Fatalf("Failed to decode request body: %v", err)
+						}
+
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						// Verify NO should clauses
+						if _, ok := boolQuery["should"]; ok {
+							t.Error("Should not have should clauses when BoostTerms is empty")
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 1},
+								"hits": []map[string]any{
+									{
+										"_id":    "chunk-1",
+										"_score": 1.0,
+										"_source": map[string]any{
+											"id":             "chunk-1",
+											"document_id":    "doc-1",
+											"source_id":      "source-1",
+											"content":        "Kubernetes content",
+											"chunk_position": 0,
+										},
+									},
+								},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 1,
+			wantTotal: 1,
+			wantErr:   false,
+		},
+		{
+			name:  "chunk search with empty boost terms map",
+			query: "test",
+			opts: domain.SearchOptions{
+				Limit:      10,
+				Offset:     0,
+				BoostTerms: map[string]float64{},
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+							t.Fatalf("Failed to decode request body: %v", err)
+						}
+
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						// Empty map should not add should clauses
+						if _, ok := boolQuery["should"]; ok {
+							t.Error("Should not have should clauses when BoostTerms map is empty")
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 0},
+								"hits":  []map[string]any{},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 0,
+			wantTotal: 0,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := tt.setupServer(t)
+			defer ts.Close()
+
+			cfg := Config{
+				URL:       ts.URL,
+				IndexName: "sercha_chunks",
+				Timeout:   5 * time.Second,
+			}
+
+			engine, err := NewSearchEngine(cfg)
+			if err != nil {
+				t.Fatalf("NewSearchEngine() error = %v", err)
+			}
+
+			results, total, err := engine.Search(context.Background(), tt.query, nil, tt.opts)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Search() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				if len(results) != tt.wantCount {
+					t.Errorf("Search() returned %d results, want %d", len(results), tt.wantCount)
+				}
+				if total != tt.wantTotal {
+					t.Errorf("Search() total = %d, want %d", total, tt.wantTotal)
+				}
+			}
+		})
+	}
+}
+
+// TestSearchEngine_BoostTermsQueryStructure validates exact OpenSearch query structure
+func TestSearchEngine_BoostTermsQueryStructure(t *testing.T) {
+	tests := []struct {
+		name            string
+		boostTerms      map[string]float64
+		validateRequest func(*testing.T, map[string]any)
+	}{
+		{
+			name: "multiple boost terms create multiple should clauses",
+			boostTerms: map[string]float64{
+				"kubernetes": 2.0,
+				"helm":       1.5,
+				"docker":     1.2,
+			},
+			validateRequest: func(t *testing.T, reqBody map[string]any) {
+				query := reqBody["query"].(map[string]any)
+				boolQuery := query["bool"].(map[string]any)
+				shouldClauses := boolQuery["should"].([]any)
+
+				if len(shouldClauses) != 3 {
+					t.Errorf("Expected 3 should clauses, got %d", len(shouldClauses))
+				}
+
+				// Verify each should clause has correct structure
+				foundTerms := make(map[string]float64)
+				for _, clause := range shouldClauses {
+					clauseMap := clause.(map[string]any)
+					multiMatch := clauseMap["multi_match"].(map[string]any)
+
+					term := multiMatch["query"].(string)
+					boost := multiMatch["boost"].(float64)
+					foundTerms[term] = boost
+
+					// Verify fields
+					fields := multiMatch["fields"].([]any)
+					if len(fields) != 2 {
+						t.Errorf("Expected 2 fields, got %d", len(fields))
+					}
+					if fields[0] != "title" || fields[1] != "content" {
+						t.Errorf("Expected fields [title, content], got %v", fields)
+					}
+				}
+
+				// Verify all boost terms are present with correct values
+				for term, expectedBoost := range map[string]float64{
+					"kubernetes": 2.0,
+					"helm":       1.5,
+					"docker":     1.2,
+				} {
+					if actualBoost, ok := foundTerms[term]; !ok {
+						t.Errorf("Missing boost term %q in query", term)
+					} else if actualBoost != expectedBoost {
+						t.Errorf("Boost for %q = %v, want %v", term, actualBoost, expectedBoost)
+					}
+				}
+			},
+		},
+		{
+			name: "fractional boost values are preserved",
+			boostTerms: map[string]float64{
+				"important": 1.25,
+				"critical":  2.75,
+			},
+			validateRequest: func(t *testing.T, reqBody map[string]any) {
+				query := reqBody["query"].(map[string]any)
+				boolQuery := query["bool"].(map[string]any)
+				shouldClauses := boolQuery["should"].([]any)
+
+				for _, clause := range shouldClauses {
+					clauseMap := clause.(map[string]any)
+					multiMatch := clauseMap["multi_match"].(map[string]any)
+					term := multiMatch["query"].(string)
+					boost := multiMatch["boost"].(float64)
+
+					if term == "important" && boost != 1.25 {
+						t.Errorf("Boost for important = %v, want 1.25", boost)
+					}
+					if term == "critical" && boost != 2.75 {
+						t.Errorf("Boost for critical = %v, want 2.75", boost)
+					}
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+					var reqBody map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+						t.Fatalf("Failed to decode request body: %v", err)
+					}
+
+					tt.validateRequest(t, reqBody)
+
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"hits": map[string]any{
+							"total": map[string]any{"value": 0},
+							"hits":  []map[string]any{},
+						},
+					})
+					return
+				}
+			}))
+			defer ts.Close()
+
+			cfg := Config{
+				URL:       ts.URL,
+				IndexName: "sercha_chunks",
+				Timeout:   5 * time.Second,
+			}
+
+			engine, err := NewSearchEngine(cfg)
+			if err != nil {
+				t.Fatalf("NewSearchEngine() error = %v", err)
+			}
+
+			opts := domain.SearchOptions{
+				Limit:      10,
+				Offset:     0,
+				BoostTerms: tt.boostTerms,
+			}
+
+			_, _, err = engine.SearchDocuments(context.Background(), "test query", opts)
+			if err != nil {
+				t.Errorf("SearchDocuments() error = %v", err)
+			}
+		})
+	}
+}
+
 // TestSearchEngine_InterfaceCompliance validates interface implementation
 func TestSearchEngine_InterfaceCompliance(t *testing.T) {
 	// This test verifies that SearchEngine implements the driven.SearchEngine interface
