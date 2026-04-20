@@ -167,6 +167,22 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		},
 	}
 
+	// Add boost terms as should clauses
+	boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
+	if len(opts.BoostTerms) > 0 {
+		shouldClauses := []any{}
+		for term, boost := range opts.BoostTerms {
+			shouldClauses = append(shouldClauses, map[string]any{
+				"multi_match": map[string]any{
+					"query":  term,
+					"fields": []string{"title", "content"},
+					"boost":  boost,
+				},
+			})
+		}
+		boolQuery["should"] = shouldClauses
+	}
+
 	// Add filters if specified
 	var filterClauses []any
 	if len(opts.SourceIDs) > 0 {
@@ -180,7 +196,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		})
 	}
 	if len(filterClauses) > 0 {
-		boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
 		boolQuery["filter"] = filterClauses
 	}
 
@@ -249,6 +264,22 @@ func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding 
 		},
 	}
 
+	// Add boost terms as should clauses
+	boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
+	if len(opts.BoostTerms) > 0 {
+		shouldClauses := []any{}
+		for term, boost := range opts.BoostTerms {
+			shouldClauses = append(shouldClauses, map[string]any{
+				"multi_match": map[string]any{
+					"query":  term,
+					"fields": []string{"title", "content"},
+					"boost":  boost,
+				},
+			})
+		}
+		boolQuery["should"] = shouldClauses
+	}
+
 	// Add filters if specified
 	var filterClauses []any
 	if len(opts.SourceIDs) > 0 {
@@ -262,7 +293,6 @@ func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding 
 		})
 	}
 	if len(filterClauses) > 0 {
-		boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
 		boolQuery["filter"] = filterClauses
 	}
 
