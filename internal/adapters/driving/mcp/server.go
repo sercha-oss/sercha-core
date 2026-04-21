@@ -175,6 +175,7 @@ type GetDocumentOutput struct {
 	DocumentID string            `json:"document_id" jsonschema_description:"Document ID"`
 	Title      string            `json:"title" jsonschema_description:"Document title"`
 	Content    string            `json:"content" jsonschema_description:"Full document content"`
+	URL        string            `json:"url" jsonschema_description:"URL to open document in source system"`
 	Metadata   map[string]string `json:"metadata" jsonschema_description:"Document metadata"`
 }
 
@@ -217,6 +218,7 @@ func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.Docu
 			DocumentID: doc.ID,
 			Title:      doc.Title,
 			Content:    docContent.Body,
+			URL:        doc.Path,
 			Metadata:   metadata,
 		}
 
@@ -331,7 +333,11 @@ func formatSearchResults(results []SearchResult) string {
 func formatDocument(doc GetDocumentOutput) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Document: %s\n", doc.Title)
-	fmt.Fprintf(&sb, "ID: %s\n\n", doc.DocumentID)
+	fmt.Fprintf(&sb, "ID: %s\n", doc.DocumentID)
+	if doc.URL != "" {
+		fmt.Fprintf(&sb, "URL: %s\n", doc.URL)
+	}
+	sb.WriteString("\n")
 
 	if len(doc.Metadata) > 0 {
 		sb.WriteString("Metadata:\n")
