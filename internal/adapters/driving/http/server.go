@@ -63,6 +63,16 @@ type Server struct {
 	searchQueryRepo driven.SearchQueryRepository // for search tracking
 	db              Pinger                       // PostgreSQL health check
 	redisClient     Pinger                       // Redis health check (optional)
+
+	// Optional observers (wired post-construction to keep NewServer stable)
+	retrievalObserver driven.RetrievalObserver
+}
+
+// SetRetrievalObserver installs an optional RetrievalObserver. Passing nil
+// disables observer invocation. Safe to call before Start; not safe to call
+// concurrently with in-flight requests.
+func (s *Server) SetRetrievalObserver(obs driven.RetrievalObserver) {
+	s.retrievalObserver = obs
 }
 
 // Config holds server configuration

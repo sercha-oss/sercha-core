@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
+	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
 )
 
@@ -653,6 +656,7 @@ type searchRequest struct {
 // @Failure      500      {object}  ErrorResponse  "Search failed"
 // @Router       /search [post]
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	var req searchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -678,29 +682,60 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	authCtx := GetAuthContext(r.Context())
+
 	// Track search query for analytics (best effort, don't fail request if tracking fails)
-	if s.searchQueryRepo != nil {
-		authCtx := GetAuthContext(r.Context())
-		if authCtx != nil {
-			searchQuery := domain.NewSearchQuery(
-				authCtx.TeamID,
-				authCtx.UserID,
-				req.Query,
-				result.Mode,
-				result.TotalCount,
-				result.Took,
-			)
-			if len(req.SourceIDs) > 0 {
-				searchQuery.WithSourceFilters(req.SourceIDs)
-			}
-			// Log asynchronously to not slow down the search response
-			go func() {
-				_ = s.searchQueryRepo.Save(context.Background(), searchQuery)
-			}()
+	if s.searchQueryRepo != nil && authCtx != nil {
+		searchQuery := domain.NewSearchQuery(
+			authCtx.TeamID,
+			authCtx.UserID,
+			req.Query,
+			result.Mode,
+			result.TotalCount,
+			result.Took,
+		)
+		if len(req.SourceIDs) > 0 {
+			searchQuery.WithSourceFilters(req.SourceIDs)
 		}
+		// Log asynchronously to not slow down the search response
+		go func() {
+			_ = s.searchQueryRepo.Save(context.Background(), searchQuery)
+		}()
+	}
+
+	// Fire retrieval observer asynchronously (nil-guarded).
+	if s.retrievalObserver != nil {
+		event := driven.SearchCompletedEvent{
+			Query:       req.Query,
+			DocumentIDs: searchResultDocumentIDs(result),
+			ResultCount: result.TotalCount,
+			DurationNs:  time.Since(start).Nanoseconds(),
+			ClientType:  "http",
+		}
+		if authCtx != nil {
+			event.UserID = authCtx.UserID
+		}
+		obs := s.retrievalObserver
+		go func() {
+			if err := obs.OnSearchCompleted(context.Background(), event); err != nil {
+				log.Printf("retrieval observer: OnSearchCompleted failed: %v", err)
+			}
+		}()
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// searchResultDocumentIDs extracts document IDs from a search result in order.
+func searchResultDocumentIDs(result *domain.SearchResult) []string {
+	if result == nil || len(result.Results) == 0 {
+		return nil
+	}
+	ids := make([]string, len(result.Results))
+	for i, r := range result.Results {
+		ids[i] = r.DocumentID
+	}
+	return ids
 }
 
 // Document endpoints
@@ -719,6 +754,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 // @Failure      500  {object}  ErrorResponse  "Internal server error"
 // @Router       /documents/{id} [get]
 func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "missing document id")
@@ -734,6 +770,24 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to get document")
 		}
 		return
+	}
+
+	// Fire retrieval observer asynchronously (nil-guarded).
+	if s.retrievalObserver != nil {
+		event := driven.DocumentRetrievedEvent{
+			DocumentID: id,
+			DurationNs: time.Since(start).Nanoseconds(),
+			ClientType: "http",
+		}
+		if authCtx := GetAuthContext(r.Context()); authCtx != nil {
+			event.UserID = authCtx.UserID
+		}
+		obs := s.retrievalObserver
+		go func() {
+			if err := obs.OnDocumentRetrieved(context.Background(), event); err != nil {
+				log.Printf("retrieval observer: OnDocumentRetrieved failed: %v", err)
+			}
+		}()
 	}
 
 	writeJSON(w, http.StatusOK, doc)

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -10,17 +11,19 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
+	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
 )
 
 // MCPServerConfig holds configuration for the MCP server
 type MCPServerConfig struct {
-	SearchService   driving.SearchService
-	DocumentService driving.DocumentService
-	SourceService   driving.SourceService
-	OAuthService    driving.OAuthServerService // For token verification
-	MCPServerURL    string
-	Version         string
+	SearchService     driving.SearchService
+	DocumentService   driving.DocumentService
+	SourceService     driving.SourceService
+	OAuthService      driving.OAuthServerService // For token verification
+	MCPServerURL      string
+	Version           string
+	RetrievalObserver driven.RetrievalObserver // optional
 }
 
 // NewMCPServer creates a new MCP server with tools registered
@@ -33,10 +36,10 @@ func NewMCPServer(cfg MCPServerConfig) *mcpsdk.Server {
 	server := mcpsdk.NewServer(impl, nil)
 
 	// Register search tool
-	registerSearchTool(server, cfg.SearchService)
+	registerSearchTool(server, cfg.SearchService, cfg.RetrievalObserver)
 
 	// Register get_document tool
-	registerGetDocumentTool(server, cfg.DocumentService)
+	registerGetDocumentTool(server, cfg.DocumentService, cfg.RetrievalObserver)
 
 	// Register list_sources tool
 	registerListSourcesTool(server, cfg.SourceService)
@@ -106,11 +109,13 @@ type SearchResult struct {
 }
 
 // registerSearchTool registers the search tool with the MCP server
-func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchService) {
+func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchService, observer driven.RetrievalObserver) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "search",
 		Description: "Search across all indexed documents using semantic and keyword search",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, input SearchInput) (*mcpsdk.CallToolResult, SearchOutput, error) {
+		start := time.Now()
+
 		// Get user context from token info
 		tokenInfo := auth.TokenInfoFromContext(ctx)
 		if tokenInfo == nil {
@@ -145,6 +150,7 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 
 		// Convert results to output format
 		results := make([]SearchResult, len(searchResp.Results))
+		documentIDs := make([]string, len(searchResp.Results))
 		for i, r := range searchResp.Results {
 			results[i] = SearchResult{
 				DocumentID: r.DocumentID,
@@ -153,7 +159,17 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 				Score:      r.Score,
 				SourceID:   r.SourceID,
 			}
+			documentIDs[i] = r.DocumentID
 		}
+
+		fireSearchObserver(observer, driven.SearchCompletedEvent{
+			UserID:      tokenInfo.UserID,
+			Query:       input.Query,
+			DocumentIDs: documentIDs,
+			ResultCount: searchResp.TotalCount,
+			DurationNs:  time.Since(start).Nanoseconds(),
+			ClientType:  "mcp",
+		})
 
 		return &mcpsdk.CallToolResult{
 			Content: []mcpsdk.Content{
@@ -163,6 +179,32 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			},
 		}, SearchOutput{Results: results}, nil
 	})
+}
+
+// fireSearchObserver invokes observer.OnSearchCompleted on a detached
+// goroutine. Nil-guarded; errors are logged and swallowed.
+func fireSearchObserver(observer driven.RetrievalObserver, event driven.SearchCompletedEvent) {
+	if observer == nil {
+		return
+	}
+	go func() {
+		if err := observer.OnSearchCompleted(context.Background(), event); err != nil {
+			log.Printf("retrieval observer: OnSearchCompleted failed: %v", err)
+		}
+	}()
+}
+
+// fireDocumentObserver invokes observer.OnDocumentRetrieved on a detached
+// goroutine. Nil-guarded; errors are logged and swallowed.
+func fireDocumentObserver(observer driven.RetrievalObserver, event driven.DocumentRetrievedEvent) {
+	if observer == nil {
+		return
+	}
+	go func() {
+		if err := observer.OnDocumentRetrieved(context.Background(), event); err != nil {
+			log.Printf("retrieval observer: OnDocumentRetrieved failed: %v", err)
+		}
+	}()
 }
 
 // GetDocumentInput represents the input for the get_document tool
@@ -180,11 +222,13 @@ type GetDocumentOutput struct {
 }
 
 // registerGetDocumentTool registers the get_document tool with the MCP server
-func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.DocumentService) {
+func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.DocumentService, observer driven.RetrievalObserver) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "get_document",
 		Description: "Retrieve the full content and metadata of a specific document by ID",
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, input GetDocumentInput) (*mcpsdk.CallToolResult, GetDocumentOutput, error) {
+		start := time.Now()
+
 		// Get user context from token info
 		tokenInfo := auth.TokenInfoFromContext(ctx)
 		if tokenInfo == nil {
@@ -221,6 +265,13 @@ func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.Docu
 			URL:        doc.Path,
 			Metadata:   metadata,
 		}
+
+		fireDocumentObserver(observer, driven.DocumentRetrievedEvent{
+			UserID:     tokenInfo.UserID,
+			DocumentID: doc.ID,
+			DurationNs: time.Since(start).Nanoseconds(),
+			ClientType: "mcp",
+		})
 
 		return &mcpsdk.CallToolResult{
 			Content: []mcpsdk.Content{
