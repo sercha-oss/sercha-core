@@ -23,40 +23,42 @@ import (
 //  6. Process each document (normalise → chunk → embed → store → index)
 //  7. Update sync cursor
 type SyncOrchestrator struct {
-	sourceStore      driven.SourceStore
-	documentStore    driven.DocumentStore
-	syncStore        driven.SyncStateStore
-	searchEngine     driven.SearchEngine
-	vectorIndex      driven.VectorIndex
-	connectorFactory driven.ConnectorFactory
-	normaliserReg    driven.NormaliserRegistry
-	services         *runtime.Services
-	logger           *slog.Logger
-	indexingExecutor pipelineport.IndexingExecutor // Required pipeline executor
-	capabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
-	capabilityStore  driven.CapabilityStore        // For fetching capability preferences
-	settingsStore    driven.SettingsStore          // For loading team settings
-	syncEventRepo    driven.SyncEventRepository    // For audit logging of sync events
-	teamID           string                        // Team ID for settings lookup
+	sourceStore            driven.SourceStore
+	documentStore          driven.DocumentStore
+	syncStore              driven.SyncStateStore
+	searchEngine           driven.SearchEngine
+	vectorIndex            driven.VectorIndex
+	connectorFactory       driven.ConnectorFactory
+	normaliserReg          driven.NormaliserRegistry
+	services               *runtime.Services
+	logger                 *slog.Logger
+	indexingExecutor       pipelineport.IndexingExecutor // Required pipeline executor
+	capabilitySet          *pipeline.CapabilitySet       // Capabilities for pipeline
+	capabilityStore        driven.CapabilityStore        // For fetching capability preferences
+	settingsStore          driven.SettingsStore          // For loading team settings
+	syncEventRepo          driven.SyncEventRepository    // For audit logging of sync events
+	teamID                 string                        // Team ID for settings lookup
+	documentIngestObserver driven.DocumentIngestObserver // Optional; nil means no observer.
 }
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
 type SyncOrchestratorConfig struct {
-	SourceStore      driven.SourceStore
-	DocumentStore    driven.DocumentStore
-	SyncStore        driven.SyncStateStore
-	SearchEngine     driven.SearchEngine
-	VectorIndex      driven.VectorIndex
-	ConnectorFactory driven.ConnectorFactory
-	NormaliserReg    driven.NormaliserRegistry
-	Services         *runtime.Services
-	Logger           *slog.Logger
-	IndexingExecutor pipelineport.IndexingExecutor // Required pipeline executor
-	CapabilitySet    *pipeline.CapabilitySet       // Capabilities for pipeline
-	CapabilityStore  driven.CapabilityStore        // For fetching capability preferences
-	SettingsStore    driven.SettingsStore          // For loading team settings
-	SyncEventRepo    driven.SyncEventRepository    // For audit logging of sync events
-	TeamID           string                        // Team ID for settings lookup
+	SourceStore            driven.SourceStore
+	DocumentStore          driven.DocumentStore
+	SyncStore              driven.SyncStateStore
+	SearchEngine           driven.SearchEngine
+	VectorIndex            driven.VectorIndex
+	ConnectorFactory       driven.ConnectorFactory
+	NormaliserReg          driven.NormaliserRegistry
+	Services               *runtime.Services
+	Logger                 *slog.Logger
+	IndexingExecutor       pipelineport.IndexingExecutor // Required pipeline executor
+	CapabilitySet          *pipeline.CapabilitySet       // Capabilities for pipeline
+	CapabilityStore        driven.CapabilityStore        // For fetching capability preferences
+	SettingsStore          driven.SettingsStore          // For loading team settings
+	SyncEventRepo          driven.SyncEventRepository    // For audit logging of sync events
+	TeamID                 string                        // Team ID for settings lookup
+	DocumentIngestObserver driven.DocumentIngestObserver // Optional; nil means no observer.
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
@@ -72,21 +74,22 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 	}
 
 	return &SyncOrchestrator{
-		sourceStore:      cfg.SourceStore,
-		documentStore:    cfg.DocumentStore,
-		syncStore:        cfg.SyncStore,
-		searchEngine:     cfg.SearchEngine,
-		vectorIndex:      cfg.VectorIndex,
-		connectorFactory: cfg.ConnectorFactory,
-		normaliserReg:    cfg.NormaliserReg,
-		services:         cfg.Services,
-		logger:           logger,
-		indexingExecutor: cfg.IndexingExecutor,
-		capabilitySet:    cfg.CapabilitySet,
-		capabilityStore:  cfg.CapabilityStore,
-		settingsStore:    cfg.SettingsStore,
-		syncEventRepo:    cfg.SyncEventRepo,
-		teamID:           cfg.TeamID,
+		sourceStore:            cfg.SourceStore,
+		documentStore:          cfg.DocumentStore,
+		syncStore:              cfg.SyncStore,
+		searchEngine:           cfg.SearchEngine,
+		vectorIndex:            cfg.VectorIndex,
+		connectorFactory:       cfg.ConnectorFactory,
+		normaliserReg:          cfg.NormaliserReg,
+		services:               cfg.Services,
+		logger:                 logger,
+		indexingExecutor:       cfg.IndexingExecutor,
+		capabilitySet:          cfg.CapabilitySet,
+		capabilityStore:        cfg.CapabilityStore,
+		settingsStore:          cfg.SettingsStore,
+		syncEventRepo:          cfg.SyncEventRepo,
+		teamID:                 cfg.TeamID,
+		documentIngestObserver: cfg.DocumentIngestObserver,
 	}
 }
 
@@ -735,6 +738,18 @@ func (o *SyncOrchestrator) processWithPipeline(
 	// Save document metadata (pipeline already stored chunks)
 	if err := o.documentStore.Save(ctx, doc); err != nil {
 		return fmt.Errorf("failed to save document: %w", err)
+	}
+
+	// Observer fires only after successful persistence. Failures are logged and ignored —
+	// observer health must not affect ingest correctness.
+	if o.documentIngestObserver != nil {
+		if err := o.documentIngestObserver.OnDocumentIngested(ctx, source, doc); err != nil {
+			o.logger.Warn("document ingest observer failed",
+				"document_id", doc.ID,
+				"source_id", source.ID,
+				"error", err,
+			)
+		}
 	}
 
 	// Update stats
