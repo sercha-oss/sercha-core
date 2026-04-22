@@ -1,6 +1,10 @@
 package pipeline
 
-import "time"
+import (
+	"time"
+
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
+)
 
 // StagePreferences controls which stages are enabled based on user settings.
 type StagePreferences struct {
@@ -35,11 +39,11 @@ type SearchContext struct {
 
 // SearchFilters contains user-applied search filters.
 type SearchFilters struct {
-	Sources      []string       `json:"sources,omitempty"` // Filter by source/connector
-	DateRange    *DateRange     `json:"date_range,omitempty"`
-	ContentTypes []string       `json:"content_types,omitempty"`
-	DocumentIDs  []string       `json:"document_ids,omitempty"` // Filter by specific document IDs
-	Custom       map[string]any `json:"custom,omitempty"`
+	Sources          []string                 `json:"sources,omitempty"` // Filter by source/connector
+	DateRange        *DateRange               `json:"date_range,omitempty"`
+	ContentTypes     []string                 `json:"content_types,omitempty"`
+	DocumentIDFilter *domain.DocumentIDFilter `json:"document_id_filter,omitempty"` // Three-case filter (see DocumentIDFilter godoc). Nil = no filter.
+	Custom           map[string]any           `json:"custom,omitempty"`
 }
 
 // DateRange specifies a time range for filtering.

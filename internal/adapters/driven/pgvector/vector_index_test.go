@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
 
@@ -503,7 +504,11 @@ func TestVectorIndex_SearchWithContent_DocumentIDFilter(t *testing.T) {
 				distOp:     "<=>",
 			}
 
-			_, err := vi.SearchWithContent(context.Background(), tt.embedding, tt.k, tt.sourceIDs, tt.documentIDs)
+			var documentFilter *domain.DocumentIDFilter
+			if tt.documentIDs != nil {
+				documentFilter = &domain.DocumentIDFilter{Apply: true, IDs: tt.documentIDs}
+			}
+			_, err := vi.SearchWithContent(context.Background(), tt.embedding, tt.k, tt.sourceIDs, documentFilter)
 
 			if tt.wantErr {
 				if err == nil {
@@ -514,6 +519,68 @@ func TestVectorIndex_SearchWithContent_DocumentIDFilter(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestVectorIndex_SearchWithContent_DenyAll_ShortCircuits codifies the anti-fail-open
+// contract: a deny-all DocumentIDFilter (Apply==true, IDs==[]) must short-circuit to
+// ([]VectorSearchResult{}, nil) BEFORE touching the connection pool. We prove "no DB
+// query" structurally by setting pool=nil — the implementation is expected to return
+// before any pool access. If the short-circuit ever regresses, pool-nil dereference
+// will panic or the empty-result assertion will fail.
+func TestVectorIndex_SearchWithContent_DenyAll_ShortCircuits(t *testing.T) {
+	vi := &VectorIndex{
+		pool:       nil, // No pool — dereferencing panics. Short-circuit must fire first.
+		dimensions: 1536,
+		distOp:     "<=>",
+	}
+
+	// Also use an intentionally wrong embedding dimension: if the deny-all branch
+	// didn't short-circuit first, the dimension check at L94 would produce
+	// "embedding dimension mismatch" rather than the expected empty-result return.
+	embedding := make([]float32, 1) // wrong size
+
+	results, err := vi.SearchWithContent(
+		context.Background(),
+		embedding,
+		10,
+		nil,
+		domain.DenyAllDocumentIDFilter(),
+	)
+
+	if err != nil {
+		t.Fatalf("SearchWithContent() with deny-all should return nil error, got %v", err)
+	}
+	if results == nil {
+		t.Fatal("SearchWithContent() with deny-all should return an empty (non-nil) slice")
+	}
+	if len(results) != 0 {
+		t.Errorf("SearchWithContent() with deny-all should return zero results, got %d", len(results))
+	}
+}
+
+// TestVectorIndex_SearchWithContent_NilFilter_NoShortCircuit confirms the complement:
+// a nil DocumentIDFilter does NOT short-circuit — validation runs normally, so an
+// invalid embedding dimension produces the usual error rather than an empty result.
+// This keeps the deny-all path structurally distinct from the no-filter path.
+func TestVectorIndex_SearchWithContent_NilFilter_NoShortCircuit(t *testing.T) {
+	vi := &VectorIndex{
+		pool:       nil,
+		dimensions: 1536,
+		distOp:     "<=>",
+	}
+	_, err := vi.SearchWithContent(
+		context.Background(),
+		make([]float32, 1), // wrong dimension triggers validation error
+		10,
+		nil,
+		nil, // nil filter = no filter, not deny-all
+	)
+	if err == nil {
+		t.Fatal("SearchWithContent() with nil filter + bad embedding should error via validation, not short-circuit")
+	}
+	if !contains(err.Error(), "embedding dimension mismatch") {
+		t.Errorf("expected dimension-mismatch error, got %q", err.Error())
 	}
 }
 

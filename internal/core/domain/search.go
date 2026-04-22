@@ -16,10 +16,10 @@ type SearchOptions struct {
 	Mode        SearchMode         `json:"mode"`
 	Limit       int                `json:"limit"`
 	Offset      int                `json:"offset"`
-	SourceIDs   []string           `json:"source_ids,omitempty"`   // Filter by sources
-	DocumentIDs []string           `json:"document_ids,omitempty"` // Filter by specific document IDs
-	Filters     Filters            `json:"filters,omitempty"`
-	BoostTerms  map[string]float64 `json:"boost_terms,omitempty"` // term -> boost factor
+	SourceIDs        []string           `json:"source_ids,omitempty"`         // Filter by sources
+	DocumentIDFilter *DocumentIDFilter  `json:"document_id_filter,omitempty"` // Three-case filter (see DocumentIDFilter godoc). Nil = no filter.
+	Filters          Filters            `json:"filters,omitempty"`
+	BoostTerms       map[string]float64 `json:"boost_terms,omitempty"` // term -> boost factor
 }
 
 // Filters provides additional search filters

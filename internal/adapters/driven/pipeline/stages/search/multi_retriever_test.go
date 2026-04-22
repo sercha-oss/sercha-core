@@ -117,7 +117,7 @@ func (m *mockVectorIndex) Search(ctx context.Context, embedding []float32, k int
 	return nil, nil, nil
 }
 
-func (m *mockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
+func (m *mockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentFilter *domain.DocumentIDFilter) ([]driven.VectorSearchResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

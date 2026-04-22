@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
@@ -64,8 +65,8 @@ func (f *DocumentIDFilterFactory) Validate(config pipeline.StageConfig) error {
 	return nil
 }
 
-// DocumentIDFilterStage filters search results by document IDs using a DocumentIDProvider.
-// If no provider is available, the stage passes through without filtering.
+// DocumentIDFilterStage populates SearchFilters.DocumentIDFilter using a DocumentIDProvider.
+// If no provider is available, the stage passes through and leaves DocumentIDFilter unset (nil).
 type DocumentIDFilterStage struct {
 	descriptor pipeline.StageDescriptor
 	provider   driven.DocumentIDProvider
@@ -76,7 +77,9 @@ func (s *DocumentIDFilterStage) Descriptor() pipeline.StageDescriptor {
 	return s.descriptor
 }
 
-// Process populates ParsedQuery.SearchFilters.DocumentIDs if a provider is available.
+// Process translates the provider's three-case return into *domain.DocumentIDFilter on
+// ParsedQuery.SearchFilters. A nil return leaves DocumentIDFilter untouched (no-op);
+// a non-nil return — including an empty slice — constructs an authoritative filter.
 func (s *DocumentIDFilterStage) Process(ctx context.Context, input any) (any, error) {
 	parsed, ok := input.(*pipeline.ParsedQuery)
 	if !ok {
@@ -94,9 +97,16 @@ func (s *DocumentIDFilterStage) Process(ctx context.Context, input any) (any, er
 		return nil, &StageError{Stage: s.descriptor.ID, Message: "failed to get allowed document IDs", Err: err}
 	}
 
-	// Populate document IDs in search filters
-	// If allowedIDs is nil or empty, no filtering will be applied downstream
-	parsed.SearchFilters.DocumentIDs = allowedIDs
+	// Translate the port's three-case return into *domain.DocumentIDFilter:
+	//   - nil return: leave Filters.DocumentIDFilter untouched (no-op; provider declined).
+	//   - empty slice: authoritative deny-all.
+	//   - non-empty slice: authoritative allow-list.
+	if allowedIDs != nil {
+		parsed.SearchFilters.DocumentIDFilter = &domain.DocumentIDFilter{
+			Apply: true,
+			IDs:   allowedIDs,
+		}
+	}
 
 	return parsed, nil
 }

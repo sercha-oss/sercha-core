@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
@@ -41,7 +42,7 @@ func (s *stubVectorIndex) Search(ctx context.Context, embedding []float32, k int
 	return nil, nil, nil
 }
 
-func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
+func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentFilter *domain.DocumentIDFilter) ([]driven.VectorSearchResult, error) {
 	return nil, nil
 }
 

@@ -78,8 +78,10 @@ type VectorIndex interface {
 
 	// SearchWithContent finds similar vectors and returns chunk content alongside IDs/distances.
 	// sourceIDs optionally filters results to specific sources (nil or empty = no filter).
-	// documentIDs optionally filters results to specific documents (nil or empty = no filter).
-	SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]VectorSearchResult, error)
+	// documentFilter applies the three-case document-ID contract (see domain.DocumentIDFilter godoc):
+	// nil = no document filter; Apply && empty IDs = deny-all (must return zero results);
+	// Apply && non-empty IDs = allow-list.
+	SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentFilter *domain.DocumentIDFilter) ([]VectorSearchResult, error)
 
 	// Delete removes a single embedding by chunk ID
 	Delete(ctx context.Context, id string) error

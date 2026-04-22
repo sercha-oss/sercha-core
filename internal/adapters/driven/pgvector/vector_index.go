@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pgvector/pgvector-go"
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	driven "github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
 
@@ -80,8 +81,16 @@ func (v *VectorIndex) Index(ctx context.Context, id string, documentID string, e
 
 // SearchWithContent finds similar vectors and returns chunk content alongside IDs/distances.
 // sourceIDs optionally filters results to specific sources (nil or empty = no filter).
-// documentIDs optionally filters results to specific documents (nil or empty = no filter).
-func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
+// documentFilter applies the three-case document-id contract; see domain.DocumentIDFilter godoc.
+func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentFilter *domain.DocumentIDFilter) ([]driven.VectorSearchResult, error) {
+	// Three-case contract on documentFilter:
+	//   - nil or !Apply: no document_id predicate.
+	//   - Apply && len(IDs) == 0: authoritative deny-all; short-circuit to empty results.
+	//   - Apply && len(IDs) > 0: allow-list bound into the WHERE clause.
+	if documentFilter != nil && documentFilter.Apply && len(documentFilter.IDs) == 0 {
+		return []driven.VectorSearchResult{}, nil
+	}
+
 	if len(embedding) != v.dimensions {
 		return nil, fmt.Errorf("embedding dimension mismatch: expected %d, got %d", v.dimensions, len(embedding))
 	}
@@ -97,7 +106,7 @@ func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32
 
 	// Build WHERE clause conditions
 	hasSourceFilter := len(sourceIDs) > 0
-	hasDocFilter := len(documentIDs) > 0
+	hasDocFilter := documentFilter.IsAllowList()
 
 	if hasSourceFilter && hasDocFilter {
 		query := fmt.Sprintf(`
@@ -107,7 +116,7 @@ func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32
 			ORDER BY distance
 			LIMIT $2
 		`, v.distOp)
-		rows, err = v.pool.Query(ctx, query, vec, k, sourceIDs, documentIDs)
+		rows, err = v.pool.Query(ctx, query, vec, k, sourceIDs, documentFilter.IDs)
 	} else if hasSourceFilter {
 		query := fmt.Sprintf(`
 			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance
@@ -125,7 +134,7 @@ func (v *VectorIndex) SearchWithContent(ctx context.Context, embedding []float32
 			ORDER BY distance
 			LIMIT $2
 		`, v.distOp)
-		rows, err = v.pool.Query(ctx, query, vec, k, documentIDs)
+		rows, err = v.pool.Query(ctx, query, vec, k, documentFilter.IDs)
 	} else {
 		query := fmt.Sprintf(`
 			SELECT chunk_id, document_id, content, embedding %s $1::vector AS distance

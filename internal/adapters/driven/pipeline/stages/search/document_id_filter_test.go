@@ -223,13 +223,16 @@ func TestDocumentIDFilterStage_Process_WithProvider_PopulatesDocumentIDs(t *test
 		t.Fatalf("result should be *pipeline.ParsedQuery, got %T", result)
 	}
 
-	// Verify document IDs were populated
-	if len(parsed.SearchFilters.DocumentIDs) != 3 {
-		t.Errorf("len(DocumentIDs) = %d, want 3", len(parsed.SearchFilters.DocumentIDs))
+	// Verify the provider's non-empty return produced an authoritative allow-list.
+	if !parsed.SearchFilters.DocumentIDFilter.IsAllowList() {
+		t.Fatalf("DocumentIDFilter should be an allow-list, got %+v", parsed.SearchFilters.DocumentIDFilter)
+	}
+	if len(parsed.SearchFilters.DocumentIDFilter.IDs) != 3 {
+		t.Errorf("len(DocumentIDFilter.IDs) = %d, want 3", len(parsed.SearchFilters.DocumentIDFilter.IDs))
 	}
 	for i, want := range []string{"doc-1", "doc-2", "doc-3"} {
-		if parsed.SearchFilters.DocumentIDs[i] != want {
-			t.Errorf("DocumentIDs[%d] = %q, want %q", i, parsed.SearchFilters.DocumentIDs[i], want)
+		if parsed.SearchFilters.DocumentIDFilter.IDs[i] != want {
+			t.Errorf("DocumentIDFilter.IDs[%d] = %q, want %q", i, parsed.SearchFilters.DocumentIDFilter.IDs[i], want)
 		}
 	}
 
@@ -245,9 +248,14 @@ func TestDocumentIDFilterStage_Process_WithProvider_PopulatesDocumentIDs(t *test
 	}
 }
 
-func TestDocumentIDFilterStage_Process_WithProvider_EmptySlice(t *testing.T) {
+// TestDocumentIDFilterStage_Process_WithProvider_EmptySlice_DenyAll codifies the
+// anti-fail-open contract: a provider returning an empty (non-nil) slice means
+// "this caller has access to zero documents". The stage MUST translate that into
+// an authoritative deny-all DocumentIDFilter so downstream adapters return zero
+// results — never silently interpreted as "no filter".
+func TestDocumentIDFilterStage_Process_WithProvider_EmptySlice_DenyAll(t *testing.T) {
 	provider := &mockDocumentIDProvider{
-		documentIDs: []string{}, // Empty slice means no filtering
+		documentIDs: []string{}, // Empty slice is authoritative deny-all.
 	}
 
 	stage := &DocumentIDFilterStage{
@@ -270,21 +278,29 @@ func TestDocumentIDFilterStage_Process_WithProvider_EmptySlice(t *testing.T) {
 		t.Fatalf("result should be *pipeline.ParsedQuery, got %T", result)
 	}
 
-	// Empty slice should be set (downstream can check for nil vs empty)
-	if parsed.SearchFilters.DocumentIDs == nil {
-		t.Error("DocumentIDs should not be nil, should be empty slice")
+	// Structural contract: Apply==true, IDs empty — use the nil-safe predicate.
+	if parsed.SearchFilters.DocumentIDFilter == nil {
+		t.Fatal("DocumentIDFilter must not be nil for a deny-all provider return")
 	}
-	if len(parsed.SearchFilters.DocumentIDs) != 0 {
-		t.Errorf("len(DocumentIDs) = %d, want 0", len(parsed.SearchFilters.DocumentIDs))
+	if !parsed.SearchFilters.DocumentIDFilter.IsDenyAll() {
+		t.Errorf("DocumentIDFilter should be deny-all (Apply=true, IDs=[]), got %+v", parsed.SearchFilters.DocumentIDFilter)
+	}
+	if parsed.SearchFilters.DocumentIDFilter.IsAllowList() {
+		t.Error("deny-all filter must not also be an allow-list")
 	}
 	if !provider.called {
 		t.Error("provider should have been called")
 	}
 }
 
-func TestDocumentIDFilterStage_Process_WithProvider_NilSlice(t *testing.T) {
+// TestDocumentIDFilterStage_Process_WithProvider_NilSlice_NoOp verifies the
+// distinct "nil vs empty" contract: a nil return from the provider means
+// "decline to filter" (pass-through), NOT "deny all". This is the complement of
+// the EmptySlice_DenyAll test — the stage must preserve the two meanings
+// structurally rather than collapsing both to the same filter value.
+func TestDocumentIDFilterStage_Process_WithProvider_NilSlice_NoOp(t *testing.T) {
 	provider := &mockDocumentIDProvider{
-		documentIDs: nil, // Nil means no filtering
+		documentIDs: nil, // Nil = decline to filter; distinct from [] (deny-all).
 	}
 
 	stage := &DocumentIDFilterStage{
@@ -307,9 +323,9 @@ func TestDocumentIDFilterStage_Process_WithProvider_NilSlice(t *testing.T) {
 		t.Fatalf("result should be *pipeline.ParsedQuery, got %T", result)
 	}
 
-	// Nil slice should remain nil
-	if parsed.SearchFilters.DocumentIDs != nil {
-		t.Error("DocumentIDs should be nil")
+	// A nil provider return leaves the filter unset — no filter, not deny-all.
+	if parsed.SearchFilters.DocumentIDFilter != nil {
+		t.Errorf("DocumentIDFilter should be nil (no-op), got %+v", parsed.SearchFilters.DocumentIDFilter)
 	}
 	if !provider.called {
 		t.Error("provider should have been called")
@@ -354,8 +370,8 @@ func TestDocumentIDFilterStage_Process_NoProvider_PassThrough(t *testing.T) {
 	if len(parsed.SearchFilters.Sources) != 1 {
 		t.Errorf("len(Sources) = %d, want 1", len(parsed.SearchFilters.Sources))
 	}
-	if parsed.SearchFilters.DocumentIDs != nil {
-		t.Error("DocumentIDs should remain nil")
+	if parsed.SearchFilters.DocumentIDFilter != nil {
+		t.Error("DocumentIDFilter should remain nil")
 	}
 }
 
@@ -491,9 +507,12 @@ func TestDocumentIDFilterStage_Process_PreservesExistingFilters(t *testing.T) {
 		t.Errorf("Custom[custom_field] = %v, want custom_value", parsed.SearchFilters.Custom["custom_field"])
 	}
 
-	// And document IDs were added
-	if len(parsed.SearchFilters.DocumentIDs) != 2 {
-		t.Errorf("len(DocumentIDs) = %d, want 2", len(parsed.SearchFilters.DocumentIDs))
+	// And document IDs were added as an authoritative allow-list.
+	if !parsed.SearchFilters.DocumentIDFilter.IsAllowList() {
+		t.Fatalf("DocumentIDFilter should be an allow-list, got %+v", parsed.SearchFilters.DocumentIDFilter)
+	}
+	if len(parsed.SearchFilters.DocumentIDFilter.IDs) != 2 {
+		t.Errorf("len(DocumentIDFilter.IDs) = %d, want 2", len(parsed.SearchFilters.DocumentIDFilter.IDs))
 	}
 }
 
@@ -528,8 +547,11 @@ func TestDocumentIDFilterStage_Process_LargeDocumentIDSet(t *testing.T) {
 		t.Fatalf("result should be *pipeline.ParsedQuery, got %T", result)
 	}
 
-	if len(parsed.SearchFilters.DocumentIDs) != 10000 {
-		t.Errorf("len(DocumentIDs) = %d, want 10000", len(parsed.SearchFilters.DocumentIDs))
+	if !parsed.SearchFilters.DocumentIDFilter.IsAllowList() {
+		t.Fatalf("DocumentIDFilter should be an allow-list, got %+v", parsed.SearchFilters.DocumentIDFilter)
+	}
+	if len(parsed.SearchFilters.DocumentIDFilter.IDs) != 10000 {
+		t.Errorf("len(DocumentIDFilter.IDs) = %d, want 10000", len(parsed.SearchFilters.DocumentIDFilter.IDs))
 	}
 }
 

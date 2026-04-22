@@ -314,9 +314,14 @@ func (m *MockVectorIndex) Search(ctx context.Context, embedding []float32, k int
 	return ids, distances, nil
 }
 
-func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
+func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentFilter *domain.DocumentIDFilter) ([]driven.VectorSearchResult, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	// Deny-all short-circuit: authoritative filter with zero allowed IDs returns nothing.
+	if documentFilter.IsDenyAll() {
+		return nil, nil
+	}
 
 	var results []driven.VectorSearchResult
 	for id := range m.embeddings {
@@ -334,11 +339,11 @@ func (m *MockVectorIndex) SearchWithContent(ctx context.Context, embedding []flo
 				continue
 			}
 		}
-		// Apply document ID filter if specified
-		if len(documentIDs) > 0 {
+		// Apply document ID allow-list filter if specified.
+		if documentFilter.IsAllowList() {
 			chunkDocumentID := m.documentIDs[id]
 			found := false
-			for _, did := range documentIDs {
+			for _, did := range documentFilter.IDs {
 				if chunkDocumentID == did {
 					found = true
 					break

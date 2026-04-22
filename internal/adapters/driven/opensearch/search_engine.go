@@ -190,10 +190,21 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 			"terms": map[string]any{"source_id": opts.SourceIDs},
 		})
 	}
-	if len(opts.DocumentIDs) > 0 {
-		filterClauses = append(filterClauses, map[string]any{
-			"terms": map[string]any{"document_id": opts.DocumentIDs},
-		})
+	// Three-case contract on opts.DocumentIDFilter:
+	//   - nil or !Apply: no filter clause.
+	//   - Apply && len(IDs) == 0: authoritative deny-all; emit a match-nothing clause.
+	//   - Apply && len(IDs) > 0: allow-list on document_id.
+	if f := opts.DocumentIDFilter; f != nil && f.Apply {
+		if len(f.IDs) == 0 {
+			// Deny-all: append a clause that matches nothing.
+			filterClauses = append(filterClauses, map[string]any{
+				"ids": map[string]any{"values": []string{}},
+			})
+		} else {
+			filterClauses = append(filterClauses, map[string]any{
+				"terms": map[string]any{"document_id": f.IDs},
+			})
+		}
 	}
 	if len(filterClauses) > 0 {
 		boolQuery["filter"] = filterClauses
@@ -287,10 +298,21 @@ func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding 
 			"terms": map[string]any{"source_id": opts.SourceIDs},
 		})
 	}
-	if len(opts.DocumentIDs) > 0 {
-		filterClauses = append(filterClauses, map[string]any{
-			"terms": map[string]any{"document_id": opts.DocumentIDs},
-		})
+	// Three-case contract on opts.DocumentIDFilter:
+	//   - nil or !Apply: no filter clause.
+	//   - Apply && len(IDs) == 0: authoritative deny-all; emit a match-nothing clause.
+	//   - Apply && len(IDs) > 0: allow-list on document_id.
+	if f := opts.DocumentIDFilter; f != nil && f.Apply {
+		if len(f.IDs) == 0 {
+			// Deny-all: append a clause that matches nothing.
+			filterClauses = append(filterClauses, map[string]any{
+				"ids": map[string]any{"values": []string{}},
+			})
+		} else {
+			filterClauses = append(filterClauses, map[string]any{
+				"terms": map[string]any{"document_id": f.IDs},
+			})
+		}
 	}
 	if len(filterClauses) > 0 {
 		boolQuery["filter"] = filterClauses

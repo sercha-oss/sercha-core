@@ -101,8 +101,8 @@ func (s *searchService) searchWithPipeline(
 	if len(opts.SourceIDs) > 0 {
 		pipelineInput.Filters.Sources = opts.SourceIDs
 	}
-	if len(opts.DocumentIDs) > 0 {
-		pipelineInput.Filters.DocumentIDs = opts.DocumentIDs
+	if opts.DocumentIDFilter != nil {
+		pipelineInput.Filters.DocumentIDFilter = opts.DocumentIDFilter
 	}
 
 	// Build pipeline context

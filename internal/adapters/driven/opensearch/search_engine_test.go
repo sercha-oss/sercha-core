@@ -1287,9 +1287,9 @@ func TestSearchEngine_SearchDocuments_WithDocumentIDFilter(t *testing.T) {
 			name:  "search with document ID filter",
 			query: "test query",
 			opts: domain.SearchOptions{
-				Limit:       10,
-				Offset:      0,
-				DocumentIDs: []string{"doc-1", "doc-2"},
+				Limit:            10,
+				Offset:           0,
+				DocumentIDFilter: domain.AllowDocumentIDs([]string{"doc-1", "doc-2"}),
 			},
 			setupServer: func(t *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1361,10 +1361,10 @@ func TestSearchEngine_SearchDocuments_WithDocumentIDFilter(t *testing.T) {
 			name:  "search with source ID and document ID filters combined",
 			query: "test query",
 			opts: domain.SearchOptions{
-				Limit:       10,
-				Offset:      0,
-				SourceIDs:   []string{"source-1"},
-				DocumentIDs: []string{"doc-1", "doc-2", "doc-3"},
+				Limit:            10,
+				Offset:           0,
+				SourceIDs:        []string{"source-1"},
+				DocumentIDFilter: domain.AllowDocumentIDs([]string{"doc-1", "doc-2", "doc-3"}),
 			},
 			setupServer: func(t *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1416,7 +1416,7 @@ func TestSearchEngine_SearchDocuments_WithDocumentIDFilter(t *testing.T) {
 			setupServer: func(t *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
-						// Verify no document_id filter is present
+						// Nil DocumentIDFilter: no document_id clause and no ids clause.
 						var reqBody map[string]any
 						_ = json.NewDecoder(r.Body).Decode(&reqBody)
 						query := reqBody["query"].(map[string]any)
@@ -1427,8 +1427,11 @@ func TestSearchEngine_SearchDocuments_WithDocumentIDFilter(t *testing.T) {
 								if clauseMap, ok := clause.(map[string]any); ok {
 									if terms, ok := clauseMap["terms"].(map[string]any); ok {
 										if _, ok := terms["document_id"]; ok {
-											t.Error("Should not have document_id filter when DocumentIDs is empty")
+											t.Error("nil DocumentIDFilter should not emit a document_id terms clause")
 										}
+									}
+									if _, ok := clauseMap["ids"]; ok {
+										t.Error("nil DocumentIDFilter should not emit an ids match-nothing clause")
 									}
 								}
 							}
@@ -1461,16 +1464,61 @@ func TestSearchEngine_SearchDocuments_WithDocumentIDFilter(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:  "search with empty document ID slice",
+			// Deny-all: Apply=true with empty IDs. The adapter must emit a
+			// match-nothing clause ("ids":{"values":[]}) so the overall bool
+			// query returns zero hits regardless of other clauses — NOT silently
+			// skip the filter (that was the fail-open hole this test codifies).
+			name:  "deny-all document ID filter emits match-nothing clause",
 			query: "test query",
 			opts: domain.SearchOptions{
-				Limit:       10,
-				Offset:      0,
-				DocumentIDs: []string{},
+				Limit:            10,
+				Offset:           0,
+				DocumentIDFilter: domain.DenyAllDocumentIDFilter(),
 			},
 			setupServer: func(t *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&reqBody)
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						filterClauses, ok := boolQuery["filter"].([]any)
+						if !ok {
+							t.Fatal("Expected filter clauses for deny-all; got none")
+						}
+
+						// Find the ids.values match-nothing clause.
+						foundMatchNothing := false
+						for _, clause := range filterClauses {
+							clauseMap, ok := clause.(map[string]any)
+							if !ok {
+								continue
+							}
+							// Deny-all must NOT emit terms.document_id — that would be fail-open.
+							if terms, ok := clauseMap["terms"].(map[string]any); ok {
+								if _, ok := terms["document_id"]; ok {
+									t.Error("deny-all must NOT emit a terms.document_id clause (fail-open regression)")
+								}
+							}
+							ids, ok := clauseMap["ids"].(map[string]any)
+							if !ok {
+								continue
+							}
+							values, ok := ids["values"].([]any)
+							if !ok {
+								t.Errorf("ids.values should be an array, got %T", ids["values"])
+								continue
+							}
+							if len(values) != 0 {
+								t.Errorf("ids.values should be empty for deny-all, got %v", values)
+							}
+							foundMatchNothing = true
+						}
+						if !foundMatchNothing {
+							t.Errorf("deny-all filter must emit ids.values match-nothing clause; filter clauses = %+v", filterClauses)
+						}
+
 						w.WriteHeader(http.StatusOK)
 						_ = json.NewEncoder(w).Encode(map[string]any{
 							"hits": map[string]any{
@@ -1536,9 +1584,9 @@ func TestSearchEngine_Search_WithDocumentIDFilter(t *testing.T) {
 			name:  "chunk search with document ID filter",
 			query: "test query",
 			opts: domain.SearchOptions{
-				Limit:       10,
-				Offset:      0,
-				DocumentIDs: []string{"doc-1"},
+				Limit:            10,
+				Offset:           0,
+				DocumentIDFilter: domain.AllowDocumentIDs([]string{"doc-1"}),
 			},
 			setupServer: func(t *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1591,13 +1639,72 @@ func TestSearchEngine_Search_WithDocumentIDFilter(t *testing.T) {
 			wantErr:   false,
 		},
 		{
+			// Mirrors the SearchDocuments deny-all test: chunk search must also
+			// emit the ids.values match-nothing clause — never silently skip.
+			name:  "chunk search with deny-all document ID filter emits match-nothing clause",
+			query: "test query",
+			opts: domain.SearchOptions{
+				Limit:            10,
+				Offset:           0,
+				DocumentIDFilter: domain.DenyAllDocumentIDFilter(),
+			},
+			setupServer: func(t *testing.T) *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+						var reqBody map[string]any
+						_ = json.NewDecoder(r.Body).Decode(&reqBody)
+						query := reqBody["query"].(map[string]any)
+						boolQuery := query["bool"].(map[string]any)
+
+						filterClauses, ok := boolQuery["filter"].([]any)
+						if !ok {
+							t.Fatal("Expected filter clauses for deny-all; got none")
+						}
+						foundMatchNothing := false
+						for _, clause := range filterClauses {
+							clauseMap, ok := clause.(map[string]any)
+							if !ok {
+								continue
+							}
+							if terms, ok := clauseMap["terms"].(map[string]any); ok {
+								if _, ok := terms["document_id"]; ok {
+									t.Error("deny-all must NOT emit a terms.document_id clause")
+								}
+							}
+							if ids, ok := clauseMap["ids"].(map[string]any); ok {
+								values, _ := ids["values"].([]any)
+								if len(values) != 0 {
+									t.Errorf("ids.values should be empty, got %v", values)
+								}
+								foundMatchNothing = true
+							}
+						}
+						if !foundMatchNothing {
+							t.Error("deny-all chunk search must emit ids.values match-nothing clause")
+						}
+
+						w.WriteHeader(http.StatusOK)
+						_ = json.NewEncoder(w).Encode(map[string]any{
+							"hits": map[string]any{
+								"total": map[string]any{"value": 0},
+								"hits":  []map[string]any{},
+							},
+						})
+						return
+					}
+				}))
+			},
+			wantCount: 0,
+			wantErr:   false,
+		},
+		{
 			name:  "chunk search with combined filters",
 			query: "test query",
 			opts: domain.SearchOptions{
-				Limit:       10,
-				Offset:      0,
-				SourceIDs:   []string{"source-1"},
-				DocumentIDs: []string{"doc-1", "doc-2"},
+				Limit:            10,
+				Offset:           0,
+				SourceIDs:        []string{"source-1"},
+				DocumentIDFilter: domain.AllowDocumentIDs([]string{"doc-1", "doc-2"}),
 			},
 			setupServer: func(t *testing.T) *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

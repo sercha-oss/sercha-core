@@ -50,12 +50,12 @@ func (s *stubSearchEngine) GetDocument(ctx context.Context, documentID string) (
 }
 
 type stubVectorIndex struct {
-	lastEmbedding  []float32
-	lastK          int
-	lastSourceIDs  []string
-	lastDocumentIDs []string
-	searchResults  []driven.VectorSearchResult
-	searchCalled   bool
+	lastEmbedding      []float32
+	lastK              int
+	lastSourceIDs      []string
+	lastDocumentFilter *domain.DocumentIDFilter
+	searchResults      []driven.VectorSearchResult
+	searchCalled       bool
 }
 
 func (s *stubVectorIndex) Index(ctx context.Context, id string, documentID string, embedding []float32) error {
@@ -67,12 +67,12 @@ func (s *stubVectorIndex) IndexBatch(ctx context.Context, ids []string, document
 func (s *stubVectorIndex) Search(ctx context.Context, embedding []float32, k int) ([]string, []float64, error) {
 	return nil, nil, nil
 }
-func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentIDs []string) ([]driven.VectorSearchResult, error) {
+func (s *stubVectorIndex) SearchWithContent(ctx context.Context, embedding []float32, k int, sourceIDs []string, documentFilter *domain.DocumentIDFilter) ([]driven.VectorSearchResult, error) {
 	s.searchCalled = true
 	s.lastEmbedding = embedding
 	s.lastK = k
 	s.lastSourceIDs = sourceIDs
-	s.lastDocumentIDs = documentIDs
+	s.lastDocumentFilter = documentFilter
 	return s.searchResults, nil
 }
 func (s *stubVectorIndex) Delete(ctx context.Context, id string) error         { return nil }
@@ -245,11 +245,16 @@ func TestVectorRetriever_PassesSourceFilters(t *testing.T) {
 		topK:        100,
 	}
 
+	// Construct a DocumentIDFilter so we can assert pointer identity downstream:
+	// the retriever MUST forward the same *DocumentIDFilter it received —
+	// flattening/copying would re-open the fail-open hole one layer down.
+	docFilter := domain.AllowDocumentIDs([]string{"d1", "d2"})
 	parsed := &pipeline.ParsedQuery{
 		Original: "test query",
 		Terms:    []string{"test", "query"},
 		SearchFilters: pipeline.SearchFilters{
-			Sources: []string{"src-A"},
+			Sources:          []string{"src-A"},
+			DocumentIDFilter: docFilter,
 		},
 	}
 
@@ -263,6 +268,17 @@ func TestVectorRetriever_PassesSourceFilters(t *testing.T) {
 	}
 	if len(vectorIdx.lastSourceIDs) != 1 || vectorIdx.lastSourceIDs[0] != "src-A" {
 		t.Errorf("lastSourceIDs = %v, want [src-A]", vectorIdx.lastSourceIDs)
+	}
+
+	// Structural invariant: pointer identity, not value equality. If a future
+	// retriever flattens to []string and reconstructs on the other side, the
+	// pointer would differ and this assertion would catch it.
+	if vectorIdx.lastDocumentFilter != docFilter {
+		t.Errorf("lastDocumentFilter pointer %p != input filter pointer %p — filter was copied/flattened between stage and adapter",
+			vectorIdx.lastDocumentFilter, docFilter)
+	}
+	if vectorIdx.lastDocumentFilter != parsed.SearchFilters.DocumentIDFilter {
+		t.Error("lastDocumentFilter should be same pointer as parsed.SearchFilters.DocumentIDFilter")
 	}
 
 	candidates := result.([]*pipeline.Candidate)

@@ -378,11 +378,11 @@ func TestSearchOptionsJSONMarshaling(t *testing.T) {
 				}
 			}
 
-			// Check no unexpected required fields (skip omitempty fields like source_ids, document_ids)
+			// Check no unexpected required fields (skip omitempty fields like source_ids, document_id_filter)
 			for key := range gotMap {
 				if _, ok := wantMap[key]; !ok {
 					// Allow omitempty fields to be present or absent
-					if key != "source_ids" && key != "document_ids" {
+					if key != "source_ids" && key != "document_id_filter" {
 						t.Errorf("unexpected key %q in marshaled JSON", key)
 					}
 				}
