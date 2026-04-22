@@ -131,6 +131,9 @@ func DefaultRegistry() *Registry {
 	r.Register(&MarkdownNormaliser{})
 	r.Register(&HTMLNormaliser{})
 	r.Register(&PDFNormaliser{})
+	r.Register(&DocxNormaliser{})
+	r.Register(&PptxNormaliser{})
+	r.Register(&XlsxNormaliser{})
 
 	// Register connector-specific normalisers (high priority)
 	r.Register(&GitHubIssueNormaliser{})

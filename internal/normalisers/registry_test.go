@@ -444,4 +444,202 @@ func TestInterfaceCompliance(t *testing.T) {
 	var _ driven.Normaliser = (*HTMLNormaliser)(nil)
 	var _ driven.Normaliser = (*GitHubIssueNormaliser)(nil)
 	var _ driven.Normaliser = (*GitHubPRNormaliser)(nil)
+	var _ driven.Normaliser = (*DocxNormaliser)(nil)
+	var _ driven.Normaliser = (*PptxNormaliser)(nil)
+	var _ driven.Normaliser = (*XlsxNormaliser)(nil)
+}
+
+// TestDocxNormaliser_InterfaceCompliance verifies DocxNormaliser implements the Normaliser interface
+func TestDocxNormaliser_InterfaceCompliance(t *testing.T) {
+	var _ driven.Normaliser = (*DocxNormaliser)(nil)
+}
+
+// TestDocxNormaliser_SupportedTypes verifies DocxNormaliser returns the correct MIME type
+func TestDocxNormaliser_SupportedTypes(t *testing.T) {
+	n := &DocxNormaliser{}
+	types := n.SupportedTypes()
+
+	if len(types) != 1 {
+		t.Errorf("expected 1 supported type, got %d", len(types))
+	}
+
+	expected := "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	if types[0] != expected {
+		t.Errorf("expected %s, got %s", expected, types[0])
+	}
+}
+
+// TestDocxNormaliser_Priority verifies DocxNormaliser has priority 50
+func TestDocxNormaliser_Priority(t *testing.T) {
+	n := &DocxNormaliser{}
+
+	if n.Priority() != 50 {
+		t.Errorf("expected priority 50, got %d", n.Priority())
+	}
+}
+
+// TestDocxNormaliser_EmptyContent verifies DocxNormaliser handles empty content
+func TestDocxNormaliser_EmptyContent(t *testing.T) {
+	n := &DocxNormaliser{}
+
+	result := n.Normalise("", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	if result != "" {
+		t.Errorf("expected empty string for empty input, got %q", result)
+	}
+}
+
+// TestDocxNormaliser_InvalidContent verifies DocxNormaliser handles invalid DOCX content
+func TestDocxNormaliser_InvalidContent(t *testing.T) {
+	n := &DocxNormaliser{}
+
+	// Invalid DOCX bytes should return empty string
+	result := n.Normalise("not a valid docx file", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	if result != "" {
+		t.Errorf("expected empty string for invalid DOCX, got %q", result)
+	}
+}
+
+// TestDocxNormaliser_RegisteredInDefaultRegistry verifies DocxNormaliser is in the default registry
+func TestDocxNormaliser_RegisteredInDefaultRegistry(t *testing.T) {
+	r := DefaultRegistry()
+
+	n := r.Get("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	if n == nil {
+		t.Error("expected DOCX normaliser to be registered in default registry")
+	}
+
+	// Verify it's the right type by checking priority
+	if n.Priority() != 50 {
+		t.Errorf("expected priority 50, got %d", n.Priority())
+	}
+}
+
+// TestPptxNormaliser_InterfaceCompliance verifies PptxNormaliser implements the Normaliser interface
+func TestPptxNormaliser_InterfaceCompliance(t *testing.T) {
+	var _ driven.Normaliser = (*PptxNormaliser)(nil)
+}
+
+// TestPptxNormaliser_SupportedTypes verifies PptxNormaliser returns the correct MIME type
+func TestPptxNormaliser_SupportedTypes(t *testing.T) {
+	n := &PptxNormaliser{}
+	types := n.SupportedTypes()
+
+	if len(types) != 1 {
+		t.Errorf("expected 1 supported type, got %d", len(types))
+	}
+
+	expected := "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	if types[0] != expected {
+		t.Errorf("expected %s, got %s", expected, types[0])
+	}
+}
+
+// TestPptxNormaliser_Priority verifies PptxNormaliser has priority 50
+func TestPptxNormaliser_Priority(t *testing.T) {
+	n := &PptxNormaliser{}
+
+	if n.Priority() != 50 {
+		t.Errorf("expected priority 50, got %d", n.Priority())
+	}
+}
+
+// TestPptxNormaliser_EmptyContent verifies PptxNormaliser handles empty content
+func TestPptxNormaliser_EmptyContent(t *testing.T) {
+	n := &PptxNormaliser{}
+
+	result := n.Normalise("", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+	if result != "" {
+		t.Errorf("expected empty string for empty input, got %q", result)
+	}
+}
+
+// TestPptxNormaliser_InvalidContent verifies PptxNormaliser handles invalid PPTX content
+func TestPptxNormaliser_InvalidContent(t *testing.T) {
+	n := &PptxNormaliser{}
+
+	// Invalid PPTX bytes should return empty string
+	result := n.Normalise("not a valid pptx file", "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+	if result != "" {
+		t.Errorf("expected empty string for invalid PPTX, got %q", result)
+	}
+}
+
+// TestPptxNormaliser_RegisteredInDefaultRegistry verifies PptxNormaliser is in the default registry
+func TestPptxNormaliser_RegisteredInDefaultRegistry(t *testing.T) {
+	r := DefaultRegistry()
+
+	n := r.Get("application/vnd.openxmlformats-officedocument.presentationml.presentation")
+	if n == nil {
+		t.Error("expected PPTX normaliser to be registered in default registry")
+	}
+
+	// Verify it's the right type by checking priority
+	if n.Priority() != 50 {
+		t.Errorf("expected priority 50, got %d", n.Priority())
+	}
+}
+
+// TestXlsxNormaliser_InterfaceCompliance verifies XlsxNormaliser implements the Normaliser interface
+func TestXlsxNormaliser_InterfaceCompliance(t *testing.T) {
+	var _ driven.Normaliser = (*XlsxNormaliser)(nil)
+}
+
+// TestXlsxNormaliser_SupportedTypes verifies XlsxNormaliser returns the correct MIME type
+func TestXlsxNormaliser_SupportedTypes(t *testing.T) {
+	n := &XlsxNormaliser{}
+	types := n.SupportedTypes()
+
+	if len(types) != 1 {
+		t.Errorf("expected 1 supported type, got %d", len(types))
+	}
+
+	expected := "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	if types[0] != expected {
+		t.Errorf("expected %s, got %s", expected, types[0])
+	}
+}
+
+// TestXlsxNormaliser_Priority verifies XlsxNormaliser has priority 50
+func TestXlsxNormaliser_Priority(t *testing.T) {
+	n := &XlsxNormaliser{}
+
+	if n.Priority() != 50 {
+		t.Errorf("expected priority 50, got %d", n.Priority())
+	}
+}
+
+// TestXlsxNormaliser_EmptyContent verifies XlsxNormaliser handles empty content
+func TestXlsxNormaliser_EmptyContent(t *testing.T) {
+	n := &XlsxNormaliser{}
+
+	result := n.Normalise("", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	if result != "" {
+		t.Errorf("expected empty string for empty input, got %q", result)
+	}
+}
+
+// TestXlsxNormaliser_InvalidContent verifies XlsxNormaliser handles invalid XLSX content
+func TestXlsxNormaliser_InvalidContent(t *testing.T) {
+	n := &XlsxNormaliser{}
+
+	// Invalid XLSX bytes should return empty string
+	result := n.Normalise("not a valid xlsx file", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	if result != "" {
+		t.Errorf("expected empty string for invalid XLSX, got %q", result)
+	}
+}
+
+// TestXlsxNormaliser_RegisteredInDefaultRegistry verifies XlsxNormaliser is in the default registry
+func TestXlsxNormaliser_RegisteredInDefaultRegistry(t *testing.T) {
+	r := DefaultRegistry()
+
+	n := r.Get("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	if n == nil {
+		t.Error("expected XLSX normaliser to be registered in default registry")
+	}
+
+	// Verify it's the right type by checking priority
+	if n.Priority() != 50 {
+		t.Errorf("expected priority 50, got %d", n.Priority())
+	}
 }
