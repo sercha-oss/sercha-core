@@ -31,7 +31,9 @@ type MCPServerConfig struct {
 func NewMCPServer(cfg MCPServerConfig) *mcpsdk.Server {
 	impl := &mcpsdk.Implementation{
 		Name:    "sercha",
+		Title:   "Sercha",
 		Version: cfg.Version,
+		Icons:   serverIcons(),
 	}
 
 	server := mcpsdk.NewServer(impl, nil)
