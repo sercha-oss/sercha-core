@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/sercha-oss/sercha-core/internal/adapters/driving/mcp/widgets"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
@@ -30,16 +31,23 @@ type MCPServerConfig struct {
 func NewMCPServer(cfg MCPServerConfig) *mcpsdk.Server {
 	impl := &mcpsdk.Implementation{
 		Name:    "sercha",
+		Title:   "Sercha",
 		Version: cfg.Version,
+		Icons:   serverIcons(),
 	}
 
 	server := mcpsdk.NewServer(impl, nil)
 
+	// Register the MCP Apps widget resources (sandboxed iframe HTML served via
+	// resources/read). Must be registered before tools so the _meta.ui on each
+	// tool points at an available URI.
+	widgets.RegisterAll(server)
+
 	// Register search tool
-	registerSearchTool(server, cfg.SearchService, cfg.RetrievalObserver)
+	registerSearchTool(server, cfg.SearchService, cfg.SourceService, cfg.RetrievalObserver)
 
 	// Register get_document tool
-	registerGetDocumentTool(server, cfg.DocumentService, cfg.RetrievalObserver)
+	registerGetDocumentTool(server, cfg.DocumentService, cfg.SourceService, cfg.RetrievalObserver)
 
 	// Register list_sources tool
 	registerListSourcesTool(server, cfg.SourceService)
@@ -101,18 +109,20 @@ type SearchOutput struct {
 
 // SearchResult represents a single search result
 type SearchResult struct {
-	DocumentID string  `json:"document_id" jsonschema_description:"Document ID"`
-	Title      string  `json:"title" jsonschema_description:"Document title"`
-	Content    string  `json:"content" jsonschema_description:"Relevant content snippet"`
-	Score      float64 `json:"score" jsonschema_description:"Relevance score as percentage (0-100)"`
-	SourceID   string  `json:"source_id" jsonschema_description:"Source ID"`
+	DocumentID   string  `json:"document_id" jsonschema_description:"Document ID"`
+	Title        string  `json:"title" jsonschema_description:"Document title"`
+	Content      string  `json:"content" jsonschema_description:"Relevant content snippet"`
+	Score        float64 `json:"score" jsonschema_description:"Relevance score as percentage (0-100)"`
+	SourceID     string  `json:"source_id" jsonschema_description:"Source ID"`
+	ProviderType string  `json:"provider_type,omitempty" jsonschema_description:"Provider type of the containing source (e.g. github, notion, onedrive)"`
 }
 
 // registerSearchTool registers the search tool with the MCP server
-func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchService, observer driven.RetrievalObserver) {
+func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchService, sourceService driving.SourceService, observer driven.RetrievalObserver) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "search",
 		Description: "Search across all indexed documents using semantic and keyword search",
+		Meta:        widgets.MetaForSearch(),
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, input SearchInput) (*mcpsdk.CallToolResult, SearchOutput, error) {
 		start := time.Now()
 
@@ -148,16 +158,28 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			return nil, SearchOutput{}, fmt.Errorf("search failed: %w", err)
 		}
 
+		// Build source_id -> provider_type map so the widget can pick the
+		// right icon without a second round-trip. Cheap: one query.
+		providerBySource := map[string]string{}
+		if sourceService != nil {
+			if sources, err := sourceService.List(ctx); err == nil {
+				for _, s := range sources {
+					providerBySource[s.ID] = string(s.ProviderType)
+				}
+			}
+		}
+
 		// Convert results to output format
 		results := make([]SearchResult, len(searchResp.Results))
 		documentIDs := make([]string, len(searchResp.Results))
 		for i, r := range searchResp.Results {
 			results[i] = SearchResult{
-				DocumentID: r.DocumentID,
-				Title:      r.Title,
-				Content:    r.Snippet, // Use Snippet field instead of Content
-				Score:      r.Score,
-				SourceID:   r.SourceID,
+				DocumentID:   r.DocumentID,
+				Title:        r.Title,
+				Content:      r.Snippet, // Use Snippet field instead of Content
+				Score:        r.Score,
+				SourceID:     r.SourceID,
+				ProviderType: providerBySource[r.SourceID],
 			}
 			documentIDs[i] = r.DocumentID
 		}
@@ -214,18 +236,21 @@ type GetDocumentInput struct {
 
 // GetDocumentOutput represents the output for the get_document tool
 type GetDocumentOutput struct {
-	DocumentID string            `json:"document_id" jsonschema_description:"Document ID"`
-	Title      string            `json:"title" jsonschema_description:"Document title"`
-	Content    string            `json:"content" jsonschema_description:"Full document content"`
-	URL        string            `json:"url" jsonschema_description:"URL to open document in source system"`
-	Metadata   map[string]string `json:"metadata" jsonschema_description:"Document metadata"`
+	DocumentID   string            `json:"document_id" jsonschema_description:"Document ID"`
+	Title        string            `json:"title" jsonschema_description:"Document title"`
+	Content      string            `json:"content" jsonschema_description:"Full document content"`
+	URL          string            `json:"url" jsonschema_description:"URL to open document in source system"`
+	SourceID     string            `json:"source_id,omitempty" jsonschema_description:"ID of the source this document belongs to"`
+	ProviderType string            `json:"provider_type,omitempty" jsonschema_description:"Provider type of the source (e.g. github, notion, onedrive)"`
+	Metadata     map[string]string `json:"metadata" jsonschema_description:"Document metadata"`
 }
 
 // registerGetDocumentTool registers the get_document tool with the MCP server
-func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.DocumentService, observer driven.RetrievalObserver) {
+func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.DocumentService, sourceService driving.SourceService, observer driven.RetrievalObserver) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "get_document",
 		Description: "Retrieve the full content and metadata of a specific document by ID",
+		Meta:        widgets.MetaForDocument(),
 	}, func(ctx context.Context, req *mcpsdk.CallToolRequest, input GetDocumentInput) (*mcpsdk.CallToolResult, GetDocumentOutput, error) {
 		start := time.Now()
 
@@ -258,12 +283,24 @@ func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.Docu
 			metadata[k] = fmt.Sprintf("%v", v)
 		}
 
+		// Best-effort provider-type enrichment so the widget can render
+		// the right icon without a second round-trip. Failures fall back
+		// to an empty string (widget shows a letter chip).
+		var providerType string
+		if sourceService != nil && doc.SourceID != "" {
+			if src, err := sourceService.Get(ctx, doc.SourceID); err == nil && src != nil {
+				providerType = string(src.ProviderType)
+			}
+		}
+
 		output := GetDocumentOutput{
-			DocumentID: doc.ID,
-			Title:      doc.Title,
-			Content:    docContent.Body,
-			URL:        doc.Path,
-			Metadata:   metadata,
+			DocumentID:   doc.ID,
+			Title:        doc.Title,
+			Content:      docContent.Body,
+			URL:          doc.Path,
+			SourceID:     doc.SourceID,
+			ProviderType: providerType,
+			Metadata:     metadata,
 		}
 
 		fireDocumentObserver(observer, driven.DocumentRetrievedEvent{
