@@ -91,7 +91,7 @@ func TestRegisterAll_RegistersBothResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client connect: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	for _, uri := range []string{SearchURI, DocumentURI} {
 		res, err := session.ReadResource(ctx, &mcpsdk.ReadResourceParams{URI: uri})
