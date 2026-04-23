@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
 
@@ -61,6 +62,8 @@ func TestFireSearchObserver_FiresExactlyOnce(t *testing.T) {
 		ResultCount: 2,
 		DurationNs:  100,
 		ClientType:  "mcp",
+		ClientID:    "client-1",
+		ClientName:  "Claude Desktop",
 	}
 	fireSearchObserver(obs, want)
 
@@ -68,7 +71,8 @@ func TestFireSearchObserver_FiresExactlyOnce(t *testing.T) {
 	case got := <-obs.searchEvents:
 		if got.UserID != want.UserID || got.Query != want.Query ||
 			got.ResultCount != want.ResultCount || got.ClientType != want.ClientType ||
-			got.DurationNs != want.DurationNs {
+			got.DurationNs != want.DurationNs ||
+			got.ClientID != want.ClientID || got.ClientName != want.ClientName {
 			t.Errorf("event mismatch: got %+v want %+v", got, want)
 		}
 		if len(got.DocumentIDs) != 2 || got.DocumentIDs[0] != "a" || got.DocumentIDs[1] != "b" {
@@ -135,6 +139,8 @@ func TestFireDocumentObserver_FiresExactlyOnce(t *testing.T) {
 		DocumentID: "doc-42",
 		DurationNs: 500,
 		ClientType: "mcp",
+		ClientID:   "client-1",
+		ClientName: "Cursor",
 	}
 	fireDocumentObserver(obs, want)
 
@@ -207,5 +213,78 @@ func TestNewMCPServer_WithObserver(t *testing.T) {
 	})
 	if srv == nil {
 		t.Fatal("NewMCPServer returned nil")
+	}
+}
+
+// --- clientIdentityFromTokenInfo -------------------------------------------
+
+func TestClientIdentityFromTokenInfo_NilReturnsEmpty(t *testing.T) {
+	id, name := clientIdentityFromTokenInfo(nil)
+	if id != "" || name != "" {
+		t.Errorf("nil tokenInfo should yield empty strings, got id=%q name=%q", id, name)
+	}
+}
+
+func TestClientIdentityFromTokenInfo_MissingKeys(t *testing.T) {
+	info := &auth.TokenInfo{Extra: map[string]any{}}
+	id, name := clientIdentityFromTokenInfo(info)
+	if id != "" || name != "" {
+		t.Errorf("missing keys should yield empty strings, got id=%q name=%q", id, name)
+	}
+}
+
+func TestClientIdentityFromTokenInfo_NilExtraIsSafe(t *testing.T) {
+	// nil map reads are defined-behaviour in Go (return zero value), but
+	// this test pins that so nobody later "fixes" the helper by adding a
+	// defensive check that would silently change semantics.
+	info := &auth.TokenInfo{Extra: nil}
+	id, name := clientIdentityFromTokenInfo(info)
+	if id != "" || name != "" {
+		t.Errorf("nil Extra should yield empty strings, got id=%q name=%q", id, name)
+	}
+}
+
+func TestClientIdentityFromTokenInfo_PopulatedStrings(t *testing.T) {
+	info := &auth.TokenInfo{Extra: map[string]any{
+		"client_id":   "oauth-client-42",
+		"client_name": "Claude Desktop",
+	}}
+	id, name := clientIdentityFromTokenInfo(info)
+	if id != "oauth-client-42" {
+		t.Errorf("client_id: got %q, want oauth-client-42", id)
+	}
+	if name != "Claude Desktop" {
+		t.Errorf("client_name: got %q, want Claude Desktop", name)
+	}
+}
+
+func TestClientIdentityFromTokenInfo_NonStringValuesDoNotPanic(t *testing.T) {
+	// Anyone writing to TokenInfo.Extra could stuff a non-string in there.
+	// The type assertion's comma-ok form must drop it cleanly.
+	info := &auth.TokenInfo{Extra: map[string]any{
+		"client_id":   12345, // int, not string
+		"client_name": []string{"a", "b"},
+	}}
+	id, name := clientIdentityFromTokenInfo(info)
+	if id != "" {
+		t.Errorf("non-string client_id: got %q, want empty", id)
+	}
+	if name != "" {
+		t.Errorf("non-string client_name: got %q, want empty", name)
+	}
+}
+
+func TestClientIdentityFromTokenInfo_PartialPopulation(t *testing.T) {
+	// client_id present, client_name absent — realistic state today since
+	// the verifier only populates client_id.
+	info := &auth.TokenInfo{Extra: map[string]any{
+		"client_id": "oauth-client-42",
+	}}
+	id, name := clientIdentityFromTokenInfo(info)
+	if id != "oauth-client-42" {
+		t.Errorf("client_id: got %q, want oauth-client-42", id)
+	}
+	if name != "" {
+		t.Errorf("client_name should be empty, got %q", name)
 	}
 }

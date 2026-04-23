@@ -27,6 +27,12 @@ type RetrievalObserver interface {
 }
 
 // SearchCompletedEvent carries the outcome of a search request.
+//
+// ClientID and ClientName identify the calling application (e.g. an OAuth
+// client such as Claude Desktop or Cursor), not the end user. They are
+// optional: adapters where application-level identity doesn't apply (such
+// as session-based HTTP auth) leave both empty. UserID still identifies
+// the human; ClientType still identifies the transport.
 type SearchCompletedEvent struct {
 	UserID      string
 	Query       string
@@ -34,12 +40,20 @@ type SearchCompletedEvent struct {
 	ResultCount int
 	DurationNs  int64
 	ClientType  string // "http" | "mcp" | etc.
+	ClientID    string // OAuth client_id for MCP; empty when not applicable.
+	ClientName  string // Human-readable client name; empty when not known.
 }
 
 // DocumentRetrievedEvent carries the outcome of a single-document fetch.
+//
+// ClientID and ClientName follow the same semantics as on
+// SearchCompletedEvent: they identify the calling application and are
+// optional — empty is valid whenever the concept doesn't apply.
 type DocumentRetrievedEvent struct {
 	UserID     string
 	DocumentID string
 	DurationNs int64
 	ClientType string
+	ClientID   string
+	ClientName string
 }

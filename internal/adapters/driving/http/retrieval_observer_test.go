@@ -140,6 +140,12 @@ func TestHandleSearch_ObserverFiresOnceWithPayload(t *testing.T) {
 	if event.ClientType != "http" {
 		t.Errorf("event.ClientType = %q, want http", event.ClientType)
 	}
+	if event.ClientID != "" {
+		t.Errorf("event.ClientID = %q, want empty (session-based HTTP)", event.ClientID)
+	}
+	if event.ClientName != "" {
+		t.Errorf("event.ClientName = %q, want empty (session-based HTTP)", event.ClientName)
+	}
 	if !reflect.DeepEqual(event.DocumentIDs, []string{"doc-a", "doc-b"}) {
 		t.Errorf("event.DocumentIDs = %v, want [doc-a doc-b]", event.DocumentIDs)
 	}
@@ -333,6 +339,12 @@ func TestHandleGetDocument_ObserverFiresOnceWithPayload(t *testing.T) {
 	}
 	if event.ClientType != "http" {
 		t.Errorf("event.ClientType = %q, want http", event.ClientType)
+	}
+	if event.ClientID != "" {
+		t.Errorf("event.ClientID = %q, want empty (session-based HTTP)", event.ClientID)
+	}
+	if event.ClientName != "" {
+		t.Errorf("event.ClientName = %q, want empty (session-based HTTP)", event.ClientName)
 	}
 	if event.DurationNs <= 0 {
 		t.Errorf("event.DurationNs should be positive, got %d", event.DurationNs)

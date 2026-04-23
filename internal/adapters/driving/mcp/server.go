@@ -184,6 +184,7 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			documentIDs[i] = r.DocumentID
 		}
 
+		clientID, clientName := clientIdentityFromTokenInfo(tokenInfo)
 		fireSearchObserver(observer, driven.SearchCompletedEvent{
 			UserID:      tokenInfo.UserID,
 			Query:       input.Query,
@@ -191,6 +192,8 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			ResultCount: searchResp.TotalCount,
 			DurationNs:  time.Since(start).Nanoseconds(),
 			ClientType:  "mcp",
+			ClientID:    clientID,
+			ClientName:  clientName,
 		})
 
 		return &mcpsdk.CallToolResult{
@@ -201,6 +204,25 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			},
 		}, SearchOutput{Results: results}, nil
 	})
+}
+
+// clientIdentityFromTokenInfo extracts the OAuth client_id / client_name
+// from tokenInfo.Extra for use in retrieval observer events. Both values
+// are optional: missing keys, a nil tokenInfo, or non-string values yield
+// empty strings rather than panicking. client_name is not populated by
+// the current token verifier, so it will be empty until TokenInfo.Extra
+// is enriched in a later change — that's intentional.
+func clientIdentityFromTokenInfo(tokenInfo *auth.TokenInfo) (clientID, clientName string) {
+	if tokenInfo == nil {
+		return "", ""
+	}
+	if v, ok := tokenInfo.Extra["client_id"].(string); ok {
+		clientID = v
+	}
+	if v, ok := tokenInfo.Extra["client_name"].(string); ok {
+		clientName = v
+	}
+	return clientID, clientName
 }
 
 // fireSearchObserver invokes observer.OnSearchCompleted on a detached
@@ -303,11 +325,14 @@ func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.Docu
 			Metadata:     metadata,
 		}
 
+		clientID, clientName := clientIdentityFromTokenInfo(tokenInfo)
 		fireDocumentObserver(observer, driven.DocumentRetrievedEvent{
 			UserID:     tokenInfo.UserID,
 			DocumentID: doc.ID,
 			DurationNs: time.Since(start).Nanoseconds(),
 			ClientType: "mcp",
+			ClientID:   clientID,
+			ClientName: clientName,
 		})
 
 		return &mcpsdk.CallToolResult{
