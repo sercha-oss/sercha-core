@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'" />
+<title>Sercha Document</title>
+<style>
+  :root {
+    --sercha-snow: #fafafa;
+    --sercha-mist: #ececec;
+    --sercha-silverline: #c7c8cc;
+    --sercha-ink-slate: #333f50;
+    --sercha-fog-grey: #7b8088;
+    --sercha-indigo: #6675ff;
+    --sercha-indigo-soft: #e2e5ff;
+  }
+  * { box-sizing: border-box; }
+  html { min-height: 100%; background: var(--sercha-snow); }
+  body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    color: var(--sercha-ink-slate);
+    background: var(--sercha-snow);
+  }
+  .wrap {
+    padding: 14px 16px 14px;
+    border: 1px solid var(--sercha-mist);
+    background: var(--sercha-snow);
+  }
+  .hdr {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    color: var(--sercha-fog-grey);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .hdr .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--sercha-ink-slate);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .hdr .brand svg { width: 18px; height: 18px; }
+
+  .doc {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    grid-column-gap: 12px;
+    align-items: center;
+  }
+  .doc .icon {
+    width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    background: #fff;
+    border: 1px solid var(--sercha-mist);
+    overflow: hidden;
+  }
+  .doc .icon img { width: 18px; height: 18px; object-fit: contain; }
+  .doc .icon .fallback {
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; color: var(--sercha-indigo);
+    background: var(--sercha-indigo-soft);
+    font-size: 11px;
+  }
+  .doc .title-wrap {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .doc .title {
+    font-weight: 600;
+    color: var(--sercha-ink-slate);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.3;
+  }
+  .doc .meta {
+    color: var(--sercha-fog-grey);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .doc .open {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--sercha-indigo);
+    background: #fff;
+    color: var(--sercha-indigo);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  }
+  .doc .open:hover:not(:disabled) { background: var(--sercha-indigo); color: #fff; }
+  .doc .open:active:not(:disabled) { transform: translateY(1px); }
+  .doc .open:disabled { cursor: progress; opacity: 0.7; }
+
+  .empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--sercha-fog-grey);
+    font-size: 12px;
+  }
+  .err {
+    padding: 10px 12px;
+    color: #a33;
+    border: 1px solid #f3c2c2;
+    background: #fff4f4;
+    border-radius: 8px;
+    font-size: 12px;
+    margin-top: 10px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html { background: #181b22; }
+    body { color: #e5e7ec; background: #181b22; }
+    .wrap {
+      background: #181b22;
+      border-color: #2f3442;
+    }
+    .hdr .brand { color: #e5e7ec; }
+    .doc .title { color: #f4f5f8; }
+    .doc .meta, .hdr { color: #aeb3be; }
+    .doc .icon { background: #20242d; border-color: #2f3442; }
+    .doc .open {
+      background: #20242d;
+      border-color: var(--sercha-indigo);
+      color: #a6b0ff;
+    }
+    .doc .open:hover:not(:disabled) { background: var(--sercha-indigo); color: #fff; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <span class="brand">
+      <svg viewBox="900 490 180 180" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g fill="#6675ff">
+          <path d="M1003.81,544.99c7.19,1.01,13.3,5.33,16.77,11.38h8.34c-4.15-10.25-13.69-17.73-25.11-18.93V544.99z"/>
+          <path d="M1070.17,587.54l-32.86,0c-3.38,6.58-8.47,12.13-14.69,16.07c-0.04,0.02-0.07,0.04-0.11,0.06l6.29,11.87 l5.51-2.92l7.6,14.35c0.99-0.65,2-1.32,3.02-2.04C1056.94,615.59,1065.92,602.56,1070.17,587.54z"/>
+          <path d="M1018.54,620.97l-6.68-12.61c-0.51,0.14-1.01,0.31-1.53,0.44c-2.63,0.64-5.35,1.02-8.14,1.13 c-0.53,0.02-1.07,0.06-1.61,0.06c-22.78,0-41.25-18.47-41.25-41.25s18.47-41.25,41.25-41.25c16.74,0,31.14,9.98,37.61,24.3h32.91 c-7.3-32.22-36.09-56.28-70.51-56.28c-39.94,0-72.32,32.38-72.32,72.32c0,39.94,32.38,72.32,72.32,72.32 c3.92,0,7.77-0.32,11.52-0.92c0,0,3-0.23,8.09-1.78l-7.17-13.54L1018.54,620.97z"/>
+        </g>
+      </svg>
+      Sercha
+    </span>
+    <span id="source-label" style="margin-left:auto"></span>
+  </div>
+  <div id="doc" class="doc">
+    <div class="empty" style="grid-column: 1 / -1">Waiting for document…</div>
+  </div>
+  <div id="err" class="err" style="display:none"></div>
+</div>
+<script>
+(() => {
+  'use strict';
+
+  // Provider icon data URIs + display names, injected server-side.
+  // Keys are exact domain.ProviderType string values.
+  const ICONS = {
+    __ICONS__
+  };
+  const PROVIDER_LABELS = {
+    __PROVIDER_LABELS__
+  };
+
+  function iconFor(providerType) {
+    return (providerType && ICONS[providerType]) || null;
+  }
+
+  function fallbackLetter(providerType) {
+    const s = providerType || '';
+    const c = s.charAt(0).toUpperCase();
+    return /[A-Z0-9]/.test(c) ? c : '?';
+  }
+
+  function providerLabel(p) {
+    return (p && PROVIDER_LABELS[p]) || p || '';
+  }
+
+  const PROTOCOL_VERSION = '2026-01-26';
+  let nextId = 1;
+  const pending = new Map();
+  let initialized = false;
+  let pendingToolResult = null;
+
+  function send(msg) {
+    try { window.parent.postMessage(msg, '*'); }
+    catch (e) { console.error('sercha-doc-widget: postMessage failed', e); }
+  }
+  function rpc(method, params) {
+    const id = nextId++;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      send({ jsonrpc: '2.0', id, method, params: params || {} });
+    });
+  }
+  function notify(method, params) {
+    send({ jsonrpc: '2.0', method, params: params || {} });
+  }
+
+  window.addEventListener('message', (ev) => {
+    const data = ev.data;
+    if (!data || typeof data !== 'object' || data.jsonrpc !== '2.0') return;
+    if (data.id != null && pending.has(data.id)) {
+      const { resolve, reject } = pending.get(data.id);
+      pending.delete(data.id);
+      if (data.error) reject(new Error(data.error.message || 'rpc error'));
+      else resolve(data.result);
+      return;
+    }
+    if (!data.method) return;
+    if (data.method === 'ui/notifications/tool-result') onToolResult(data.params || {});
+  });
+
+  async function handshake() {
+    const appInfo = { name: 'sercha-document-widget', version: '0.1.0' };
+    const caps = { openLinks: {} };
+    try {
+      await rpc('ui/initialize', {
+        protocolVersion: PROTOCOL_VERSION,
+        appInfo: appInfo,
+        clientInfo: appInfo,
+        capabilities: caps,
+        appCapabilities: caps,
+      });
+    } catch (e) {
+      renderError('Widget failed to initialize: ' + (e && e.message ? e.message : 'unknown'));
+      return;
+    }
+    notify('ui/notifications/initialized', {});
+    initialized = true;
+    startSizeObserver();
+    if (pendingToolResult) {
+      const p = pendingToolResult;
+      pendingToolResult = null;
+      onToolResult(p);
+    }
+  }
+
+  let lastH = 0, sizePending = false;
+  function measureHeight() {
+    // Measure the wrapper element, not documentElement — scrollHeight on the
+    // root includes any UA default margins and extra space the iframe pads
+    // under our content, which makes the widget look taller than it is.
+    const wrap = document.querySelector('.wrap');
+    if (!wrap) return Math.ceil(document.documentElement.scrollHeight);
+    const rect = wrap.getBoundingClientRect();
+    return Math.ceil(rect.height);
+  }
+  function notifySize() {
+    const h = measureHeight();
+    if (h === lastH) return;
+    lastH = h;
+    notify('ui/notifications/size-changed', { height: h });
+  }
+  function scheduleSize() {
+    if (sizePending) return;
+    sizePending = true;
+    requestAnimationFrame(() => { sizePending = false; notifySize(); });
+  }
+  function startSizeObserver() {
+    scheduleSize();
+    try {
+      const ro = new ResizeObserver(scheduleSize);
+      const wrap = document.querySelector('.wrap');
+      if (wrap) ro.observe(wrap);
+      ro.observe(document.body);
+    } catch (_) {
+      new MutationObserver(scheduleSize).observe(document.body, {
+        subtree: true, childList: true, characterData: true, attributes: true,
+      });
+    }
+  }
+
+  function onToolResult(params) {
+    if (!initialized) { pendingToolResult = params; return; }
+    const s = params && params.structuredContent;
+    if (!s || !s.document_id) {
+      render(null);
+      return;
+    }
+    render(s);
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function renderError(msg) {
+    const errEl = document.getElementById('err');
+    errEl.textContent = msg;
+    errEl.style.display = 'block';
+  }
+
+  function render(doc) {
+    const holder = document.getElementById('doc');
+    const sourceLabel = document.getElementById('source-label');
+    holder.innerHTML = '';
+    sourceLabel.textContent = '';
+
+    if (!doc) {
+      holder.innerHTML = '<div class="empty" style="grid-column: 1 / -1">Document not available.</div>';
+      return;
+    }
+
+    const icon = iconFor(doc.provider_type);
+    const label = providerLabel(doc.provider_type);
+    if (label) sourceLabel.textContent = label;
+
+    const iconHtml = icon
+      ? '<img src="' + icon + '" alt="" />'
+      : '<span class="fallback">' + escapeHtml(fallbackLetter(doc.provider_type)) + '</span>';
+
+    const metaBits = [];
+    if (label) metaBits.push(label);
+
+    holder.innerHTML =
+      '<div class="icon">' + iconHtml + '</div>' +
+      '<div class="title-wrap">' +
+        '<div class="title">' + escapeHtml(doc.title || doc.document_id) + '</div>' +
+        (metaBits.length ? '<div class="meta">' + escapeHtml(metaBits.join(' · ')) + '</div>' : '') +
+      '</div>' +
+      (doc.url
+        ? '<button type="button" class="open" id="open-btn">Open in source</button>'
+        : '<span class="meta" style="padding-right:4px">No source URL</span>');
+
+    if (doc.url) {
+      document.getElementById('open-btn').addEventListener('click', (ev) => {
+        openLink(ev.currentTarget, doc.url);
+      });
+    }
+  }
+
+  async function openLink(btn, url) {
+    if (!url) return;
+    btn.disabled = true;
+    const errEl = document.getElementById('err');
+    errEl.style.display = 'none';
+    try {
+      await rpc('ui/open-link', { url });
+    } catch (e) {
+      renderError('Could not open link: ' + (e && e.message ? e.message : 'host refused'));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  render(null);
+  handshake();
+})();
+</script>
+</body>
+</html>
