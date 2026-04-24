@@ -2,9 +2,18 @@ package driven
 
 import (
 	"context"
+	"errors"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 )
+
+// ErrInventoryNotSupported is returned from Inventory by connectors whose
+// upstream API natively signals deletions (so the orchestrator's
+// snapshot-diff reconciliation is not needed and would be wasteful). OneDrive
+// is the canonical example — its delta API emits @removed tombstones, so it
+// declares no ReconciliationScopes and this sentinel guards against future
+// callers invoking Inventory directly.
+var ErrInventoryNotSupported = errors.New("inventory not supported by this connector")
 
 // Connector fetches documents from a source provider.
 // Connectors are created by ConnectorBuilder with resolved credentials.
@@ -26,6 +35,36 @@ type Connector interface {
 
 	// TestConnection tests the connection to the source.
 	TestConnection(ctx context.Context, source *domain.Source) error
+
+	// ReconciliationScopes reports external-ID prefixes for which this
+	// connector can produce a complete current-state Inventory. The
+	// orchestrator uses the declared scopes to detect deletions: anything
+	// stored under a scope's prefix that is absent from the latest Inventory
+	// is treated as deleted upstream.
+	//
+	// Declare a scope only when the upstream API does NOT natively signal
+	// deletes (GitHub issues/PRs, Notion pages and database entries).
+	// Connectors whose delta API emits tombstones (OneDrive) should return
+	// nil — reconciliation would be redundant and wasteful.
+	ReconciliationScopes() []string
+
+	// Inventory returns the complete set of canonical IDs currently present
+	// upstream within the given scope prefix. The prefix is one of the
+	// values from ReconciliationScopes.
+	//
+	// Contract:
+	//   - The returned slice MUST be complete — every canonical ID the
+	//     upstream source of truth holds under this prefix, right now.
+	//   - On any partial-result condition (paginated fetch failure, rate
+	//     limit exhausted mid-walk, etc.) Inventory MUST return an error
+	//     rather than a partial slice. A partial inventory causes false
+	//     positives in the orchestrator's delete diff and permanently
+	//     erases real documents.
+	//   - Archived / trashed items are treated as "no longer present" and
+	//     MUST be omitted from the inventory (not included).
+	//   - Connectors that do not support inventory (empty scopes) return
+	//     ErrInventoryNotSupported.
+	Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error)
 }
 
 // ConnectorBuilder creates connector instances for a specific provider type.

@@ -1412,3 +1412,174 @@ func searchString(s, substr string) bool {
 	}
 	return false
 }
+
+// --- Phase-1 reconciliation (ReconciliationScopes + Inventory) ------------
+
+// TestReconcile_NoScopes verifies the happy path for connectors that
+// opt out of snapshot reconciliation: nothing in phase 1 runs, and phase 2
+// proceeds normally. This is the OneDrive shape (native @removed tombstones).
+func TestReconcile_NoScopes(t *testing.T) {
+	orch, sourceStore, documentStore, _, _, cf := createTestSyncOrchestrator(t)
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src", ProviderType: domain.ProviderTypeGitHub, Enabled: true}
+	_ = sourceStore.Save(ctx, source)
+
+	// Pre-existing doc that the connector no longer knows about. If phase-1
+	// ran without scopes declared, this would (incorrectly) get deleted.
+	_ = documentStore.Save(ctx, &domain.Document{
+		ID: "d1", SourceID: "src", ExternalID: "file-orphan.md",
+	})
+
+	cf.connector.ReconciliationScopesFn = func() []string { return nil }
+	cf.connector.InventoryFn = func(ctx context.Context, _ *domain.Source, _ string) ([]string, error) {
+		t.Fatal("Inventory must not be called when ReconciliationScopes is empty")
+		return nil, nil
+	}
+	cf.connector.FetchChangesFn = func(context.Context, *domain.Source, string) ([]*domain.Change, string, error) {
+		return nil, "", nil
+	}
+
+	result, err := orch.SyncSource(ctx, "src")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if result.Stats.DocumentsDeleted != 0 {
+		t.Errorf("no scopes declared, but %d delete(s) fired", result.Stats.DocumentsDeleted)
+	}
+	// Doc must still be present.
+	if _, err := documentStore.GetByExternalID(ctx, "src", "file-orphan.md"); err != nil {
+		t.Errorf("pre-existing doc was deleted despite no scopes: %v", err)
+	}
+}
+
+// TestReconcile_DeletesOrphans is the core positive test: the connector's
+// inventory omits a stored external ID, and the orchestrator emits a delete
+// through the normal processChange path.
+func TestReconcile_DeletesOrphans(t *testing.T) {
+	orch, sourceStore, documentStore, _, _, cf := createTestSyncOrchestrator(t)
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src", ProviderType: domain.ProviderTypeGitHub, Enabled: true}
+	_ = sourceStore.Save(ctx, source)
+
+	// Two stored docs under the scope; only one is still present upstream.
+	_ = documentStore.Save(ctx, &domain.Document{ID: "d-keep", SourceID: "src", ExternalID: "file-keep.md"})
+	_ = documentStore.Save(ctx, &domain.Document{ID: "d-gone", SourceID: "src", ExternalID: "file-gone.md"})
+	// A doc under a different prefix — must not be touched.
+	_ = documentStore.Save(ctx, &domain.Document{ID: "d-issue", SourceID: "src", ExternalID: "issue-1"})
+
+	cf.connector.ReconciliationScopesFn = func() []string { return []string{"file-"} }
+	cf.connector.InventoryFn = func(_ context.Context, _ *domain.Source, scope string) ([]string, error) {
+		if scope != "file-" {
+			t.Errorf("unexpected scope %q", scope)
+		}
+		return []string{"file-keep.md"}, nil
+	}
+	cf.connector.FetchChangesFn = func(context.Context, *domain.Source, string) ([]*domain.Change, string, error) {
+		return nil, "", nil
+	}
+
+	result, err := orch.SyncSource(ctx, "src")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if result.Stats.DocumentsDeleted != 1 {
+		t.Errorf("want 1 delete, got %d", result.Stats.DocumentsDeleted)
+	}
+	if _, err := documentStore.GetByExternalID(ctx, "src", "file-gone.md"); err == nil {
+		t.Error("file-gone.md should have been deleted")
+	}
+	if _, err := documentStore.GetByExternalID(ctx, "src", "file-keep.md"); err != nil {
+		t.Errorf("file-keep.md should be untouched: %v", err)
+	}
+	if _, err := documentStore.GetByExternalID(ctx, "src", "issue-1"); err != nil {
+		t.Errorf("issue-1 (different prefix) should be untouched: %v", err)
+	}
+}
+
+// TestReconcile_InventoryErrorIsTolerated asserts the best-effort contract:
+// an Inventory failure logs and moves on. Phase 2 still runs; no
+// unrelated docs get deleted.
+func TestReconcile_InventoryErrorIsTolerated(t *testing.T) {
+	orch, sourceStore, documentStore, _, _, cf := createTestSyncOrchestrator(t)
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src", ProviderType: domain.ProviderTypeGitHub, Enabled: true}
+	_ = sourceStore.Save(ctx, source)
+	_ = documentStore.Save(ctx, &domain.Document{ID: "d1", SourceID: "src", ExternalID: "file-a.md"})
+
+	cf.connector.ReconciliationScopesFn = func() []string { return []string{"file-"} }
+	cf.connector.InventoryFn = func(context.Context, *domain.Source, string) ([]string, error) {
+		return nil, errors.New("rate limited")
+	}
+	cf.connector.FetchChangesFn = func(context.Context, *domain.Source, string) ([]*domain.Change, string, error) {
+		return nil, "", nil
+	}
+
+	result, err := orch.SyncSource(ctx, "src")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if result.Stats.DocumentsDeleted != 0 {
+		t.Errorf("Inventory error must not drive deletions, got %d", result.Stats.DocumentsDeleted)
+	}
+	if _, err := documentStore.GetByExternalID(ctx, "src", "file-a.md"); err != nil {
+		t.Errorf("doc was deleted despite Inventory error: %v", err)
+	}
+}
+
+// TestReconcile_EmptyInventoryStillDeletes — when the upstream legitimately
+// holds nothing under a scope, the connector returns an empty inventory and
+// every stored ID under that scope is an orphan. The orchestrator logs loudly
+// (see reconcileDeletions) but must still perform the deletes; refusing
+// would re-introduce the finding #100 bug it was built to fix.
+func TestReconcile_EmptyInventoryStillDeletes(t *testing.T) {
+	orch, sourceStore, documentStore, _, _, cf := createTestSyncOrchestrator(t)
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src", ProviderType: domain.ProviderTypeGitHub, Enabled: true}
+	_ = sourceStore.Save(ctx, source)
+	_ = documentStore.Save(ctx, &domain.Document{ID: "d1", SourceID: "src", ExternalID: "page-a"})
+	_ = documentStore.Save(ctx, &domain.Document{ID: "d2", SourceID: "src", ExternalID: "page-b"})
+
+	cf.connector.ReconciliationScopesFn = func() []string { return []string{"page-"} }
+	cf.connector.InventoryFn = func(context.Context, *domain.Source, string) ([]string, error) {
+		return []string{}, nil
+	}
+	cf.connector.FetchChangesFn = func(context.Context, *domain.Source, string) ([]*domain.Change, string, error) {
+		return nil, "", nil
+	}
+
+	result, err := orch.SyncSource(ctx, "src")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if result.Stats.DocumentsDeleted != 2 {
+		t.Errorf("want 2 deletes, got %d", result.Stats.DocumentsDeleted)
+	}
+}
+
+// TestReconcile_SkipsScopeWithNoStoredIDs — if nothing is indexed under a
+// scope, Inventory must not be called at all. This avoids paying the API
+// cost of enumeration when there's nothing to reconcile against.
+func TestReconcile_SkipsScopeWithNoStoredIDs(t *testing.T) {
+	orch, sourceStore, _, _, _, cf := createTestSyncOrchestrator(t)
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src", ProviderType: domain.ProviderTypeGitHub, Enabled: true}
+	_ = sourceStore.Save(ctx, source)
+
+	cf.connector.ReconciliationScopesFn = func() []string { return []string{"file-", "issue-"} }
+	cf.connector.InventoryFn = func(context.Context, *domain.Source, string) ([]string, error) {
+		t.Fatal("Inventory must not be called when no stored IDs match the scope")
+		return nil, nil
+	}
+	cf.connector.FetchChangesFn = func(context.Context, *domain.Source, string) ([]*domain.Change, string, error) {
+		return nil, "", nil
+	}
+
+	if _, err := orch.SyncSource(ctx, "src"); err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+}

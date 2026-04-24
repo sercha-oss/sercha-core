@@ -243,3 +243,19 @@ func computeContentHash(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
 }
+
+// ReconciliationScopes declares which canonical-ID prefixes this connector
+// snapshot-enumerates for delete detection. OneDrive's delta API natively
+// emits @removed tombstones for deleted items (see FetchChanges at lines
+// 90-96), so snapshot reconciliation is redundant and would be wasteful.
+func (c *Connector) ReconciliationScopes() []string {
+	return nil
+}
+
+// Inventory is structurally unreachable because ReconciliationScopes is
+// empty — the orchestrator's phase-1 loop iterates over zero scopes. The
+// explicit error defends against future callers that might invoke it
+// directly and makes the design intent loud.
+func (c *Connector) Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error) {
+	return nil, driven.ErrInventoryNotSupported
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
@@ -419,6 +420,19 @@ func (o *SyncOrchestrator) syncContainer(
 	// Note: Full sync clearing is now handled once in Sync() before the container loop,
 	// not per-container here. This prevents wiping previously-indexed container data.
 
+	// Phase 1: reconcile deletes for snapshot-served scopes.
+	//
+	// For each scope the connector declares, compare the connector's current
+	// Inventory against everything we have indexed under that prefix. Orphans
+	// (indexed but not present upstream) get emitted as ChangeTypeDeleted and
+	// flow through the same processChange path as any other delete. The cursor
+	// is NOT advanced here — phase 1 is cleanup, and any failure must not
+	// block phase 2 or corrupt the delta watermark.
+	//
+	// Connectors with native delete signals (e.g. OneDrive) return no scopes;
+	// the loop does nothing for them.
+	o.reconcileDeletions(ctx, source, connector, stats, processedExternalIDs)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -598,6 +612,87 @@ func (o *SyncOrchestrator) processDelete(
 
 	stats.DocumentsDeleted++
 	return nil
+}
+
+// reconcileDeletions compares the connector's current Inventory against the
+// document store for each declared ReconciliationScope. External IDs present
+// in the store but absent from the inventory are treated as deletions
+// upstream and routed through processDelete.
+//
+// Failures are logged and tolerated — a phase-1 failure must not block
+// phase-2 add/update work, and the next tick will reconcile whatever got
+// missed. The cursor is not touched.
+func (o *SyncOrchestrator) reconcileDeletions(
+	ctx context.Context,
+	source *domain.Source,
+	connector driven.Connector,
+	stats *domain.SyncStats,
+	processedExternalIDs map[string]bool,
+) {
+	scopes := connector.ReconciliationScopes()
+	if len(scopes) == 0 {
+		return
+	}
+
+	storedIDs, err := o.documentStore.ListExternalIDs(ctx, source.ID)
+	if err != nil {
+		o.logger.Warn("reconcile: failed to list stored external IDs; skipping",
+			"source_id", source.ID, "error", err)
+		return
+	}
+
+	for _, scope := range scopes {
+		var storedInScope []string
+		for _, id := range storedIDs {
+			if strings.HasPrefix(id, scope) {
+				storedInScope = append(storedInScope, id)
+			}
+		}
+		if len(storedInScope) == 0 {
+			continue
+		}
+
+		inventory, err := connector.Inventory(ctx, source, scope)
+		if err != nil {
+			o.logger.Warn("reconcile: inventory failed; skipping scope",
+				"source_id", source.ID, "scope", scope, "error", err)
+			continue
+		}
+
+		inventorySet := make(map[string]struct{}, len(inventory))
+		for _, id := range inventory {
+			inventorySet[id] = struct{}{}
+		}
+
+		// Emit deletes for any stored ID not present in the current inventory.
+		// A wholesale wipe (zero inventory vs non-zero stored) is possible but
+		// suspicious — log it loudly so operators can spot a misconfigured
+		// connector or permission loss before it chews through the index.
+		if len(inventory) == 0 {
+			o.logger.Warn("reconcile: inventory is empty but store is not — verify connector access",
+				"source_id", source.ID, "scope", scope, "stored_count", len(storedInScope))
+		}
+
+		for _, extID := range storedInScope {
+			if _, present := inventorySet[extID]; present {
+				continue
+			}
+			if processedExternalIDs[extID] {
+				continue
+			}
+			processedExternalIDs[extID] = true
+
+			change := &domain.Change{
+				Type:       domain.ChangeTypeDeleted,
+				ExternalID: extID,
+			}
+			if err := o.processChange(ctx, source, change, stats); err != nil {
+				o.logger.Warn("reconcile: processDelete failed",
+					"source_id", source.ID, "scope", scope, "external_id", extID, "error", err)
+				stats.Errors++
+			}
+		}
+	}
 }
 
 // cleanupOldChunksBatch removes old search index entries and embeddings for multiple

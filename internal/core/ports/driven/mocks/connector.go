@@ -4,15 +4,18 @@ import (
 	"context"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
+	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
 
 // MockConnector is a mock implementation of Connector for testing
 type MockConnector struct {
-	TypeFn           func() domain.ProviderType
-	ValidateConfigFn func(config domain.SourceConfig) error
-	TestConnectionFn func(ctx context.Context, source *domain.Source) error
-	FetchChangesFn   func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error)
-	FetchDocumentFn  func(ctx context.Context, source *domain.Source, externalID string) (*domain.Document, string, error)
+	TypeFn                 func() domain.ProviderType
+	ValidateConfigFn       func(config domain.SourceConfig) error
+	TestConnectionFn       func(ctx context.Context, source *domain.Source) error
+	FetchChangesFn         func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error)
+	FetchDocumentFn        func(ctx context.Context, source *domain.Source, externalID string) (*domain.Document, string, error)
+	ReconciliationScopesFn func() []string
+	InventoryFn            func(ctx context.Context, source *domain.Source, scope string) ([]string, error)
 }
 
 func NewMockConnector() *MockConnector {
@@ -52,6 +55,20 @@ func (m *MockConnector) FetchDocument(ctx context.Context, source *domain.Source
 		return m.FetchDocumentFn(ctx, source, externalID)
 	}
 	return nil, "", nil
+}
+
+func (m *MockConnector) ReconciliationScopes() []string {
+	if m.ReconciliationScopesFn != nil {
+		return m.ReconciliationScopesFn()
+	}
+	return nil
+}
+
+func (m *MockConnector) Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error) {
+	if m.InventoryFn != nil {
+		return m.InventoryFn(ctx, source, scope)
+	}
+	return nil, driven.ErrInventoryNotSupported
 }
 
 // MockConnectorFactory is a mock implementation of ConnectorFactory for testing

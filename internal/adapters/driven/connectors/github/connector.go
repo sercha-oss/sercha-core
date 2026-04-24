@@ -98,8 +98,10 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 		}
 	}
 
-	// Fetch files if enabled (only on initial sync or if explicitly requested)
-	if c.config.IncludeFiles && since == nil {
+	// Fetch files every tick. The connector keys files by path, so re-fetching
+	// an unchanged file produces a change with a stable ExternalID that the
+	// orchestrator can dedup against the existing document.
+	if c.config.IncludeFiles {
 		fileChanges, err := c.fetchFileChanges(ctx)
 		if err != nil {
 			return nil, "", fmt.Errorf("fetch files: %w", err)
@@ -503,4 +505,18 @@ func (c *Connector) formatPRContent(pr *PullRequest) string {
 func computeContentHash(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
+}
+
+// ReconciliationScopes declares which canonical-ID prefixes this connector
+// snapshot-enumerates for delete detection. Implementation of the actual
+// Inventory walks lands in a follow-up commit; returning nil here keeps the
+// orchestrator's phase-1 loop a no-op for GitHub until then.
+func (c *Connector) ReconciliationScopes() []string {
+	return nil
+}
+
+// Inventory is a stub until the per-scope walks are implemented. See
+// ReconciliationScopes for why this currently returns the sentinel error.
+func (c *Connector) Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error) {
+	return nil, driven.ErrInventoryNotSupported
 }
