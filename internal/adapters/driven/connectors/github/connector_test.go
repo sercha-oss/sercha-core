@@ -231,6 +231,119 @@ func TestConnector_FetchDocument_ContentHashDeterministic(t *testing.T) {
 	}
 }
 
+func TestIssue_IsPR(t *testing.T) {
+	t.Run("nil receiver", func(t *testing.T) {
+		var i *Issue
+		if i.IsPR() {
+			t.Error("nil Issue should not report as PR")
+		}
+	})
+	t.Run("absent pull_request key", func(t *testing.T) {
+		var i Issue
+		if err := json.Unmarshal([]byte(`{"number":1,"title":"bug"}`), &i); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if i.IsPR() {
+			t.Error("issue without pull_request key should not report as PR")
+		}
+	})
+	t.Run("present pull_request key", func(t *testing.T) {
+		var i Issue
+		if err := json.Unmarshal([]byte(`{"number":2,"title":"PR","pull_request":{"url":"..."}}`), &i); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if !i.IsPR() {
+			t.Error("issue with pull_request key should report as PR")
+		}
+	})
+}
+
+// TestConnector_FetchChanges_SkipsPRsInIssuesLoop asserts that the issues
+// list response — which GitHub returns with PRs mixed in — does not produce
+// a second indexed copy of each PR. Without the IsPR filter, a PR appears
+// twice: once as `issue-N`, once as `pr-N`.
+func TestConnector_FetchChanges_SkipsPRsInIssuesLoop(t *testing.T) {
+	issuesCalled := 0
+	prsCalled := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/issues"):
+			issuesCalled++
+			w.WriteHeader(http.StatusOK)
+			pr := json.RawMessage(`{"url":"https://api.github.com/repos/owner/repo/pulls/7"}`)
+			_ = json.NewEncoder(w).Encode([]*Issue{
+				{
+					ID:        1,
+					Number:    5,
+					Title:     "real issue",
+					State:     "open",
+					UpdatedAt: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+				},
+				{
+					ID:          2,
+					Number:      7,
+					Title:       "really a PR",
+					State:       "open",
+					UpdatedAt:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+					PullRequest: &pr,
+				},
+			})
+		case strings.Contains(r.URL.Path, "/pulls"):
+			prsCalled++
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]*PullRequest{
+				{
+					ID:        2,
+					Number:    7,
+					Title:     "really a PR",
+					State:     "open",
+					Head:      &PRBranch{Ref: "feature"},
+					Base:      &PRBranch{Ref: "main"},
+					UpdatedAt: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = true
+	cfg.IncludePRs = true
+	cfg.IncludeFiles = false
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	changes, _, err := c.FetchChanges(context.Background(), nil, "2026-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+
+	if issuesCalled == 0 || prsCalled == 0 {
+		t.Fatalf("expected both /issues and /pulls to be called; issues=%d pulls=%d", issuesCalled, prsCalled)
+	}
+
+	var issueIDs, prIDs int
+	for _, ch := range changes {
+		switch {
+		case strings.HasPrefix(ch.ExternalID, "issue-"):
+			issueIDs++
+			if ch.ExternalID == "issue-7" {
+				t.Errorf("PR #7 was indexed as an issue — should be filtered by IsPR()")
+			}
+		case strings.HasPrefix(ch.ExternalID, "pr-"):
+			prIDs++
+		}
+	}
+	if issueIDs != 1 {
+		t.Errorf("want 1 issue change (the real issue #5), got %d", issueIDs)
+	}
+	if prIDs != 1 {
+		t.Errorf("want 1 PR change (#7 from /pulls), got %d", prIDs)
+	}
+}
+
 func TestComputeContentHash(t *testing.T) {
 	// Hash should be deterministic
 	hash1 := computeContentHash("hello world")

@@ -56,20 +56,33 @@ type RepositoryOwner struct {
 }
 
 // Issue represents a GitHub issue.
+//
+// The GitHub REST "list issues" endpoint returns pull requests mixed into
+// the same collection as issues; PRs are distinguished only by the presence
+// of a pull_request object on the payload. PullRequest is captured purely
+// so callers can filter PRs out via the IsPR accessor — we do not need its
+// contents.
 type Issue struct {
-	ID        int64      `json:"id"`
-	Number    int        `json:"number"`
-	Title     string     `json:"title"`
-	Body      string     `json:"body"`
-	State     string     `json:"state"`
-	HTMLURL   string     `json:"html_url"`
-	User      *User      `json:"user"`
-	Labels    []Label    `json:"labels"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	ClosedAt  *time.Time `json:"closed_at"`
-	Comments  int        `json:"comments"`
-	IsPR      bool       `json:"-"` // Set based on pull_request field presence
+	ID          int64            `json:"id"`
+	Number      int              `json:"number"`
+	Title       string           `json:"title"`
+	Body        string           `json:"body"`
+	State       string           `json:"state"`
+	HTMLURL     string           `json:"html_url"`
+	User        *User            `json:"user"`
+	Labels      []Label          `json:"labels"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	ClosedAt    *time.Time       `json:"closed_at"`
+	Comments    int              `json:"comments"`
+	PullRequest *json.RawMessage `json:"pull_request,omitempty"`
+}
+
+// IsPR reports whether this "issue" is actually a pull request. GitHub's
+// /issues endpoint returns both; without this check PRs get indexed twice
+// (once here, once via ListPullRequests).
+func (i *Issue) IsPR() bool {
+	return i != nil && i.PullRequest != nil
 }
 
 // PullRequest represents a GitHub pull request.

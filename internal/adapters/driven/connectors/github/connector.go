@@ -130,9 +130,12 @@ func (c *Connector) fetchIssueChanges(ctx context.Context, since *time.Time) ([]
 		}
 
 		for _, issue := range issues {
-			// Skip pull requests (they come from ListPullRequests)
-			// GitHub issues API returns PRs too, identified by presence of pull_request field
-			// We check by number in the ListIssues response structure
+			// GitHub's list-issues endpoint returns pull requests mixed in.
+			// Indexing them here would produce a second copy alongside the
+			// one fetchPRChanges emits.
+			if issue.IsPR() {
+				continue
+			}
 
 			change := &domain.Change{
 				Type:       domain.ChangeTypeModified,
