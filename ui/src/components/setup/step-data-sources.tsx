@@ -639,7 +639,13 @@ export function StepDataSources({
               {searchQuery ? "No matching items found" : "No folders found"}
             </div>
           ) : (
-            filteredContainers.map((container) => (
+            filteredContainers.map((container) => {
+              const meta = container.metadata as
+                | { private?: boolean; fork?: boolean; parent_full_name?: string }
+                | undefined;
+              const primaryLabel =
+                container.type === "repository" ? container.id : container.name;
+              return (
               <div
                 key={container.id}
                 className="flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-sercha-mist"
@@ -655,16 +661,24 @@ export function StepDataSources({
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-sercha-ink-slate">
-                    {container.name}
+                    {primaryLabel}
                   </p>
-                  {container.description && (
+                  {meta?.fork && meta.parent_full_name ? (
+                    <p className="truncate text-xs text-sercha-fog-grey">
+                      Fork of {meta.parent_full_name}
+                    </p>
+                  ) : container.description ? (
                     <p className="truncate text-xs text-sercha-fog-grey">
                       {container.description}
                     </p>
-                  )}
+                  ) : null}
                 </div>
-                {(container.metadata as { private?: boolean } | undefined)
-                  ?.private && (
+                {meta?.fork === true && (
+                  <span className="rounded-full bg-sercha-mist px-2 py-0.5 text-xs text-sercha-fog-grey shrink-0">
+                    Fork
+                  </span>
+                )}
+                {meta?.private === true && (
                   <span className="rounded-full bg-sercha-mist px-2 py-0.5 text-xs text-sercha-fog-grey shrink-0">
                     Private
                   </span>
@@ -680,7 +694,8 @@ export function StepDataSources({
                   </button>
                 )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
 

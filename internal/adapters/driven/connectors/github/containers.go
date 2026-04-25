@@ -33,18 +33,23 @@ func (l *ContainerLister) ListContainers(ctx context.Context, cursor string, _ s
 
 	containers := make([]*driven.Container, len(resp.Repos))
 	for i, repo := range resp.Repos {
+		metadata := map[string]any{
+			"owner":          repo.Owner,
+			"private":        repo.Private,
+			"archived":       repo.Archived,
+			"fork":           repo.Fork,
+			"default_branch": repo.DefaultBranch,
+			"html_url":       repo.HTMLURL,
+		}
+		if repo.Parent != nil {
+			metadata["parent_full_name"] = repo.Parent.FullName
+		}
 		containers[i] = &driven.Container{
 			ID:          repo.FullName, // "owner/repo" format
 			Name:        repo.Name,
 			Description: repo.Description,
 			Type:        "repository",
-			Metadata: map[string]any{
-				"owner":          repo.Owner,
-				"private":        repo.Private,
-				"archived":       repo.Archived,
-				"default_branch": repo.DefaultBranch,
-				"html_url":       repo.HTMLURL,
-			},
+			Metadata:    metadata,
 		}
 	}
 

@@ -46,6 +46,8 @@ type Repository struct {
 	Description   string           `json:"description"`
 	Private       bool             `json:"private"`
 	Archived      bool             `json:"archived"`
+	Fork          bool             `json:"fork"`
+	Parent        *Repository      `json:"parent"`
 	HTMLURL       string           `json:"html_url"`
 	DefaultBranch string           `json:"default_branch"`
 }
