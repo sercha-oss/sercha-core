@@ -18,7 +18,6 @@ import {
   listProviders,
   listSources,
   listConnections,
-  getCapabilities,
   startOAuth,
   getConnection,
   getConnectionContainers,
@@ -80,16 +79,15 @@ export function StepDataSources({
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const [caps, providerList, sourceList] = await Promise.all([
-          getCapabilities(),
+        const [providerList, sourceList] = await Promise.all([
           listProviders(),
           listSources().catch(() => []), // Gracefully handle if no sources yet
         ]);
 
-        // Filter providers to only show those configured in environment
-        const configuredProviders = providerList.filter((p) =>
-          caps.oauth_providers.includes(p.type)
-        );
+        // Filter providers to only show those whose OAuth platform is
+        // configured in the environment. ProviderListItem.enabled is set
+        // server-side from IsOAuthConfigured(platform).
+        const configuredProviders = providerList.filter((p) => p.enabled);
         setProviders(configuredProviders);
         setConnectedSources(sourceList);
 

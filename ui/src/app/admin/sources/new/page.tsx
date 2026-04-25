@@ -20,7 +20,6 @@ import {
   listProviders,
   listSources,
   listConnections,
-  getCapabilities,
   startOAuth,
   getConnection,
   getConnectionContainers,
@@ -74,15 +73,12 @@ function AddSourceWizardContent() {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const [caps, providerList] = await Promise.all([
-          getCapabilities(),
-          listProviders(),
-        ]);
+        const providerList = await listProviders();
 
-        // Filter providers to only show those configured in environment
-        const configuredProviders = providerList.filter((p) =>
-          caps.oauth_providers.includes(p.type)
-        );
+        // Filter providers to only show those whose OAuth platform is
+        // configured in the environment. ProviderListItem.enabled is set
+        // server-side from IsOAuthConfigured(platform).
+        const configuredProviders = providerList.filter((p) => p.enabled);
         setProviders(configuredProviders);
 
         // Handle OAuth callback return (connection_id and provider come from URL)
