@@ -56,6 +56,7 @@ type Change struct {
 type SyncResult struct {
 	SourceID string    `json:"source_id"`
 	Success  bool      `json:"success"`
+	Skipped  bool      `json:"skipped,omitempty"` // true when another sync was already in progress for this source
 	Stats    SyncStats `json:"stats"`
 	Error    string    `json:"error,omitempty"`
 	Duration float64   `json:"duration_seconds"`

@@ -622,6 +622,7 @@ func main() {
 		SettingsStore:    settingsStore,
 		SyncEventRepo:    syncEventRepo,
 		TeamID:           teamID,
+		Lock:             distributedLock,
 	})
 
 	// Create scheduler for worker mode (if enabled)

@@ -1583,3 +1583,81 @@ func TestReconcile_SkipsScopeWithNoStoredIDs(t *testing.T) {
 		t.Fatalf("SyncSource: %v", err)
 	}
 }
+
+// TestSyncSource_SkipsWhenLockHeld — when a per-source lock is configured
+// and another caller already holds it, SyncSource must return Skipped=true
+// (Success=true so the worker acks the task) rather than racing the
+// in-flight sync. Reproduces the bug from the production logs where a
+// sync_container task and a sync_source task for the same source ran two
+// seconds apart and both cleaned chunks while the other was indexing.
+func TestSyncSource_SkipsWhenLockHeld(t *testing.T) {
+	sourceStore := mocks.NewMockSourceStore()
+	documentStore := mocks.NewMockDocumentStore()
+	syncStore := mocks.NewMockSyncStateStore()
+	searchEngine := mocks.NewMockSearchEngine()
+	normaliserRegistry := mocks.NewMockNormaliserRegistry()
+	connectorFactory := newMockConnectorFactory()
+	services := &runtime.Services{}
+	executor := &mockIndexingExecutor{
+		executeFn: func(ctx context.Context, pctx *pipeline.IndexingContext, in *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
+			return &pipeline.IndexingOutput{DocumentID: in.DocumentID}, nil
+		},
+	}
+	lock := mocks.NewMockDistributedLock()
+	orch := NewSyncOrchestrator(SyncOrchestratorConfig{
+		SourceStore:      sourceStore,
+		DocumentStore:    documentStore,
+		SyncStore:        syncStore,
+		SearchEngine:     searchEngine,
+		ConnectorFactory: connectorFactory,
+		NormaliserReg:    normaliserRegistry,
+		Services:         services,
+		IndexingExecutor: executor,
+		CapabilitySet:    pipeline.NewCapabilitySet(),
+		Lock:             lock,
+	})
+
+	ctx := context.Background()
+	source := &domain.Source{ID: "source-1", Name: "S", Enabled: true}
+	_ = sourceStore.Save(ctx, source)
+
+	// Simulate another worker already running a sync for this source.
+	lock.SetLockHeld("sync:source:source-1", time.Hour)
+
+	result, err := orch.SyncSource(ctx, "source-1")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if !result.Skipped {
+		t.Errorf("want Skipped=true when lock is held, got %+v", result)
+	}
+	if !result.Success {
+		t.Errorf("Skipped runs must be Success=true so the worker acks the task")
+	}
+
+	// Same lock, same key → SyncContainer must also skip.
+	cResult, err := orch.SyncContainer(ctx, "source-1", "container-1")
+	if err != nil {
+		t.Fatalf("SyncContainer: %v", err)
+	}
+	if !cResult.Skipped {
+		t.Errorf("SyncContainer must also skip when source lock is held: %+v", cResult)
+	}
+}
+
+// TestSyncSource_NoLockBackend — when no lock is configured, sync must
+// proceed unchanged (single-instance mode).
+func TestSyncSource_NoLockBackend(t *testing.T) {
+	orch, sourceStore, _, _, _, _ := createTestSyncOrchestrator(t)
+	ctx := context.Background()
+	source := &domain.Source{ID: "source-1", Name: "S", Enabled: true}
+	_ = sourceStore.Save(ctx, source)
+
+	result, err := orch.SyncSource(ctx, "source-1")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if result.Skipped {
+		t.Error("must not skip when no lock backend is configured")
+	}
+}

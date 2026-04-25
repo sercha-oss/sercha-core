@@ -40,6 +40,8 @@ type SyncOrchestrator struct {
 	syncEventRepo          driven.SyncEventRepository    // For audit logging of sync events
 	teamID                 string                        // Team ID for settings lookup
 	documentIngestObserver driven.DocumentIngestObserver // Optional; nil means no observer.
+	lock                   driven.DistributedLock        // Optional; nil means no per-source serialization (single-instance mode).
+	lockTTL                time.Duration                 // TTL for sync locks; ignored by Postgres advisory locks.
 }
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
@@ -60,6 +62,8 @@ type SyncOrchestratorConfig struct {
 	SyncEventRepo          driven.SyncEventRepository    // For audit logging of sync events
 	TeamID                 string                        // Team ID for settings lookup
 	DocumentIngestObserver driven.DocumentIngestObserver // Optional; nil means no observer.
+	Lock                   driven.DistributedLock        // Optional. When set, SyncSource/SyncContainer acquire "sync:source:<id>" before running so concurrent invocations no-op (Skipped=true) instead of racing.
+	LockTTL                time.Duration                 // Optional. Defaults to 1h. Ignored by PG advisory locks (which release on connection close).
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
@@ -72,6 +76,11 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 	// IndexingExecutor is now required
 	if cfg.IndexingExecutor == nil {
 		panic("IndexingExecutor is required for SyncOrchestrator")
+	}
+
+	lockTTL := cfg.LockTTL
+	if lockTTL == 0 {
+		lockTTL = time.Hour
 	}
 
 	return &SyncOrchestrator{
@@ -91,6 +100,38 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		syncEventRepo:          cfg.SyncEventRepo,
 		teamID:                 cfg.TeamID,
 		documentIngestObserver: cfg.DocumentIngestObserver,
+		lock:                   cfg.Lock,
+		lockTTL:                lockTTL,
+	}
+}
+
+// acquireSourceLock takes the per-source advisory lock if a lock backend is
+// configured. Returns (acquired, release). If no lock is configured, returns
+// (true, no-op release) — single-instance mode.
+//
+// The lock is keyed by source ID, so a sync_source task and a sync_container
+// task targeting the same source mutually exclude. This prevents the race
+// observed in production where a worker picked up sync_container at T+0 and
+// another picked up sync_source at T+2s, double-cleaning chunks and racing
+// document writes.
+func (o *SyncOrchestrator) acquireSourceLock(ctx context.Context, sourceID string) (bool, func()) {
+	if o.lock == nil {
+		return true, func() {}
+	}
+	name := "sync:source:" + sourceID
+	acquired, err := o.lock.Acquire(ctx, name, o.lockTTL)
+	if err != nil {
+		o.logger.Warn("failed to acquire sync lock; proceeding without serialization",
+			"source_id", sourceID, "error", err)
+		return true, func() {}
+	}
+	if !acquired {
+		return false, func() {}
+	}
+	return true, func() {
+		if err := o.lock.Release(ctx, name); err != nil {
+			o.logger.Warn("failed to release sync lock", "source_id", sourceID, "error", err)
+		}
 	}
 }
 
@@ -98,6 +139,19 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 // This is used for incremental updates when containers are added.
 func (o *SyncOrchestrator) SyncContainer(ctx context.Context, sourceID, containerID string) (*domain.SyncResult, error) {
 	startTime := time.Now()
+
+	acquired, release := o.acquireSourceLock(ctx, sourceID)
+	if !acquired {
+		o.logger.Info("sync already in progress for source; skipping container sync",
+			"source_id", sourceID, "container_id", containerID)
+		return &domain.SyncResult{
+			SourceID: sourceID,
+			Success:  true,
+			Skipped:  true,
+			Duration: time.Since(startTime).Seconds(),
+		}, nil
+	}
+	defer release()
 
 	o.logger.Info("starting container sync", "source_id", sourceID, "container_id", containerID)
 
@@ -198,6 +252,18 @@ func (o *SyncOrchestrator) SyncContainer(ctx context.Context, sourceID, containe
 // For sources with container selection, it syncs each selected container.
 func (o *SyncOrchestrator) SyncSource(ctx context.Context, sourceID string) (*domain.SyncResult, error) {
 	startTime := time.Now()
+
+	acquired, release := o.acquireSourceLock(ctx, sourceID)
+	if !acquired {
+		o.logger.Info("sync already in progress for source; skipping", "source_id", sourceID)
+		return &domain.SyncResult{
+			SourceID: sourceID,
+			Success:  true,
+			Skipped:  true,
+			Duration: time.Since(startTime).Seconds(),
+		}, nil
+	}
+	defer release()
 
 	o.logger.Info("starting sync", "source_id", sourceID)
 
