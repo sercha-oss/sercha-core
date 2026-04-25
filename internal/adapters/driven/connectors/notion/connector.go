@@ -193,12 +193,17 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 		}
 	}
 
-	// Update cursor to the latest modified time
+	// Update cursor to the latest modified time. Use nanosecond precision:
+	// Notion's last_edited_time is millisecond-precision, and RFC3339's
+	// second-only output combined with the ! After comparison above would
+	// drop any item edited in the same wall-clock second as the cursor.
+	// RFC3339Nano is wire-compatible — time.Parse(time.RFC3339, ...) reads
+	// the nano-suffixed form just fine, so legacy cursors keep working.
 	newCursor := ""
 	if !lastModified.IsZero() {
-		newCursor = lastModified.Format(time.RFC3339)
+		newCursor = lastModified.Format(time.RFC3339Nano)
 	} else if len(changes) > 0 {
-		newCursor = time.Now().Format(time.RFC3339)
+		newCursor = time.Now().Format(time.RFC3339Nano)
 	}
 
 	return changes, newCursor, nil

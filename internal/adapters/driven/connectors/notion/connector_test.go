@@ -1144,3 +1144,56 @@ func TestFetchChanges_LogsAndSkipsFailedItem(t *testing.T) {
 		t.Errorf("warning should mention failed item id, got: %q", logged)
 	}
 }
+
+// TestFetchChanges_CursorPreservesSubSecondPrecision — the cursor must
+// retain sub-second precision so that two pages edited within the same
+// wall-clock second don't collide on the !After cursor comparison and
+// drop one of them.
+func TestFetchChanges_CursorPreservesSubSecondPrecision(t *testing.T) {
+	subSec := time.Date(2026, 4, 25, 12, 34, 56, 789_000_000, time.UTC) // .789
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/v1/search"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(SearchResponse{
+				Results: []SearchResult{{
+					Object:         "page",
+					ID:             "p-1",
+					Parent:         Parent{Type: "workspace"},
+					LastEditedTime: subSec,
+				}},
+			})
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/v1/pages/p-1"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(Page{Object: "page", ID: "p-1", LastEditedTime: subSec})
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/v1/blocks/p-1/children"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(BlocksResponse{HasMore: false})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL + "/v1"
+	c := NewConnector(&stubTokenProvider{}, "", cfg)
+
+	_, cursor, err := c.FetchChanges(context.Background(), nil, "")
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+	if !strings.Contains(cursor, ".789") {
+		t.Errorf("cursor %q lost sub-second precision (expected nanos)", cursor)
+	}
+	// And — critically — the legacy parser still reads it. RFC3339-style
+	// time.Parse accepts the nano-suffixed form.
+	parsed, err := time.Parse(time.RFC3339, cursor)
+	if err != nil {
+		t.Fatalf("legacy time.RFC3339 parser rejected nano cursor %q: %v", cursor, err)
+	}
+	if !parsed.Equal(subSec) {
+		t.Errorf("round-trip lost data: got %v, want %v", parsed, subSec)
+	}
+}
