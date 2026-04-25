@@ -790,6 +790,129 @@ func TestFetchChanges_DrainsMultipleDeltaPages(t *testing.T) {
 	}
 }
 
+// TestFetchChanges_RecoversFromResyncRequired — when the stored
+// delta token has aged out, Graph returns 410 with resyncRequired.
+// FetchChanges must catch this, drop any in-flight changes from the
+// stale cycle, and restart with an empty cursor inside the same call
+// so the orchestrator gets a usable result this tick.
+func TestFetchChanges_RecoversFromResyncRequired(t *testing.T) {
+	deltaCalls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/content") {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("body"))
+			return
+		}
+		if !strings.Contains(r.URL.Path, "/delta") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		deltaCalls++
+		// First call: token is invalid → 410. The client maps this to
+		// ErrResyncRequired; the connector's recovery branch resets
+		// the cursor and calls again.
+		if deltaCalls == 1 {
+			w.WriteHeader(http.StatusGone)
+			_ = json.NewEncoder(w).Encode(microsoft.ErrorResponse{
+				Error: &microsoft.ErrorDetail{Code: "resyncRequired", Message: "token aged"},
+			})
+			return
+		}
+		// Second call: empty token → fresh cycle. Return a single file
+		// and a final DeltaLink so the loop terminates cleanly.
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(microsoft.DeltaResponse{
+			Value: []microsoft.DriveItem{{
+				ID: "fresh-1", Name: "x.txt", Size: 5,
+				File:            &microsoft.FileFacet{MimeType: "text/plain"},
+				ParentReference: &microsoft.ItemReference{ID: "root", Path: "/drive/root:"},
+			}},
+			DeltaLink: "https://graph.microsoft.com/v1.0/me/drive/root/delta?token=fresh",
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &Config{
+		RateLimitRPS:   100.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+		MaxFileSize:    100 * 1024 * 1024,
+	}
+	c := NewConnector(&stubTokenProvider{}, "", cfg)
+	c.client = microsoft.NewClient(&stubTokenProvider{}, &microsoft.ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+	})
+
+	// Pass a "stale" cursor that simulates a token Graph will reject.
+	// The cursor needs to be a URL the client will hit, since GetDelta
+	// trims the base URL and uses what's left as the path. Use the
+	// same server's delta path so the 410 lands here.
+	staleCursor := ts.URL + "/v1.0/me/drive/root/delta?token=stale"
+	changes, cursor, err := c.FetchChanges(context.Background(), &domain.Source{ID: "src"}, staleCursor)
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+	if deltaCalls != 2 {
+		t.Errorf("expected 2 delta calls (stale 410 + fresh), got %d", deltaCalls)
+	}
+	if len(changes) != 1 || changes[0].ExternalID != "file-fresh-1" {
+		var got string
+		for _, ch := range changes {
+			got += ch.ExternalID + " "
+		}
+		t.Errorf("expected 1 change file-fresh-1, got %d (%s)", len(changes), got)
+	}
+	if !strings.Contains(cursor, "token=fresh") {
+		t.Errorf("cursor should be fresh DeltaLink, got %q", cursor)
+	}
+}
+
+// TestFetchChanges_DoesNotRetryRepeatedResyncRequired — defensive: if
+// Graph 410s on the SECOND call too (after we already reset to empty),
+// we must not loop forever. The bound-recovery flag guarantees one
+// resync attempt per FetchChanges call.
+func TestFetchChanges_DoesNotRetryRepeatedResyncRequired(t *testing.T) {
+	deltaCalls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/delta") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		deltaCalls++
+		w.WriteHeader(http.StatusGone)
+		_ = json.NewEncoder(w).Encode(microsoft.ErrorResponse{
+			Error: &microsoft.ErrorDetail{Code: "resyncRequired", Message: "still gone"},
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &Config{
+		RateLimitRPS:   100.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+		MaxFileSize:    100 * 1024 * 1024,
+	}
+	c := NewConnector(&stubTokenProvider{}, "", cfg)
+	c.client = microsoft.NewClient(&stubTokenProvider{}, &microsoft.ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+	})
+
+	_, _, err := c.FetchChanges(context.Background(), &domain.Source{ID: "src"}, "")
+	if err == nil {
+		t.Fatalf("expected error after repeated resyncRequired, got nil")
+	}
+	if deltaCalls != 2 {
+		t.Errorf("expected exactly 2 calls (one initial + one recovery), got %d", deltaCalls)
+	}
+}
+
 // TestFetchChanges_StopsWhenNeitherLinkPresent — defensive: if Graph
 // ever returns a response with no DeltaLink AND no NextLink (shouldn't
 // happen in practice but the schema technically allows), the loop

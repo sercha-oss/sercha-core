@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -85,6 +86,7 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 	var changes []*domain.Change
 	pageCursor := cursor
 	newCursor := cursor
+	resynced := false
 
 	for {
 		select {
@@ -95,6 +97,25 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 
 		deltaResp, err := c.client.GetDelta(ctx, pageCursor)
 		if err != nil {
+			// 410 resyncRequired: Microsoft has aged out the stored
+			// delta token and we must restart from scratch. Drop any
+			// in-flight changes (they came from a stale cursor that
+			// the next-cycle DeltaLink will not honour anyway), reset
+			// the page cursor to empty so GetDelta begins a fresh
+			// cycle, and continue. Bound recovery to one resync per
+			// call to avoid pathological loops if Graph repeatedly
+			// 410s an empty token.
+			if errors.Is(err, microsoft.ErrResyncRequired) && !resynced {
+				slog.Warn("onedrive: delta cursor invalidated; starting fresh delta cycle",
+					"prior_cursor_present", cursor != "",
+					"error", err,
+				)
+				resynced = true
+				changes = nil
+				pageCursor = ""
+				newCursor = ""
+				continue
+			}
 			return nil, "", fmt.Errorf("get delta: %w", err)
 		}
 

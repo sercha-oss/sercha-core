@@ -3,6 +3,7 @@ package microsoft
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -662,5 +663,99 @@ func TestDriveItem_IsDeleted(t *testing.T) {
 	}
 	if item.IsDeleted() {
 		t.Error("IsDeleted() = true, want false")
+	}
+}
+
+// TestGetDelta_ResyncRequired_410WithCode — Microsoft Graph signals
+// "your stored delta token has aged out, restart the cycle" via HTTP
+// 410 Gone with a resyncRequired-flavour error code. The client must
+// surface this as the typed ErrResyncRequired sentinel so connector
+// code can branch on it.
+func TestGetDelta_ResyncRequired_410WithCode(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGone)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{
+			Error: &ErrorDetail{
+				Code:    "resyncRequired",
+				Message: "Resync required.",
+			},
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   10.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg)
+
+	_, err := client.GetDelta(context.Background(), "stale-token")
+	if err == nil {
+		t.Fatal("GetDelta expected error, got nil")
+	}
+	if !errors.Is(err, ErrResyncRequired) {
+		t.Errorf("expected ErrResyncRequired, got %v", err)
+	}
+	// Underlying message should still be reachable for log context.
+	if !strings.Contains(err.Error(), "resyncRequired") {
+		t.Errorf("error should preserve upstream code, got: %v", err)
+	}
+}
+
+// TestGetDelta_ResyncRequired_410NoBody — defensive: even if Graph
+// returns 410 without a parseable error body, the client still maps
+// it to ErrResyncRequired so callers get consistent recovery.
+func TestGetDelta_ResyncRequired_410NoBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGone)
+		_, _ = w.Write([]byte("gone"))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   10.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg)
+
+	_, err := client.GetDelta(context.Background(), "")
+	if err == nil {
+		t.Fatal("GetDelta expected error, got nil")
+	}
+	if !errors.Is(err, ErrResyncRequired) {
+		t.Errorf("expected ErrResyncRequired even without parseable body, got %v", err)
+	}
+}
+
+// TestGetDelta_NonResyncErrorPassesThrough — non-410 errors must NOT
+// be conflated with resync. A 401 or 500 should stay as a generic
+// error and let the caller's retry logic handle it.
+func TestGetDelta_NonResyncErrorPassesThrough(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{
+			Error: &ErrorDetail{Code: "Unauthorized", Message: "token expired"},
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   10.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     3,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg)
+
+	_, err := client.GetDelta(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if errors.Is(err, ErrResyncRequired) {
+		t.Errorf("401 should not map to ErrResyncRequired, got %v", err)
 	}
 }

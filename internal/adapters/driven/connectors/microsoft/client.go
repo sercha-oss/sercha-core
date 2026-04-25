@@ -3,6 +3,7 @@ package microsoft
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,13 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	"golang.org/x/time/rate"
 )
+
+// ErrResyncRequired signals that a stored delta token is no longer valid
+// and the caller must restart the delta query from scratch (empty cursor).
+// Microsoft Graph emits this as HTTP 410 with codes like "resyncRequired"
+// or "syncStateNotFound" — surface them as a typed error so connector
+// code can branch on it cleanly without string-matching.
+var ErrResyncRequired = errors.New("microsoft graph: delta cursor invalidated, full resync required")
 
 // Client provides Microsoft Graph API operations.
 type Client struct {
@@ -253,8 +261,20 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	if resp.StatusCode >= 400 {
 		var errResp ErrorResponse
 		if err := json.Unmarshal(respBody, &errResp); err == nil && errResp.Error != nil {
+			// 410 Gone on a delta endpoint indicates the stored token has
+			// aged out or been invalidated — Microsoft expects the caller
+			// to start a fresh delta query rather than retry the same
+			// link. Map both documented codes plus the HTTP status itself
+			// to ErrResyncRequired so connectors can recover without
+			// string-matching the message.
+			if resp.StatusCode == http.StatusGone {
+				return fmt.Errorf("%w: %s - %s", ErrResyncRequired, errResp.Error.Code, errResp.Error.Message)
+			}
 			return fmt.Errorf("microsoft graph API error %d: %s - %s",
 				resp.StatusCode, errResp.Error.Code, errResp.Error.Message)
+		}
+		if resp.StatusCode == http.StatusGone {
+			return fmt.Errorf("%w: %s", ErrResyncRequired, string(respBody))
 		}
 		return fmt.Errorf("microsoft graph API error %d: %s", resp.StatusCode, string(respBody))
 	}
