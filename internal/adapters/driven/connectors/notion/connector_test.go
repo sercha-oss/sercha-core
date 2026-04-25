@@ -1,8 +1,10 @@
 package notion
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1002,5 +1004,69 @@ func TestInventory_FailsWhenSearchPagesError(t *testing.T) {
 	}
 	if ids != nil {
 		t.Errorf("partial inventory leaked: %v", ids)
+	}
+}
+
+// TestFetchChanges_LogsAndSkipsFailedItem — when one item's per-item
+// fetch fails, the loop logs at WARN and continues. The successful
+// item is still emitted; the cursor advances to the successful item's
+// timestamp only, so the failed item gets retried on the next tick.
+func TestFetchChanges_LogsAndSkipsFailedItem(t *testing.T) {
+	// Capture slog output through the package default logger.
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/v1/search"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(SearchResponse{
+				Results: []SearchResult{
+					{Object: "page", ID: "page-broken", Parent: Parent{Type: "workspace"},
+						LastEditedTime: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)},
+					{Object: "page", ID: "page-good", Parent: Parent{Type: "workspace"},
+						LastEditedTime: time.Date(2026, 4, 25, 11, 0, 0, 0, time.UTC)},
+				},
+			})
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/v1/pages/page-broken"):
+			// Non-retryable: avoids the client's 5xx backoff.
+			w.WriteHeader(http.StatusForbidden)
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/v1/pages/page-good"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(Page{
+				Object:         "page",
+				ID:             "page-good",
+				LastEditedTime: time.Date(2026, 4, 25, 11, 0, 0, 0, time.UTC),
+			})
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/v1/blocks/page-good/children"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(BlocksResponse{HasMore: false})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL + "/v1"
+	c := NewConnector(&stubTokenProvider{}, "", cfg)
+
+	changes, _, err := c.FetchChanges(context.Background(), nil, "")
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+
+	if len(changes) != 1 || changes[0].ExternalID != "page-page-good" {
+		t.Errorf("want 1 change for page-good, got %v", changes)
+	}
+
+	logged := buf.String()
+	if !strings.Contains(logged, "notion: per-item fetch failed") {
+		t.Errorf("expected warning log, got: %q", logged)
+	}
+	if !strings.Contains(logged, "page-broken") {
+		t.Errorf("warning should mention failed item id, got: %q", logged)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -164,7 +165,16 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 				}
 
 				if err != nil {
-					// Log error but continue with other items
+					// One item's fetch failure must not stop the rest of
+					// the workspace from syncing. Log so operators can
+					// spot it; the cursor doesn't advance for this item
+					// (the continue below skips the lastModified update),
+					// so the next tick will retry naturally.
+					slog.Warn("notion: per-item fetch failed; skipping",
+						"object", result.Object,
+						"id", result.ID,
+						"error", err,
+					)
 					continue
 				}
 
