@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -43,6 +45,43 @@ func NewConnector(tokenProvider driven.TokenProvider, owner, repo string, config
 	}
 }
 
+// cursorState is the persisted shape of the GitHub connector's cursor.
+// LastModified drives the issues since-filter; LastSHA anchors the Compare
+// API for incremental file sync. Empty fields fall back safely: no
+// LastModified → fetch all issues; no LastSHA → tree snapshot for files.
+//
+// For back-compat, a bare RFC3339 timestamp (the pre-reconciliation cursor
+// format) decodes as LastModified only.
+type cursorState struct {
+	LastModified time.Time `json:"lastModified,omitempty"`
+	LastSHA      string    `json:"lastSHA,omitempty"`
+}
+
+// parseCursor handles both the JSON struct format and the legacy bare
+// RFC3339 timestamp format.
+func parseCursor(cursor string) cursorState {
+	var st cursorState
+	if cursor == "" {
+		return st
+	}
+	if cursor[0] == '{' {
+		_ = json.Unmarshal([]byte(cursor), &st)
+		return st
+	}
+	if t, err := time.Parse(time.RFC3339, cursor); err == nil {
+		st.LastModified = t
+	}
+	return st
+}
+
+func (s cursorState) encode() string {
+	if s.LastModified.IsZero() && s.LastSHA == "" {
+		return ""
+	}
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
 // Type returns the provider type.
 func (c *Connector) Type() domain.ProviderType {
 	return domain.ProviderTypeGitHub
@@ -56,18 +95,17 @@ func (c *Connector) ValidateConfig(config domain.SourceConfig) error {
 
 // FetchChanges fetches document changes from the repository.
 // For initial sync (empty cursor), it fetches all content.
-// For incremental sync, it fetches changes since the cursor timestamp.
+// For incremental sync, it fetches issue/PR changes since the cursor
+// timestamp and file changes via the Compare API anchored on the stored
+// head SHA.
 func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
 	var changes []*domain.Change
 	var lastModified time.Time
 
-	// Parse cursor to get since timestamp
+	state := parseCursor(cursor)
 	var since *time.Time
-	if cursor != "" {
-		parsed, err := time.Parse(time.RFC3339, cursor)
-		if err == nil {
-			since = &parsed
-		}
+	if !state.LastModified.IsZero() {
+		since = &state.LastModified
 	}
 
 	// Fetch issues if enabled
@@ -98,24 +136,32 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 		}
 	}
 
-	// Fetch files if enabled (only on initial sync or if explicitly requested)
-	if c.config.IncludeFiles && since == nil {
-		fileChanges, err := c.fetchFileChanges(ctx)
+	// Fetch files every tick. When we have a previous head SHA we use the
+	// Compare API for cheap incremental delta (including native delete and
+	// rename signals). Without one — initial sync, or force-push invalidated
+	// the stored SHA — we fall back to a full tree snapshot.
+	newHeadSHA := state.LastSHA
+	if c.config.IncludeFiles {
+		fileChanges, headSHA, err := c.fetchFileChanges(ctx, state.LastSHA)
 		if err != nil {
 			return nil, "", fmt.Errorf("fetch files: %w", err)
 		}
 		changes = append(changes, fileChanges...)
+		if headSHA != "" {
+			newHeadSHA = headSHA
+		}
 	}
 
-	// Update cursor to the latest modified time
-	newCursor := ""
-	if !lastModified.IsZero() {
-		newCursor = lastModified.Format(time.RFC3339)
-	} else if len(changes) > 0 {
-		newCursor = time.Now().Format(time.RFC3339)
+	newState := cursorState{LastSHA: newHeadSHA}
+	switch {
+	case !lastModified.IsZero():
+		newState.LastModified = lastModified
+	case len(changes) > 0:
+		newState.LastModified = time.Now()
+	default:
+		newState.LastModified = state.LastModified
 	}
-
-	return changes, newCursor, nil
+	return changes, newState.encode(), nil
 }
 
 // fetchIssueChanges fetches issue changes.
@@ -130,9 +176,12 @@ func (c *Connector) fetchIssueChanges(ctx context.Context, since *time.Time) ([]
 		}
 
 		for _, issue := range issues {
-			// Skip pull requests (they come from ListPullRequests)
-			// GitHub issues API returns PRs too, identified by presence of pull_request field
-			// We check by number in the ListIssues response structure
+			// GitHub's list-issues endpoint returns pull requests mixed in.
+			// Indexing them here would produce a second copy alongside the
+			// one fetchPRChanges emits.
+			if issue.IsPR() {
+				continue
+			}
 
 			change := &domain.Change{
 				Type:       domain.ChangeTypeModified,
@@ -185,19 +234,66 @@ func (c *Connector) fetchPRChanges(ctx context.Context) ([]*domain.Change, error
 	return allChanges, nil
 }
 
-// fetchFileChanges fetches file changes from the repository with concurrent content fetching.
-func (c *Connector) fetchFileChanges(ctx context.Context) ([]*domain.Change, error) {
+// fetchFileChanges returns file-level changes and the head SHA for storage
+// in the cursor. When baseSHA is empty (initial sync) or the stored base is
+// no longer reachable (force-push), it falls back to a full tree snapshot.
+// Otherwise it uses the Compare API, which gives add / modify / delete /
+// rename statuses directly and costs one request.
+func (c *Connector) fetchFileChanges(ctx context.Context, baseSHA string) ([]*domain.Change, string, error) {
 	repoInfo, err := c.client.GetRepository(ctx, c.owner, c.repo)
 	if err != nil {
-		return nil, fmt.Errorf("get repository: %w", err)
+		return nil, "", fmt.Errorf("get repository: %w", err)
+	}
+	headSHA, err := c.client.GetCommitSHA(ctx, c.owner, c.repo, repoInfo.DefaultBranch)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve head of %s: %w", repoInfo.DefaultBranch, err)
 	}
 
-	tree, err := c.client.GetTree(ctx, c.owner, c.repo, repoInfo.DefaultBranch)
+	// Initial sync: no base to compare against.
+	if baseSHA == "" {
+		changes, err := c.snapshotFileChanges(ctx, repoInfo.DefaultBranch)
+		if err != nil {
+			return nil, "", err
+		}
+		return changes, headSHA, nil
+	}
+	// Nothing pushed since the last tick.
+	if baseSHA == headSHA {
+		return nil, headSHA, nil
+	}
+
+	cmp, err := c.client.CompareCommits(ctx, c.owner, c.repo, baseSHA, headSHA)
+	if err != nil {
+		if errors.Is(err, ErrCompareBaseNotFound) {
+			// Stored SHA no longer reachable — usually a force-push. Full
+			// snapshot re-seeds the cursor safely; orphan deletes are
+			// caught by phase-1 reconciliation if we ever add `file-` to
+			// that scope (we don't today — compare is the mechanism).
+			changes, snapErr := c.snapshotFileChanges(ctx, repoInfo.DefaultBranch)
+			if snapErr != nil {
+				return nil, "", snapErr
+			}
+			return changes, headSHA, nil
+		}
+		return nil, "", fmt.Errorf("compare %s...%s: %w", baseSHA, headSHA, err)
+	}
+
+	changes, err := c.compareToChanges(ctx, cmp)
+	if err != nil {
+		return nil, "", err
+	}
+	return changes, headSHA, nil
+}
+
+// snapshotFileChanges walks the full repository tree on the given ref and
+// emits one ChangeTypeModified per file. Modified (not Added) so the
+// orchestrator's cleanup-on-update path fires on re-sync.
+func (c *Connector) snapshotFileChanges(ctx context.Context, ref string) ([]*domain.Change, error) {
+	tree, err := c.client.GetTree(ctx, c.owner, c.repo, ref)
 	if err != nil {
 		return nil, fmt.Errorf("get tree: %w", err)
 	}
 
-	// Filter tree entries before fetching content
 	var toFetch []*TreeEntry
 	for _, entry := range tree {
 		if entry.Size > c.config.MaxFileSize {
@@ -208,7 +304,65 @@ func (c *Connector) fetchFileChanges(ctx context.Context) ([]*domain.Change, err
 		}
 		toFetch = append(toFetch, entry)
 	}
+	return c.fetchFilesConcurrent(ctx, toFetch), nil
+}
 
+// compareToChanges translates a Compare API response into domain changes.
+// Per-file status is the source of truth: added/modified/changed/copied
+// trigger a content re-fetch; removed emits a delete keyed on the filename;
+// renamed emits both a delete of the old path and a modify of the new path
+// (treating rename as delete + add is the connector's documented crude
+// stance — we re-fetch content rather than track path-only updates).
+func (c *Connector) compareToChanges(ctx context.Context, cmp *CompareResponse) ([]*domain.Change, error) {
+	var toFetch []*TreeEntry
+	var changes []*domain.Change
+
+	for _, f := range cmp.Files {
+		switch f.Status {
+		case "removed":
+			if !c.shouldIncludeFile(f.Filename) {
+				continue
+			}
+			changes = append(changes, &domain.Change{
+				Type:       domain.ChangeTypeDeleted,
+				ExternalID: fmt.Sprintf("file-%s", f.Filename),
+			})
+		case "renamed":
+			// Retire the old path.
+			if c.shouldIncludeFile(f.PreviousFilename) {
+				changes = append(changes, &domain.Change{
+					Type:       domain.ChangeTypeDeleted,
+					ExternalID: fmt.Sprintf("file-%s", f.PreviousFilename),
+				})
+			}
+			// Re-index under the new path — content fetched below.
+			if c.shouldIncludeFile(f.Filename) && f.Size <= c.config.MaxFileSize {
+				toFetch = append(toFetch, &TreeEntry{Path: f.Filename, SHA: f.SHA, Size: f.Size, Type: "blob"})
+			}
+		case "added", "modified", "changed", "copied":
+			if !c.shouldIncludeFile(f.Filename) {
+				continue
+			}
+			if f.Size > c.config.MaxFileSize {
+				continue
+			}
+			toFetch = append(toFetch, &TreeEntry{Path: f.Filename, SHA: f.SHA, Size: f.Size, Type: "blob"})
+		case "unchanged":
+			// No-op. Compare occasionally reports unchanged entries.
+		default:
+			// Unknown status — skip rather than misclassify.
+			continue
+		}
+	}
+
+	changes = append(changes, c.fetchFilesConcurrent(ctx, toFetch)...)
+	return changes, nil
+}
+
+// fetchFilesConcurrent fetches content for each entry and builds a
+// ChangeTypeModified per file. Unchanged files still emit a Modified change;
+// the orchestrator dedups by external ID.
+func (c *Connector) fetchFilesConcurrent(ctx context.Context, toFetch []*TreeEntry) []*domain.Change {
 	concurrency := c.config.Concurrency
 	if concurrency <= 0 {
 		concurrency = 10
@@ -224,7 +378,7 @@ func (c *Connector) fetchFileChanges(ctx context.Context) ([]*domain.Change, err
 	for _, entry := range toFetch {
 		select {
 		case <-ctx.Done():
-			return changes, ctx.Err()
+			return changes
 		default:
 		}
 
@@ -251,8 +405,8 @@ func (c *Connector) fetchFileChanges(ctx context.Context) ([]*domain.Change, err
 			}
 
 			change := &domain.Change{
-				Type:       domain.ChangeTypeAdded,
-				ExternalID: fmt.Sprintf("file-%s", entry.SHA),
+				Type:       domain.ChangeTypeModified,
+				ExternalID: fmt.Sprintf("file-%s", entry.Path),
 				Document:   c.fileToDocument(entry, content),
 				Content:    decodedContent,
 			}
@@ -264,7 +418,7 @@ func (c *Connector) fetchFileChanges(ctx context.Context) ([]*domain.Change, err
 	}
 
 	wg.Wait()
-	return changes, nil
+	return changes
 }
 
 // shouldIncludeFile checks if a file should be included based on configuration.
@@ -339,33 +493,24 @@ func (c *Connector) FetchDocument(ctx context.Context, source *domain.Source, ex
 		return doc, contentHash, nil
 
 	case "file":
-		blob, err := c.client.GetBlob(ctx, c.owner, c.repo, identifier)
+		// identifier is the repo-relative path. Fetch by path so we can
+		// surface the real name and URL rather than a blob SHA.
+		content, err := c.client.GetFileContent(ctx, c.owner, c.repo, identifier)
 		if err != nil {
-			return nil, "", fmt.Errorf("fetch file blob %s: %w", identifier, err)
+			return nil, "", fmt.Errorf("fetch file %s: %w", identifier, err)
 		}
-		// Decode base64 content
 		decodedContent := ""
-		if blob.Encoding == "base64" {
-			decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(blob.Content, "\n", ""))
+		if content.Encoding == "base64" {
+			decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(content.Content, "\n", ""))
 			if err != nil {
-				return nil, "", fmt.Errorf("decode blob content: %w", err)
+				return nil, "", fmt.Errorf("decode file content: %w", err)
 			}
 			decodedContent = string(decoded)
 		} else {
-			decodedContent = blob.Content
+			decodedContent = content.Content
 		}
-		// Build document - we don't have the file path from just a SHA,
-		// so use the SHA as the title and build minimal metadata
-		doc := &domain.Document{
-			Title:    fmt.Sprintf("file-%s", identifier[:8]),
-			Path:     fmt.Sprintf("https://github.com/%s/%s/blob/HEAD/%s", c.owner, c.repo, identifier),
-			MimeType: "application/octet-stream",
-			Metadata: map[string]string{
-				"sha":  identifier,
-				"size": fmt.Sprintf("%d", blob.Size),
-				"repo": FormatContainerID(c.owner, c.repo),
-			},
-		}
+		entry := &TreeEntry{Path: identifier, SHA: content.SHA, Size: content.Size, Type: "blob"}
+		doc := c.fileToDocument(entry, content)
 		contentHash := computeContentHash(decodedContent)
 		return doc, contentHash, nil
 
@@ -500,4 +645,82 @@ func (c *Connector) formatPRContent(pr *PullRequest) string {
 func computeContentHash(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
+}
+
+// ReconciliationScopes declares which canonical-ID prefixes this connector
+// snapshot-enumerates for delete detection.
+//
+// Issues and PRs go through phase-1 reconciliation because GitHub's REST
+// API has no deletion signal — a deleted issue or transferred PR simply
+// stops appearing in subsequent list responses. Files do NOT need
+// reconciliation: the Compare API used in fetchFileChanges already emits
+// per-file removed/renamed statuses natively, so deletes are caught
+// in-band during phase 2.
+func (c *Connector) ReconciliationScopes() []string {
+	var scopes []string
+	if c.config.IncludeIssues {
+		scopes = append(scopes, "issue-")
+	}
+	if c.config.IncludePRs {
+		scopes = append(scopes, "pr-")
+	}
+	return scopes
+}
+
+// Inventory enumerates every canonical ID currently present upstream
+// within the given scope. Pagination is "complete-or-error": any page
+// failure aborts the whole walk so the orchestrator never sees a partial
+// inventory and falsely deletes documents.
+func (c *Connector) Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error) {
+	switch scope {
+	case "issue-":
+		return c.inventoryIssues(ctx)
+	case "pr-":
+		return c.inventoryPRs(ctx)
+	default:
+		return nil, fmt.Errorf("github: unknown reconciliation scope %q", scope)
+	}
+}
+
+func (c *Connector) inventoryIssues(ctx context.Context) ([]string, error) {
+	var ids []string
+	cursor := ""
+	for {
+		// since=nil → enumerate every issue, every page. The loop below
+		// returns immediately on any error, never producing a short slice.
+		issues, nextCursor, err := c.client.ListIssues(ctx, c.owner, c.repo, nil, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("inventory issues: %w", err)
+		}
+		for _, issue := range issues {
+			if issue.IsPR() {
+				continue
+			}
+			ids = append(ids, fmt.Sprintf("issue-%d", issue.Number))
+		}
+		if nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+	return ids, nil
+}
+
+func (c *Connector) inventoryPRs(ctx context.Context) ([]string, error) {
+	var ids []string
+	cursor := ""
+	for {
+		prs, nextCursor, err := c.client.ListPullRequests(ctx, c.owner, c.repo, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("inventory PRs: %w", err)
+		}
+		for _, pr := range prs {
+			ids = append(ids, fmt.Sprintf("pr-%d", pr.Number))
+		}
+		if nextCursor == "" {
+			break
+		}
+		cursor = nextCursor
+	}
+	return ids, nil
 }

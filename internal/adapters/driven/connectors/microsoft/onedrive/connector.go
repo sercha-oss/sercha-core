@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/connectors/microsoft"
@@ -71,71 +73,122 @@ func (c *Connector) ValidateConfig(config domain.SourceConfig) error {
 // FetchChanges fetches document changes from OneDrive using delta queries.
 // For initial sync (empty cursor), it fetches all content.
 // For incremental sync, it uses the delta link from the cursor.
+//
+// Microsoft Graph paginates large delta responses with @odata.nextLink
+// for in-cycle continuation and ends the cycle with @odata.deltaLink
+// (the cursor to store for the next tick). Items dropped by our
+// filters — folders, oversize files, container-mismatches, content
+// fetch errors — are not re-emitted by Graph on subsequent ticks, so
+// the entire cycle MUST be drained inside one FetchChanges call. The
+// loop below paginates until DeltaLink is provided, switching the
+// stored cursor to that final value before returning.
 func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
 	var changes []*domain.Change
+	pageCursor := cursor
+	newCursor := cursor
+	resynced := false
 
-	// Use delta query to track changes
-	deltaResp, err := c.client.GetDelta(ctx, cursor)
-	if err != nil {
-		return nil, "", fmt.Errorf("get delta: %w", err)
-	}
-
-	for _, item := range deltaResp.Value {
-		// Skip folders (we only index files)
-		if item.IsFolder() {
-			continue
+	for {
+		select {
+		case <-ctx.Done():
+			return changes, newCursor, ctx.Err()
+		default:
 		}
 
-		// Skip deleted items
-		if item.IsDeleted() {
-			change := &domain.Change{
-				Type:       domain.ChangeTypeDeleted,
-				ExternalID: fmt.Sprintf("file-%s", item.ID),
-			}
-			changes = append(changes, change)
-			continue
-		}
-
-		// Skip if not a file
-		if !item.IsFile() {
-			continue
-		}
-
-		// Skip large files
-		if item.Size > c.config.MaxFileSize {
-			continue
-		}
-
-		// If containerID is specified, filter by folder
-		if c.containerID != "" {
-			if !c.isInContainer(item) {
+		deltaResp, err := c.client.GetDelta(ctx, pageCursor)
+		if err != nil {
+			// 410 resyncRequired: Microsoft has aged out the stored
+			// delta token and we must restart from scratch. Drop any
+			// in-flight changes (they came from a stale cursor that
+			// the next-cycle DeltaLink will not honour anyway), reset
+			// the page cursor to empty so GetDelta begins a fresh
+			// cycle, and continue. Bound recovery to one resync per
+			// call to avoid pathological loops if Graph repeatedly
+			// 410s an empty token.
+			if errors.Is(err, microsoft.ErrResyncRequired) && !resynced {
+				slog.Warn("onedrive: delta cursor invalidated; starting fresh delta cycle",
+					"prior_cursor_present", cursor != "",
+					"error", err,
+				)
+				resynced = true
+				changes = nil
+				pageCursor = ""
+				newCursor = ""
 				continue
 			}
+			return nil, "", fmt.Errorf("get delta: %w", err)
 		}
 
-		// Fetch file content
-		content, err := c.client.GetDriveItemContent(ctx, item.ID)
-		if err != nil {
-			// Log error but continue with other files
-			continue
+		for _, item := range deltaResp.Value {
+			// Skip folders (we only index files)
+			if item.IsFolder() {
+				continue
+			}
+
+			// Skip deleted items — these are emitted as ChangeTypeDeleted
+			// directly because Graph natively signals deletion via the
+			// @removed facet, and the delete must reach the orchestrator
+			// before the cursor advances past it.
+			if item.IsDeleted() {
+				change := &domain.Change{
+					Type:       domain.ChangeTypeDeleted,
+					ExternalID: fmt.Sprintf("file-%s", item.ID),
+				}
+				changes = append(changes, change)
+				continue
+			}
+
+			// Skip if not a file
+			if !item.IsFile() {
+				continue
+			}
+
+			// Skip large files
+			if item.Size > c.config.MaxFileSize {
+				continue
+			}
+
+			// If containerID is specified, filter by folder
+			if c.containerID != "" {
+				if !c.isInContainer(item) {
+					continue
+				}
+			}
+
+			// Fetch file content
+			content, err := c.client.GetDriveItemContent(ctx, item.ID)
+			if err != nil {
+				slog.Warn("onedrive: content fetch failed; skipping",
+					"item_id", item.ID,
+					"name", item.Name,
+					"error", err,
+				)
+				continue
+			}
+
+			doc := c.driveItemToDocument(&item)
+			change := &domain.Change{
+				Type:       domain.ChangeTypeModified,
+				ExternalID: fmt.Sprintf("file-%s", item.ID),
+				Document:   doc,
+				Content:    string(content),
+			}
+
+			changes = append(changes, change)
 		}
 
-		doc := c.driveItemToDocument(&item)
-		change := &domain.Change{
-			Type:       domain.ChangeTypeModified,
-			ExternalID: fmt.Sprintf("file-%s", item.ID),
-			Document:   doc,
-			Content:    string(content),
+		// Microsoft documents two pagination terminators: DeltaLink ends
+		// the cycle (this is the cursor for the next tick); NextLink
+		// continues the same cycle (must be drained now). If both are
+		// empty, treat the cycle as ended at the current page.
+		if deltaResp.DeltaLink != "" {
+			newCursor = deltaResp.DeltaLink
+			break
 		}
-
-		changes = append(changes, change)
-	}
-
-	// Update cursor to delta link for next sync
-	newCursor := deltaResp.DeltaLink
-	if newCursor == "" && deltaResp.NextLink != "" {
-		// If there are more pages, continue with nextLink
-		newCursor = deltaResp.NextLink
+		if deltaResp.NextLink == "" {
+			break
+		}
+		pageCursor = deltaResp.NextLink
 	}
 
 	return changes, newCursor, nil
@@ -242,4 +295,20 @@ func (c *Connector) isInContainer(item microsoft.DriveItem) bool {
 func computeContentHash(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
+}
+
+// ReconciliationScopes declares which canonical-ID prefixes this connector
+// snapshot-enumerates for delete detection. OneDrive's delta API natively
+// emits @removed tombstones for deleted items (see FetchChanges at lines
+// 90-96), so snapshot reconciliation is redundant and would be wasteful.
+func (c *Connector) ReconciliationScopes() []string {
+	return nil
+}
+
+// Inventory is structurally unreachable because ReconciliationScopes is
+// empty — the orchestrator's phase-1 loop iterates over zero scopes. The
+// explicit error defends against future callers that might invoke it
+// directly and makes the design intent loud.
+func (c *Connector) Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error) {
+	return nil, driven.ErrInventoryNotSupported
 }

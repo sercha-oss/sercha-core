@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -164,7 +165,16 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 				}
 
 				if err != nil {
-					// Log error but continue with other items
+					// One item's fetch failure must not stop the rest of
+					// the workspace from syncing. Log so operators can
+					// spot it; the cursor doesn't advance for this item
+					// (the continue below skips the lastModified update),
+					// so the next tick will retry naturally.
+					slog.Warn("notion: per-item fetch failed; skipping",
+						"object", result.Object,
+						"id", result.ID,
+						"error", err,
+					)
 					continue
 				}
 
@@ -183,12 +193,17 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 		}
 	}
 
-	// Update cursor to the latest modified time
+	// Update cursor to the latest modified time. Use nanosecond precision:
+	// Notion's last_edited_time is millisecond-precision, and RFC3339's
+	// second-only output combined with the ! After comparison above would
+	// drop any item edited in the same wall-clock second as the cursor.
+	// RFC3339Nano is wire-compatible — time.Parse(time.RFC3339, ...) reads
+	// the nano-suffixed form just fine, so legacy cursors keep working.
 	newCursor := ""
 	if !lastModified.IsZero() {
-		newCursor = lastModified.Format(time.RFC3339)
+		newCursor = lastModified.Format(time.RFC3339Nano)
 	} else if len(changes) > 0 {
-		newCursor = time.Now().Format(time.RFC3339)
+		newCursor = time.Now().Format(time.RFC3339Nano)
 	}
 
 	return changes, newCursor, nil
@@ -461,4 +476,197 @@ func (c *Connector) formatPropertyValue(prop Property) string {
 func computeContentHash(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
+}
+
+// ReconciliationScopes declares which canonical-ID prefixes this connector
+// snapshot-enumerates for delete detection. Notion has no native delete
+// signal — archived pages and deleted databases simply stop appearing in
+// Search/QueryDatabase responses — so every prefix the connector emits
+// must be covered by phase-1 reconciliation.
+//
+// Caveat (#100 finding 7): Notion's Search API does not document stable
+// ordering across paginated calls. A multi-page Inventory walk therefore
+// admits a small risk that an item shifts pages mid-enumeration and is
+// reported missing, leading reconciliation to delete a live page or
+// database. Single-page walks are implicitly consistent. The Inventory
+// implementations log a warning when they paginate so operators can
+// correlate any spurious deletions with the actual risk window.
+// Reconciliation is best-effort under that caveat.
+func (c *Connector) ReconciliationScopes() []string {
+	return []string{"page-", "database-entry-"}
+}
+
+// Inventory enumerates every canonical ID currently present upstream
+// within the given scope. Pagination is "complete-or-error" — any page
+// failure aborts the walk so the orchestrator never deletes against a
+// partial snapshot.
+//
+// When the source is scoped to a single container (page or database),
+// the inventory is restricted to that container so reconciliation can't
+// reach across to delete items in unrelated parts of the workspace.
+func (c *Connector) Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error) {
+	switch scope {
+	case "page-":
+		return c.inventoryPages(ctx)
+	case "database-entry-":
+		return c.inventoryDatabaseEntries(ctx)
+	default:
+		return nil, fmt.Errorf("notion: unknown reconciliation scope %q", scope)
+	}
+}
+
+// inventoryPages enumerates standalone pages — those whose parent is not
+// a database. Database entries are inventoried separately under the
+// "database-entry-" scope so the prefix sets stay disjoint.
+func (c *Connector) inventoryPages(ctx context.Context) ([]string, error) {
+	// containerID points at a single page or database; in the page case
+	// reconciliation against "page-" should only consider that one page,
+	// since the connector emits no other standalone pages for this source.
+	if c.containerID != "" {
+		page, err := c.client.GetPage(ctx, c.containerID)
+		if err != nil {
+			// If it's actually a database, there are no standalone pages
+			// in scope — return an empty inventory rather than erroring.
+			return nil, nil
+		}
+		if page.Archived || page.Parent.Type == "database_id" {
+			return nil, nil
+		}
+		return []string{fmt.Sprintf("page-%s", page.ID)}, nil
+	}
+
+	var ids []string
+	cursor := ""
+	pages := 0
+	filter := &SearchFilter{Property: "object", Value: "page"}
+	for {
+		resp, err := c.client.Search(ctx, filter, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("inventory pages: %w", err)
+		}
+		pages++
+		for _, result := range resp.Results {
+			if result.Object != "page" {
+				continue
+			}
+			if result.Archived {
+				continue
+			}
+			if result.Parent.Type == "database_id" {
+				continue
+			}
+			ids = append(ids, fmt.Sprintf("page-%s", result.ID))
+		}
+		if !resp.HasMore {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	// Notion's Search API does not guarantee stable ordering across
+	// paginated calls. A single-page walk is implicitly consistent;
+	// multi-page walks open a small window for an item to shift pages
+	// mid-enumeration and be falsely reported as missing — which would
+	// cause reconciliation to delete a live page. Surface this so
+	// operators can correlate any spurious deletions with the warning.
+	if pages > 1 {
+		slog.Warn("notion: inventory walk paginated; Search ordering is not stable across pages, deletes are best-effort",
+			"scope", "page-",
+			"pages_fetched", pages,
+			"items_collected", len(ids),
+		)
+	}
+	return ids, nil
+}
+
+// inventoryDatabaseEntries enumerates pages whose parent is a database.
+// Notion has no global "list every entry across all databases" endpoint,
+// so we must walk Search → list databases, then QueryDatabase per database.
+func (c *Connector) inventoryDatabaseEntries(ctx context.Context) ([]string, error) {
+	// Single-container case: if the source is scoped to one database,
+	// only enumerate that database's entries.
+	if c.containerID != "" {
+		// Resolve whether containerID is a database; if it's a page,
+		// there are no database entries in scope.
+		if _, err := c.client.GetDatabase(ctx, c.containerID); err != nil {
+			return nil, nil
+		}
+		return c.enumerateDatabaseEntries(ctx, c.containerID)
+	}
+
+	// Workspace-wide: find every accessible database, then walk each.
+	var databaseIDs []string
+	cursor := ""
+	pages := 0
+	filter := &SearchFilter{Property: "object", Value: "database"}
+	for {
+		resp, err := c.client.Search(ctx, filter, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("inventory: list databases: %w", err)
+		}
+		pages++
+		for _, result := range resp.Results {
+			if result.Object != "database" {
+				continue
+			}
+			if result.Archived {
+				continue
+			}
+			databaseIDs = append(databaseIDs, result.ID)
+		}
+		if !resp.HasMore {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	// Same ordering caveat as inventoryPages: Search is not stable
+	// across paginated calls, so a multi-page walk for the database
+	// list could legitimately miss a database and miss every entry
+	// inside it. Per-database QueryDatabase walks below are
+	// deterministic, so this is the only Search-instability site here.
+	if pages > 1 {
+		slog.Warn("notion: database-list inventory walk paginated; Search ordering is not stable across pages, deletes are best-effort",
+			"scope", "database-entry-",
+			"pages_fetched", pages,
+			"databases_found", len(databaseIDs),
+		)
+	}
+
+	var ids []string
+	for _, dbID := range databaseIDs {
+		entries, err := c.enumerateDatabaseEntries(ctx, dbID)
+		if err != nil {
+			// A single missing database (deleted between Search and
+			// QueryDatabase, or permission lost mid-walk) shouldn't
+			// poison the entire inventory. The whole point of phase-1
+			// is best-effort cleanup; return what we found and let the
+			// next tick try again.
+			continue
+		}
+		ids = append(ids, entries...)
+	}
+	return ids, nil
+}
+
+// enumerateDatabaseEntries walks one database's entries with
+// complete-or-error semantics for that single walk.
+func (c *Connector) enumerateDatabaseEntries(ctx context.Context, databaseID string) ([]string, error) {
+	var ids []string
+	cursor := ""
+	for {
+		resp, err := c.client.QueryDatabase(ctx, databaseID, nil, cursor)
+		if err != nil {
+			return nil, fmt.Errorf("query database %s: %w", databaseID, err)
+		}
+		for _, page := range resp.Results {
+			if page.Archived {
+				continue
+			}
+			ids = append(ids, fmt.Sprintf("database-entry-%s", page.ID))
+		}
+		if !resp.HasMore {
+			break
+		}
+		cursor = resp.NextCursor
+	}
+	return ids, nil
 }

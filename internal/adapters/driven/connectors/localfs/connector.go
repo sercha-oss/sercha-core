@@ -376,3 +376,17 @@ func computeContentHash(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
 }
+
+// ReconciliationScopes declares which canonical-ID prefixes this connector
+// snapshot-enumerates for delete detection. Local filesystem walks would
+// naturally support this (a directory walk is a snapshot), but the
+// implementation lands in a follow-up; returning nil here keeps the
+// orchestrator's phase-1 loop a no-op for localfs until then.
+func (c *Connector) ReconciliationScopes() []string {
+	return nil
+}
+
+// Inventory is a stub until the directory-walk implementation lands.
+func (c *Connector) Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error) {
+	return nil, driven.ErrInventoryNotSupported
+}

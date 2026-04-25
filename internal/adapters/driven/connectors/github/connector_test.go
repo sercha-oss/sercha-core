@@ -133,14 +133,16 @@ func TestConnector_FetchDocument_File(t *testing.T) {
 	encodedContent := base64.StdEncoding.EncodeToString([]byte(fileContent))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" && strings.Contains(r.URL.Path, "/repos/owner/repo/git/blobs/abc123def") {
+		if r.Method == "GET" && strings.Contains(r.URL.Path, "/repos/owner/repo/contents/src/main.go") {
 			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(BlobContent{
+			_ = json.NewEncoder(w).Encode(FileContent{
+				Name:     "main.go",
+				Path:     "src/main.go",
 				SHA:      "abc123def",
 				Content:  encodedContent,
 				Encoding: "base64",
 				Size:     int64(len(fileContent)),
-				URL:      "https://api.github.com/repos/owner/repo/git/blobs/abc123def",
+				HTMLURL:  "https://github.com/owner/repo/blob/HEAD/src/main.go",
 			})
 			return
 		}
@@ -152,18 +154,15 @@ func TestConnector_FetchDocument_File(t *testing.T) {
 	cfg.APIBaseURL = ts.URL
 	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
 
-	doc, contentHash, err := c.FetchDocument(context.Background(), nil, "file-abc123def")
+	doc, contentHash, err := c.FetchDocument(context.Background(), nil, "file-src/main.go")
 	if err != nil {
 		t.Fatalf("FetchDocument() error = %v", err)
 	}
-	if doc.Title != "file-abc123de" {
-		t.Errorf("Title = %q, want file-abc123de (first 8 chars of SHA)", doc.Title)
+	if doc.Title != "src/main.go" {
+		t.Errorf("Title = %q, want src/main.go", doc.Title)
 	}
 	if contentHash == "" {
 		t.Error("expected non-empty content hash")
-	}
-	if doc.Metadata["sha"] != "abc123def" {
-		t.Errorf("Metadata[sha] = %q, want abc123def", doc.Metadata["sha"])
 	}
 }
 
@@ -231,6 +230,119 @@ func TestConnector_FetchDocument_ContentHashDeterministic(t *testing.T) {
 	}
 }
 
+func TestIssue_IsPR(t *testing.T) {
+	t.Run("nil receiver", func(t *testing.T) {
+		var i *Issue
+		if i.IsPR() {
+			t.Error("nil Issue should not report as PR")
+		}
+	})
+	t.Run("absent pull_request key", func(t *testing.T) {
+		var i Issue
+		if err := json.Unmarshal([]byte(`{"number":1,"title":"bug"}`), &i); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if i.IsPR() {
+			t.Error("issue without pull_request key should not report as PR")
+		}
+	})
+	t.Run("present pull_request key", func(t *testing.T) {
+		var i Issue
+		if err := json.Unmarshal([]byte(`{"number":2,"title":"PR","pull_request":{"url":"..."}}`), &i); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if !i.IsPR() {
+			t.Error("issue with pull_request key should report as PR")
+		}
+	})
+}
+
+// TestConnector_FetchChanges_SkipsPRsInIssuesLoop asserts that the issues
+// list response — which GitHub returns with PRs mixed in — does not produce
+// a second indexed copy of each PR. Without the IsPR filter, a PR appears
+// twice: once as `issue-N`, once as `pr-N`.
+func TestConnector_FetchChanges_SkipsPRsInIssuesLoop(t *testing.T) {
+	issuesCalled := 0
+	prsCalled := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/issues"):
+			issuesCalled++
+			w.WriteHeader(http.StatusOK)
+			pr := json.RawMessage(`{"url":"https://api.github.com/repos/owner/repo/pulls/7"}`)
+			_ = json.NewEncoder(w).Encode([]*Issue{
+				{
+					ID:        1,
+					Number:    5,
+					Title:     "real issue",
+					State:     "open",
+					UpdatedAt: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+				},
+				{
+					ID:          2,
+					Number:      7,
+					Title:       "really a PR",
+					State:       "open",
+					UpdatedAt:   time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+					PullRequest: &pr,
+				},
+			})
+		case strings.Contains(r.URL.Path, "/pulls"):
+			prsCalled++
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]*PullRequest{
+				{
+					ID:        2,
+					Number:    7,
+					Title:     "really a PR",
+					State:     "open",
+					Head:      &PRBranch{Ref: "feature"},
+					Base:      &PRBranch{Ref: "main"},
+					UpdatedAt: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC),
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = true
+	cfg.IncludePRs = true
+	cfg.IncludeFiles = false
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	changes, _, err := c.FetchChanges(context.Background(), nil, "2026-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+
+	if issuesCalled == 0 || prsCalled == 0 {
+		t.Fatalf("expected both /issues and /pulls to be called; issues=%d pulls=%d", issuesCalled, prsCalled)
+	}
+
+	var issueIDs, prIDs int
+	for _, ch := range changes {
+		switch {
+		case strings.HasPrefix(ch.ExternalID, "issue-"):
+			issueIDs++
+			if ch.ExternalID == "issue-7" {
+				t.Errorf("PR #7 was indexed as an issue — should be filtered by IsPR()")
+			}
+		case strings.HasPrefix(ch.ExternalID, "pr-"):
+			prIDs++
+		}
+	}
+	if issueIDs != 1 {
+		t.Errorf("want 1 issue change (the real issue #5), got %d", issueIDs)
+	}
+	if prIDs != 1 {
+		t.Errorf("want 1 PR change (#7 from /pulls), got %d", prIDs)
+	}
+}
+
 func TestComputeContentHash(t *testing.T) {
 	// Hash should be deterministic
 	hash1 := computeContentHash("hello world")
@@ -249,4 +361,467 @@ func TestComputeContentHash(t *testing.T) {
 	if len(hash1) != 64 {
 		t.Errorf("hash length = %d, want 64", len(hash1))
 	}
+}
+
+// fileTestServer stands up an httptest server mimicking the subset of the
+// GitHub API the file-sync path exercises: /repos/{o}/{r}, /commits/{ref},
+// /compare/{a}...{b}, /git/trees/{ref}, and /contents/{path}. Each handler
+// is wired through the same shared state so tests can assert what the
+// connector actually hit.
+type fileTestServer struct {
+	headSHA       string
+	defaultBranch string
+	// tree returned for /git/trees/... keyed by ref.
+	trees map[string][]*TreeEntry
+	// contents keyed by path.
+	contents map[string]FileContent
+	// compare indexed by "base...head" → response.
+	compares map[string]*CompareResponse
+	// If compareNotFound is true, all /compare requests return 404.
+	compareNotFound bool
+	// Observed calls.
+	comparesRequested []string
+	treesRequested    []string
+	contentsFetched   []string
+}
+
+func newFileTestServer(headSHA, defaultBranch string) *fileTestServer {
+	return &fileTestServer{
+		headSHA:       headSHA,
+		defaultBranch: defaultBranch,
+		trees:         map[string][]*TreeEntry{},
+		contents:      map[string]FileContent{},
+		compares:      map[string]*CompareResponse{},
+	}
+}
+
+func (f *fileTestServer) handler(t *testing.T) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case strings.HasSuffix(path, "/repos/owner/repo"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(Repository{
+				Name:          "repo",
+				FullName:      "owner/repo",
+				DefaultBranch: f.defaultBranch,
+			})
+		case strings.Contains(path, "/repos/owner/repo/commits/"):
+			// GetCommitSHA resolves a ref to a SHA.
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"sha": f.headSHA})
+		case strings.Contains(path, "/repos/owner/repo/compare/"):
+			spec := strings.TrimPrefix(path, "/repos/owner/repo/compare/")
+			f.comparesRequested = append(f.comparesRequested, spec)
+			if f.compareNotFound {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			resp, ok := f.compares[spec]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(resp)
+		case strings.Contains(path, "/repos/owner/repo/git/trees/"):
+			ref := strings.TrimPrefix(path, "/repos/owner/repo/git/trees/")
+			if i := strings.Index(ref, "?"); i >= 0 {
+				ref = ref[:i]
+			}
+			f.treesRequested = append(f.treesRequested, ref)
+			tree, ok := f.trees[ref]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"tree":      tree,
+				"truncated": false,
+			})
+		case strings.Contains(path, "/repos/owner/repo/contents/"):
+			p := strings.TrimPrefix(path, "/repos/owner/repo/contents/")
+			f.contentsFetched = append(f.contentsFetched, p)
+			content, ok := f.contents[p]
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(content)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+}
+
+func encodeB64(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
+
+// TestFileSync_InitialSyncUsesTreeSnapshot — with no base SHA stored
+// the connector falls through to a full tree walk, emits path-keyed
+// Modified changes for each file, and returns the current head SHA so
+// the next tick can switch to incremental Compare.
+func TestFileSync_InitialSyncUsesTreeSnapshot(t *testing.T) {
+	srv := newFileTestServer("sha-1", "main")
+	srv.trees["main"] = []*TreeEntry{
+		{Path: "README.md", Type: "blob", SHA: "blob-readme", Size: 50},
+		{Path: "src/main.go", Type: "blob", SHA: "blob-main", Size: 120},
+	}
+	srv.contents["README.md"] = FileContent{Path: "README.md", SHA: "blob-readme", Content: encodeB64("# readme"), Encoding: "base64"}
+	srv.contents["src/main.go"] = FileContent{Path: "src/main.go", SHA: "blob-main", Content: encodeB64("package main"), Encoding: "base64"}
+
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = false
+	cfg.IncludePRs = false
+	cfg.IncludeFiles = true
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	changes, cursor, err := c.FetchChanges(context.Background(), nil, "")
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+
+	want := map[string]bool{"file-README.md": true, "file-src/main.go": true}
+	gotIDs := make(map[string]bool)
+	for _, ch := range changes {
+		if ch.Type != domain.ChangeTypeModified {
+			t.Errorf("want ChangeTypeModified, got %q for %s", ch.Type, ch.ExternalID)
+		}
+		gotIDs[ch.ExternalID] = true
+	}
+	for id := range want {
+		if !gotIDs[id] {
+			t.Errorf("missing change for %s", id)
+		}
+	}
+
+	if len(srv.comparesRequested) != 0 {
+		t.Errorf("initial sync must not call compare, got %v", srv.comparesRequested)
+	}
+	if len(srv.treesRequested) == 0 {
+		t.Error("initial sync should walk tree snapshot")
+	}
+
+	state := parseCursor(cursor)
+	if state.LastSHA != "sha-1" {
+		t.Errorf("cursor LastSHA = %q, want sha-1", state.LastSHA)
+	}
+}
+
+// TestFileSync_CompareEmitsMixedChanges — with a base SHA stored, the
+// connector uses Compare and translates each file status into the
+// right Change type. Covers add, modify, remove, rename.
+func TestFileSync_CompareEmitsMixedChanges(t *testing.T) {
+	srv := newFileTestServer("sha-new", "main")
+	srv.compares["sha-old...sha-new"] = &CompareResponse{
+		Status: "ahead",
+		Files: []*CompareFile{
+			{Filename: "README.md", Status: "modified", SHA: "blob-r2", Size: 60},
+			{Filename: "src/added.go", Status: "added", SHA: "blob-a1", Size: 40},
+			{Filename: "src/gone.go", Status: "removed"},
+			{Filename: "docs/new.md", PreviousFilename: "docs/old.md", Status: "renamed", SHA: "blob-rn", Size: 30},
+		},
+	}
+	srv.contents["README.md"] = FileContent{Path: "README.md", SHA: "blob-r2", Content: encodeB64("# readme v2"), Encoding: "base64"}
+	srv.contents["src/added.go"] = FileContent{Path: "src/added.go", SHA: "blob-a1", Content: encodeB64("new file"), Encoding: "base64"}
+	srv.contents["docs/new.md"] = FileContent{Path: "docs/new.md", SHA: "blob-rn", Content: encodeB64("moved"), Encoding: "base64"}
+
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = false
+	cfg.IncludePRs = false
+	cfg.IncludeFiles = true
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	priorCursor := cursorState{LastSHA: "sha-old"}.encode()
+	changes, cursor, err := c.FetchChanges(context.Background(), nil, priorCursor)
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+
+	type want struct {
+		changeType domain.ChangeType
+	}
+	expected := map[string]want{
+		"file-README.md":    {domain.ChangeTypeModified},
+		"file-src/added.go": {domain.ChangeTypeModified},
+		"file-src/gone.go":  {domain.ChangeTypeDeleted},
+		"file-docs/old.md":  {domain.ChangeTypeDeleted},
+		"file-docs/new.md":  {domain.ChangeTypeModified},
+	}
+	got := map[string]domain.ChangeType{}
+	for _, ch := range changes {
+		got[ch.ExternalID] = ch.Type
+	}
+	for id, w := range expected {
+		if got[id] != w.changeType {
+			t.Errorf("%s: got %q, want %q", id, got[id], w.changeType)
+		}
+	}
+	if len(got) != len(expected) {
+		t.Errorf("change count: got %d (%v), want %d (%v)", len(got), got, len(expected), expected)
+	}
+	if len(srv.treesRequested) != 0 {
+		t.Errorf("compare path should not walk tree, but tree requested: %v", srv.treesRequested)
+	}
+	if parseCursor(cursor).LastSHA != "sha-new" {
+		t.Errorf("cursor LastSHA = %q, want sha-new", parseCursor(cursor).LastSHA)
+	}
+}
+
+// TestFileSync_ForcePushFallsBackToSnapshot — when Compare 404s (stored
+// SHA no longer reachable, e.g. rebased main) the connector quietly
+// re-seeds the cursor from the fresh tree walk.
+func TestFileSync_ForcePushFallsBackToSnapshot(t *testing.T) {
+	srv := newFileTestServer("sha-new", "main")
+	srv.compareNotFound = true
+	srv.trees["main"] = []*TreeEntry{
+		{Path: "README.md", Type: "blob", SHA: "blob-r", Size: 10},
+	}
+	srv.contents["README.md"] = FileContent{Path: "README.md", SHA: "blob-r", Content: encodeB64("# readme"), Encoding: "base64"}
+
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = false
+	cfg.IncludePRs = false
+	cfg.IncludeFiles = true
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	priorCursor := cursorState{LastSHA: "sha-gone"}.encode()
+	changes, cursor, err := c.FetchChanges(context.Background(), nil, priorCursor)
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+
+	if len(srv.comparesRequested) == 0 {
+		t.Error("compare should have been attempted")
+	}
+	if len(srv.treesRequested) == 0 {
+		t.Error("expected tree snapshot fallback after compare 404")
+	}
+	if len(changes) != 1 || changes[0].ExternalID != "file-README.md" {
+		t.Errorf("unexpected changes after fallback: %v", changes)
+	}
+	if parseCursor(cursor).LastSHA != "sha-new" {
+		t.Errorf("cursor should be re-seeded to current head, got %q", parseCursor(cursor).LastSHA)
+	}
+}
+
+// TestFileSync_NoPushShortCircuits — when the repo head hasn't moved
+// since the last cursor, no compare is issued and no changes emitted.
+func TestFileSync_NoPushShortCircuits(t *testing.T) {
+	srv := newFileTestServer("sha-same", "main")
+	ts := httptest.NewServer(srv.handler(t))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = false
+	cfg.IncludePRs = false
+	cfg.IncludeFiles = true
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	priorCursor := cursorState{LastSHA: "sha-same"}.encode()
+	changes, cursor, err := c.FetchChanges(context.Background(), nil, priorCursor)
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+	if len(changes) != 0 {
+		t.Errorf("expected 0 changes, got %d", len(changes))
+	}
+	if len(srv.comparesRequested) != 0 {
+		t.Errorf("no-push path should not call compare, got %v", srv.comparesRequested)
+	}
+	if parseCursor(cursor).LastSHA != "sha-same" {
+		t.Errorf("cursor should stay at same sha, got %q", parseCursor(cursor).LastSHA)
+	}
+}
+
+// TestReconciliationScopes_RespectsConfig — declared scopes track which
+// kinds of content the source actually syncs. Files are intentionally
+// absent: the Compare API delta in fetchFileChanges already emits
+// removed/renamed signals natively.
+func TestReconciliationScopes_RespectsConfig(t *testing.T) {
+	cases := []struct {
+		name           string
+		issues, prs    bool
+		wantContains   []string
+		mustNotContain []string
+	}{
+		{"both", true, true, []string{"issue-", "pr-"}, []string{"file-"}},
+		{"issues only", true, false, []string{"issue-"}, []string{"pr-", "file-"}},
+		{"prs only", false, true, []string{"pr-"}, []string{"issue-", "file-"}},
+		{"neither", false, false, nil, []string{"issue-", "pr-", "file-"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.IncludeIssues = tc.issues
+			cfg.IncludePRs = tc.prs
+			c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+			scopes := c.ReconciliationScopes()
+			has := func(s string) bool {
+				for _, x := range scopes {
+					if x == s {
+						return true
+					}
+				}
+				return false
+			}
+			for _, w := range tc.wantContains {
+				if !has(w) {
+					t.Errorf("scopes %v missing %q", scopes, w)
+				}
+			}
+			for _, n := range tc.mustNotContain {
+				if has(n) {
+					t.Errorf("scopes %v must not contain %q", scopes, n)
+				}
+			}
+		})
+	}
+}
+
+// TestInventory_IssuesPaginatesAndFiltersPRs — Inventory("issue-") walks
+// every page of /issues, drops any rows whose pull_request key is set
+// (those belong to "pr-"), and returns canonical IDs.
+func TestInventory_IssuesPaginatesAndFiltersPRs(t *testing.T) {
+	pageHits := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/issues") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		pageHits++
+		page := r.URL.Query().Get("page")
+		w.WriteHeader(http.StatusOK)
+		switch page {
+		case "1", "":
+			// Return 100 issues so the connector probes for page 2.
+			items := make([]*Issue, 100)
+			pr := json.RawMessage(`{"url":"x"}`)
+			for i := 0; i < 100; i++ {
+				items[i] = &Issue{Number: i + 1, State: "open"}
+				if i == 99 {
+					// Last one is a PR — must be excluded from inventory.
+					items[i].PullRequest = &pr
+				}
+			}
+			_ = json.NewEncoder(w).Encode(items)
+		case "2":
+			// One real issue + nothing else, so probing stops.
+			_ = json.NewEncoder(w).Encode([]*Issue{{Number: 200, State: "closed"}})
+		default:
+			_ = json.NewEncoder(w).Encode([]*Issue{})
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = true
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	ids, err := c.Inventory(context.Background(), nil, "issue-")
+	if err != nil {
+		t.Fatalf("Inventory: %v", err)
+	}
+	if pageHits < 2 {
+		t.Errorf("expected at least 2 pages requested, got %d", pageHits)
+	}
+	// 99 issues from page 1 (PR filtered) + 1 from page 2 = 100.
+	if len(ids) != 100 {
+		t.Errorf("want 100 inventory IDs, got %d", len(ids))
+	}
+	// PR's number was 100; must not appear in inventory.
+	for _, id := range ids {
+		if id == "issue-100" {
+			t.Errorf("PR leaked into issue inventory: %q", id)
+		}
+	}
+}
+
+// TestInventory_FailsOnAnyPageError — the orchestrator depends on
+// "complete-or-error". A mid-walk failure must not return a partial
+// list, since that would drive false deletes.
+func TestInventory_FailsOnAnyPageError(t *testing.T) {
+	pageHits := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/issues") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		pageHits++
+		if pageHits == 1 {
+			// First page succeeds with a full 100 items so the connector
+			// asks for page 2.
+			items := make([]*Issue, 100)
+			for i := 0; i < 100; i++ {
+				items[i] = &Issue{Number: i + 1, State: "open"}
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(items)
+			return
+		}
+		// Page 2 fails non-retryably (avoid the 5xx exponential backoff
+		// the client would otherwise spin through).
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = true
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	ids, err := c.Inventory(context.Background(), nil, "issue-")
+	if err == nil {
+		t.Fatalf("expected error on page-2 failure, got %d ids and nil err", len(ids))
+	}
+	if ids != nil {
+		t.Errorf("partial inventory leaked: %d ids returned alongside error", len(ids))
+	}
+}
+
+// TestParseCursor_BackCompat — bare RFC3339 cursors from before the
+// struct format are still understood as LastModified-only.
+func TestParseCursor_BackCompat(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		if got := parseCursor(""); !got.LastModified.IsZero() || got.LastSHA != "" {
+			t.Errorf("empty cursor: got %+v, want zero value", got)
+		}
+	})
+	t.Run("legacy RFC3339", func(t *testing.T) {
+		got := parseCursor("2026-04-01T12:00:00Z")
+		if got.LastModified.IsZero() {
+			t.Error("legacy cursor: LastModified should be set")
+		}
+		if got.LastSHA != "" {
+			t.Errorf("legacy cursor: LastSHA = %q, want empty", got.LastSHA)
+		}
+	})
+	t.Run("struct cursor", func(t *testing.T) {
+		enc := cursorState{
+			LastModified: time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC),
+			LastSHA:      "abc123",
+		}.encode()
+		got := parseCursor(enc)
+		if got.LastSHA != "abc123" {
+			t.Errorf("LastSHA = %q, want abc123", got.LastSHA)
+		}
+	})
 }
