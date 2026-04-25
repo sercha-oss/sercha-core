@@ -122,18 +122,18 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 		}
 	}
 
-	// Fetch pull requests if enabled
+	// Fetch pull requests if enabled. Note we do *not* let PR UpdatedAt
+	// advance lastModified: that watermark is only used as `since` on the
+	// next ListIssues call, and the PR endpoint is re-fetched in full
+	// every sync (no `since` filter on /pulls). Folding PRs into the
+	// issue cursor would push it past unmodified-but-still-present
+	// issues, who'd then drop out of the next sync's window forever.
 	if c.config.IncludePRs {
 		prChanges, err := c.fetchPRChanges(ctx)
 		if err != nil {
 			return nil, "", fmt.Errorf("fetch PRs: %w", err)
 		}
 		changes = append(changes, prChanges...)
-		for _, change := range prChanges {
-			if change.Document != nil && change.Document.UpdatedAt.After(lastModified) {
-				lastModified = change.Document.UpdatedAt
-			}
-		}
 	}
 
 	// Fetch files every tick. When we have a previous head SHA we use the

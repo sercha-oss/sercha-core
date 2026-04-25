@@ -343,6 +343,58 @@ func TestConnector_FetchChanges_SkipsPRsInIssuesLoop(t *testing.T) {
 	}
 }
 
+// TestConnector_FetchChanges_PRTimestampDoesNotAdvanceIssueCursor —
+// the persisted cursor's LastModified is reused as `since` on the next
+// ListIssues call. If a PR's UpdatedAt (which is typically newer than
+// any issue's, since PRs churn faster) bumps that watermark, real
+// issues older than the freshest PR drop out of the next sync's window.
+// /pulls is fetched in full each tick (no `since` filter), so it has no
+// business advancing the issue cursor.
+func TestConnector_FetchChanges_PRTimestampDoesNotAdvanceIssueCursor(t *testing.T) {
+	issueUpdatedAt := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	prUpdatedAt := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC) // newer than the issue
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/issues"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]*Issue{
+				{ID: 1, Number: 5, Title: "real issue", State: "open", UpdatedAt: issueUpdatedAt},
+			})
+		case strings.Contains(r.URL.Path, "/pulls"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]*PullRequest{
+				{
+					ID: 2, Number: 7, Title: "newer PR", State: "open",
+					Head:      &PRBranch{Ref: "feature"},
+					Base:      &PRBranch{Ref: "main"},
+					UpdatedAt: prUpdatedAt,
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	cfg.IncludeIssues = true
+	cfg.IncludePRs = true
+	cfg.IncludeFiles = false
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	_, cursor, err := c.FetchChanges(context.Background(), nil, "2026-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatalf("FetchChanges: %v", err)
+	}
+
+	got := parseCursor(cursor)
+	if !got.LastModified.Equal(issueUpdatedAt) {
+		t.Errorf("LastModified = %s, want %s (issue's UpdatedAt; PRs must not advance the issue cursor)",
+			got.LastModified.Format(time.RFC3339), issueUpdatedAt.Format(time.RFC3339))
+	}
+}
+
 func TestComputeContentHash(t *testing.T) {
 	// Hash should be deterministic
 	hash1 := computeContentHash("hello world")
