@@ -159,6 +159,7 @@ func (m *mockVectorIndex) HealthCheck(ctx context.Context) error {
 type mockEmbedder struct {
 	embedding   []float32
 	shouldError bool
+	callCount   int
 }
 
 func (m *mockEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
@@ -166,6 +167,7 @@ func (m *mockEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 }
 
 func (m *mockEmbedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
+	m.callCount++
 	if m.shouldError {
 		return nil, errors.New("embedding error")
 	}
@@ -706,6 +708,78 @@ func TestMultiRetrieverStage_Process_HybridMode(t *testing.T) {
 	}
 	if !sources["vector"] {
 		t.Error("missing vector source in hybrid mode")
+	}
+}
+
+// Regression: when admin pref VectorSearchEnabled=false plumbs through as
+// disable_vector=true on the stage, vector retrieval is skipped even though
+// vectorIndex and embedder are wired up.
+func TestMultiRetrieverStage_Process_DisableVectorSkipsVectorPath(t *testing.T) {
+	searchEngine := newMockSearchEngine()
+	searchEngine.setResults("test", []driven.DocumentResult{
+		{DocumentID: "d1", SourceID: "src-1", Title: "Doc 1", Content: "content 1", Score: 5.0},
+	})
+
+	vectorIdx := &mockVectorIndex{
+		searchResult: []driven.VectorSearchResult{
+			{ChunkID: "c2", DocumentID: "d2", Content: "content 2", Distance: 0.2},
+		},
+	}
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3}}
+
+	stage := &MultiRetrieverStage{
+		descriptor:              NewMultiRetrieverFactory().Descriptor(),
+		searchEngine:            searchEngine,
+		vectorIndex:             vectorIdx,
+		embedder:                embedder,
+		topK:                    100,
+		rrfK:                    DefaultRRFK,
+		vectorDistanceThreshold: DefaultVectorDistanceThreshold,
+		disableVector:           true,
+	}
+
+	result, err := stage.Process(context.Background(), []*pipeline.ParsedQuery{
+		{Original: "test", Terms: []string{"test"}},
+	})
+	if err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	candidates := result.([]*pipeline.Candidate)
+	if len(candidates) != 1 {
+		t.Fatalf("len(candidates) = %d, want 1 (BM25 only — vector should be disabled)", len(candidates))
+	}
+	if candidates[0].Source != "bm25" {
+		t.Errorf("candidate source = %q, want bm25", candidates[0].Source)
+	}
+	if embedder.callCount != 0 {
+		t.Errorf("embedder called %d times, want 0 (vector path should be skipped before embedding)", embedder.callCount)
+	}
+}
+
+// Regression: factory honours the disable_vector parameter from stage config.
+func TestMultiRetrieverFactory_Create_DisableVectorParam(t *testing.T) {
+	factory := NewMultiRetrieverFactory()
+	caps := pipeline.NewCapabilitySet()
+	caps.Add(pipeline.CapabilitySearchEngine, "test", newMockSearchEngine())
+	caps.Add(pipeline.CapabilityVectorStore, "test", &mockVectorIndex{})
+	caps.Add(pipeline.CapabilityEmbedder, "test", &mockEmbedder{})
+
+	stage, err := factory.Create(pipeline.StageConfig{
+		StageID:    MultiRetrieverStageID,
+		Enabled:    true,
+		Parameters: map[string]any{"disable_vector": true},
+	}, caps)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	retriever, ok := stage.(*MultiRetrieverStage)
+	if !ok {
+		t.Fatalf("Create() returned %T, want *MultiRetrieverStage", stage)
+	}
+	if !retriever.disableVector {
+		t.Error("disableVector = false, want true (set via disable_vector stage parameter)")
 	}
 }
 

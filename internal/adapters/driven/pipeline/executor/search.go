@@ -47,6 +47,11 @@ func (e *SearchExecutor) Execute(
 		return nil, fmt.Errorf("pipeline not found: %s", sctx.PipelineID)
 	}
 
+	// Apply preference-based stage configuration
+	if sctx.Preferences != nil {
+		def = applyPreferences(def, sctx.Preferences)
+	}
+
 	// Collect required capabilities from all stages
 	requiredCaps := e.collectRequiredCapabilities(def)
 
@@ -141,6 +146,33 @@ func (e *SearchExecutor) collectRequiredCapabilities(def pipeline.PipelineDefini
 		result = append(result, req)
 	}
 	return result
+}
+
+// applyPreferences applies search-side admin preferences to the pipeline definition.
+// Today this only honours VectorSearchEnabled, by setting the multi-retriever's
+// disable_vector parameter so its runSearch skips the pgvector path. Other prefs
+// (BM25-only, query expansion, etc.) can be plumbed here as additional cases.
+func applyPreferences(def pipeline.PipelineDefinition, prefs *pipeline.StagePreferences) pipeline.PipelineDefinition {
+	stages := make([]pipeline.StageConfig, len(def.Stages))
+	copy(stages, def.Stages)
+
+	for i := range stages {
+		if stages[i].StageID != "multi-retriever" {
+			continue
+		}
+		if prefs.VectorSearchEnabled {
+			continue
+		}
+		params := make(map[string]any, len(stages[i].Parameters)+1)
+		for k, v := range stages[i].Parameters {
+			params[k] = v
+		}
+		params["disable_vector"] = true
+		stages[i].Parameters = params
+	}
+
+	def.Stages = stages
+	return def
 }
 
 // Ensure SearchExecutor implements the interface.

@@ -90,6 +90,8 @@ func (f *MultiRetrieverFactory) Create(config pipeline.StageConfig, capabilities
 		vectorDistanceThreshold = t
 	}
 
+	disableVector, _ := config.Parameters["disable_vector"].(bool)
+
 	return &MultiRetrieverStage{
 		descriptor:              f.descriptor,
 		searchEngine:            searchEngine,
@@ -98,6 +100,7 @@ func (f *MultiRetrieverFactory) Create(config pipeline.StageConfig, capabilities
 		topK:                    topK,
 		rrfK:                    rrfK,
 		vectorDistanceThreshold: vectorDistanceThreshold,
+		disableVector:           disableVector,
 	}, nil
 }
 
@@ -111,6 +114,7 @@ type MultiRetrieverStage struct {
 	topK                    int
 	rrfK                    int
 	vectorDistanceThreshold float64
+	disableVector           bool
 }
 
 func (s *MultiRetrieverStage) Descriptor() pipeline.StageDescriptor { return s.descriptor }
@@ -190,8 +194,9 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 
 	candidates = append(candidates, convertDocResultsToCandidates(bm25Results, "bm25")...)
 
-	// Vector search (optional - only if both vectorIndex and embedder are available)
-	if s.vectorIndex != nil && s.embedder != nil {
+	// Vector search (optional - only if both vectorIndex and embedder are available
+	// and the admin pref VectorSearchEnabled hasn't disabled it via stage config)
+	if !s.disableVector && s.vectorIndex != nil && s.embedder != nil {
 		queryEmbedding, err := s.embedder.EmbedQuery(ctx, q.Original)
 		if err != nil {
 			return candidates, nil
