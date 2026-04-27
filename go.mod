@@ -19,6 +19,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/xuri/excelize/v2 v2.10.1
 	golang.org/x/crypto v0.48.0
+	golang.org/x/net v0.50.0
 	golang.org/x/time v0.15.0
 )
 
@@ -71,7 +72,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/mod v0.33.0 // indirect
-	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
