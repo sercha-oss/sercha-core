@@ -128,6 +128,220 @@ func TestConnector_FetchDocument_PR(t *testing.T) {
 	}
 }
 
+// Issue conversation comments are appended as a `## Comments` section,
+// each one as a `### @author (date)` sub-heading. The section markers
+// let the chunker split per-comment downstream.
+func TestConnector_FetchDocument_Issue_AppendsComments(t *testing.T) {
+	var commentsRequested bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/issues/42/comments"):
+			commentsRequested = true
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]IssueComment{
+				{
+					ID:        100,
+					Body:      "first comment body",
+					User:      &User{Login: "alice"},
+					CreatedAt: time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC),
+				},
+				{
+					ID:        101,
+					Body:      "second comment body",
+					User:      &User{Login: "bob"},
+					CreatedAt: time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC),
+				},
+			})
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/issues/42"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(Issue{
+				Number:    42,
+				Title:     "Test Issue",
+				Body:      "Issue body content",
+				State:     "open",
+				User:      &User{Login: "testuser"},
+				Comments:  2, // > 0 triggers the comment fetch
+				CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				UpdatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	// FetchDocument doesn't return content directly — it returns a hash.
+	// Reach into formatIssueContent via the same path the connector uses.
+	issue, err := c.client.GetIssue(context.Background(), "owner", "repo", 42)
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+	body := c.formatIssueContent(context.Background(), issue)
+
+	if !commentsRequested {
+		t.Error("comments endpoint was not called")
+	}
+	for _, want := range []string{
+		"## Comments",
+		"### @alice (2024-01-03)",
+		"first comment body",
+		"### @bob (2024-01-04)",
+		"second comment body",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in body:\n%s", want, body)
+		}
+	}
+}
+
+// When Issue.Comments is 0, the connector skips the API call entirely —
+// no point fetching empty pages for the common case.
+func TestConnector_FetchDocument_Issue_SkipsCommentFetchWhenCountIsZero(t *testing.T) {
+	var commentsRequested bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/comments") {
+			commentsRequested = true
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]IssueComment{})
+			return
+		}
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/issues/42") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(Issue{
+				Number:   42,
+				Title:    "T",
+				Comments: 0,
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	issue, _ := c.client.GetIssue(context.Background(), "owner", "repo", 42)
+	_ = c.formatIssueContent(context.Background(), issue)
+	if commentsRequested {
+		t.Error("comments endpoint should not be called when Comments == 0")
+	}
+}
+
+// A failing comments fetch must not abort the sync — the issue body
+// alone is still useful. The connector logs and returns content
+// without comments.
+func TestConnector_FetchDocument_Issue_CommentFetchErrorIsTolerated(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/comments") {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/issues/42") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(Issue{Number: 42, Title: "T", Body: "main body", Comments: 5})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	issue, _ := c.client.GetIssue(context.Background(), "owner", "repo", 42)
+	body := c.formatIssueContent(context.Background(), issue)
+
+	if !strings.Contains(body, "main body") {
+		t.Errorf("expected issue body to survive even on comment fetch failure:\n%s", body)
+	}
+	if strings.Contains(body, "## Comments") {
+		t.Errorf("did not expect Comments section when fetch failed:\n%s", body)
+	}
+}
+
+// PRs get three buckets: conversation comments (issues/{n}/comments),
+// review comments (pulls/{n}/comments), and reviews (pulls/{n}/reviews).
+// Each appears as its own ## section.
+func TestConnector_FetchDocument_PR_AppendsAllCommentBuckets(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/issues/10/comments"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]IssueComment{{
+				ID: 1, Body: "conversation comment", User: &User{Login: "alice"},
+				CreatedAt: time.Date(2024, 2, 6, 0, 0, 0, 0, time.UTC),
+			}})
+		case strings.HasSuffix(r.URL.Path, "/pulls/10/comments"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]PRReviewComment{{
+				ID: 2, Body: "review comment on a line", User: &User{Login: "bob"},
+				Path: "src/main.go", Line: 42,
+				CreatedAt: time.Date(2024, 2, 7, 0, 0, 0, 0, time.UTC),
+			}})
+		case strings.HasSuffix(r.URL.Path, "/pulls/10/reviews"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]PRReview{{
+				ID: 3, Body: "looks good to me", State: "APPROVED", User: &User{Login: "charlie"},
+				SubmittedAt: time.Date(2024, 2, 8, 0, 0, 0, 0, time.UTC),
+			}})
+		case strings.HasSuffix(r.URL.Path, "/pulls/10"):
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(PullRequest{
+				Number: 10, Title: "Test PR", Body: "PR description",
+				Head: &PRBranch{Ref: "feat"}, Base: &PRBranch{Ref: "main"},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := DefaultConfig()
+	cfg.APIBaseURL = ts.URL
+	c := NewConnector(&stubTokenProvider{}, "owner", "repo", cfg)
+
+	pr, err := c.client.GetPullRequest(context.Background(), "owner", "repo", 10)
+	if err != nil {
+		t.Fatalf("GetPullRequest: %v", err)
+	}
+	body := c.formatPRContent(context.Background(), pr)
+
+	for _, want := range []string{
+		"## Comments",
+		"conversation comment",
+		"## Review comments",
+		"### @bob on src/main.go:42",
+		"review comment on a line",
+		"## Reviews",
+		"### @charlie approved (2024-02-08)",
+		"looks good to me",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in PR body:\n%s", want, body)
+		}
+	}
+}
+
+// Reviews with empty bodies (every "approve" click GitHub records as a
+// review even with no message) must not produce an empty section.
+func TestConnector_AppendReviews_DropsEmptyBodyReviews(t *testing.T) {
+	var sb strings.Builder
+	appendReviews(&sb, []*PRReview{
+		{User: &User{Login: "alice"}, State: "APPROVED", Body: ""},
+		{User: &User{Login: "bob"}, State: "APPROVED", Body: ""},
+	})
+	if sb.Len() != 0 {
+		t.Errorf("empty-body reviews should not produce a section, got:\n%s", sb.String())
+	}
+}
+
 func TestConnector_FetchDocument_File(t *testing.T) {
 	fileContent := "package main\n\nfunc main() {}\n"
 	encodedContent := base64.StdEncoding.EncodeToString([]byte(fileContent))
