@@ -18,6 +18,7 @@ type mockSearchEngine struct {
 	queryResults map[string][]driven.DocumentResult
 	callCount    int
 	queries      []string
+	lastOpts     domain.SearchOptions
 	shouldError  bool
 }
 
@@ -52,6 +53,7 @@ func (m *mockSearchEngine) SearchDocuments(ctx context.Context, query string, op
 
 	m.callCount++
 	m.queries = append(m.queries, query)
+	m.lastOpts = opts
 
 	if m.shouldError {
 		return nil, 0, errors.New("search error")
@@ -708,6 +710,41 @@ func TestMultiRetrieverStage_Process_HybridMode(t *testing.T) {
 	}
 	if !sources["vector"] {
 		t.Error("missing vector source in hybrid mode")
+	}
+}
+
+// Regression: phrases parsed from a quoted query reach SearchOptions.Phrases
+// for the OpenSearch adapter to turn into match_phrase clauses. The previous
+// behaviour passed q.Original (with the literal quote characters) as the
+// query string, which the standard analyser stripped as punctuation —
+// silently demoting "merge sort" to two unrelated tokens.
+func TestMultiRetrieverStage_Process_PhrasesPlumbedToSearchOptions(t *testing.T) {
+	searchEngine := newMockSearchEngine()
+	stage := &MultiRetrieverStage{
+		descriptor:              NewMultiRetrieverFactory().Descriptor(),
+		searchEngine:            searchEngine,
+		topK:                    100,
+		rrfK:                    DefaultRRFK,
+		vectorDistanceThreshold: DefaultVectorDistanceThreshold,
+	}
+
+	parsed := &pipeline.ParsedQuery{
+		Original: `stable "merge sort"`,
+		Terms:    []string{"stable"},
+		Phrases:  []string{"merge sort"},
+	}
+	if _, err := stage.Process(context.Background(), []*pipeline.ParsedQuery{parsed}); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	if len(searchEngine.queries) != 1 {
+		t.Fatalf("want 1 BM25 call, got %d", len(searchEngine.queries))
+	}
+	if got := searchEngine.queries[0]; got != "stable" {
+		t.Errorf("BM25 query string = %q, want %q (phrases must NOT be in the query string)", got, "stable")
+	}
+	if len(searchEngine.lastOpts.Phrases) != 1 || searchEngine.lastOpts.Phrases[0] != "merge sort" {
+		t.Errorf("opts.Phrases = %v, want [merge sort]", searchEngine.lastOpts.Phrases)
 	}
 }
 

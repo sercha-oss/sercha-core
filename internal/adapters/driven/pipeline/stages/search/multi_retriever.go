@@ -171,20 +171,22 @@ func (s *MultiRetrieverStage) Process(ctx context.Context, input any) (any, erro
 func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQuery) ([]*pipeline.Candidate, error) {
 	var candidates []*pipeline.Candidate
 
-	queryStr := q.Original
-	if queryStr == "" {
-		queryStr = strings.Join(q.Terms, " ")
-		if len(q.Phrases) > 0 {
-			queryStr += " " + strings.Join(q.Phrases, " ")
-		}
+	// Pass terms as the loose-match query string, phrases via SearchOptions so
+	// the OpenSearch adapter can build match_phrase clauses for them. Using
+	// q.Original would leak the literal `"` characters into the analyser,
+	// which strips them as punctuation and silently degrades the phrase to
+	// two unrelated tokens.
+	queryStr := strings.Join(q.Terms, " ")
+	if queryStr == "" && len(q.Phrases) == 0 {
+		queryStr = q.Original
 	}
 
-	// BM25 search (required)
 	opts := domain.SearchOptions{
 		Limit:            s.topK,
 		Mode:             domain.SearchModeTextOnly,
 		SourceIDs:        q.SearchFilters.Sources,
 		DocumentIDFilter: q.SearchFilters.DocumentIDFilter,
+		Phrases:          q.Phrases,
 	}
 
 	bm25Results, _, err := s.searchEngine.SearchDocuments(ctx, queryStr, opts)

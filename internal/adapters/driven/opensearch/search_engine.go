@@ -136,19 +136,37 @@ func (s *SearchEngine) IndexDocument(ctx context.Context, doc *domain.DocumentCo
 
 // SearchDocuments performs a BM25 text search returning document-level results.
 func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts domain.SearchOptions) ([]driven.DocumentResult, int, error) {
-	// Build search query against both title and content fields
+	// Bool.must is a logical AND across must clauses, so the loose match plus
+	// each match_phrase clause all need to be satisfied. That's the right
+	// semantics for quoted phrases — `merge sort "stable on equal keys"`
+	// should require the phrase to appear, not just contribute score.
+	mustClauses := []any{
+		map[string]any{
+			"multi_match": map[string]any{
+				"query":     query,
+				"fields":    []string{"title^3", "content"},
+				"type":      "most_fields",
+				"fuzziness": "AUTO", // 0 edits ≤2 chars, 1 edit 3-5, 2 edits 6+
+			},
+		},
+	}
+	for _, phrase := range opts.Phrases {
+		if strings.TrimSpace(phrase) == "" {
+			continue
+		}
+		mustClauses = append(mustClauses, map[string]any{
+			"multi_match": map[string]any{
+				"query":  phrase,
+				"fields": []string{"title^3", "content"},
+				"type":   "phrase",
+			},
+		})
+	}
+
 	searchQuery := map[string]any{
 		"query": map[string]any{
 			"bool": map[string]any{
-				"must": []any{
-					map[string]any{
-						"multi_match": map[string]any{
-							"query":  query,
-							"fields": []string{"title^3", "content"},
-							"type":   "most_fields",
-						},
-					},
-				},
+				"must": mustClauses,
 			},
 		},
 		"from": opts.Offset,
@@ -250,17 +268,31 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 
 // Search performs a BM25 text search
 func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error) {
-	// Build search query
+	mustClauses := []any{
+		map[string]any{
+			"match": map[string]any{
+				"content": map[string]any{
+					"query":     query,
+					"fuzziness": "AUTO",
+				},
+			},
+		},
+	}
+	for _, phrase := range opts.Phrases {
+		if strings.TrimSpace(phrase) == "" {
+			continue
+		}
+		mustClauses = append(mustClauses, map[string]any{
+			"match_phrase": map[string]any{
+				"content": phrase,
+			},
+		})
+	}
+
 	searchQuery := map[string]any{
 		"query": map[string]any{
 			"bool": map[string]any{
-				"must": []any{
-					map[string]any{
-						"match": map[string]any{
-							"content": query,
-						},
-					},
-				},
+				"must": mustClauses,
 			},
 		},
 		"from": opts.Offset,
@@ -530,7 +562,18 @@ func (s *SearchEngine) ensureIndex(ctx context.Context) error {
 		return nil
 	}
 
-	// Create index with document-level mapping
+	// Create index with document-level mapping.
+	//
+	// The english analyser lowercases, strips english stop words, and applies
+	// porter stemming — so "authentication" indexes as "authent" and a query
+	// for "auth" or "authenticate" still matches. The previous standard
+	// analyser only lowercased + tokenised, leaving morphological variants
+	// unreachable without LLM query expansion.
+	//
+	// title.raw is a keyword sub-field for exact-match deduplication and
+	// future sort-by-title support. _id-based dedup is already covered by
+	// document_id; .raw is for cases where two distinct documents share a
+	// title (e.g. a Notion duplicate page).
 	mapping := map[string]any{
 		"mappings": map[string]any{
 			"properties": map[string]any{
@@ -542,11 +585,16 @@ func (s *SearchEngine) ensureIndex(ctx context.Context) error {
 				},
 				"title": map[string]any{
 					"type":     "text",
-					"analyzer": "standard",
+					"analyzer": "english",
+					"fields": map[string]any{
+						"raw": map[string]any{
+							"type": "keyword",
+						},
+					},
 				},
 				"content": map[string]any{
 					"type":     "text",
-					"analyzer": "standard",
+					"analyzer": "english",
 				},
 				"path": map[string]any{
 					"type": "keyword",

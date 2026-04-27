@@ -2392,6 +2392,203 @@ func TestSearchEngine_BoostTermsQueryStructure(t *testing.T) {
 	}
 }
 
+// TestSearchEngine_SearchDocuments_QueryStructure validates the OpenSearch query
+// shape: a fuzzy multi_match plus one phrase clause per opts.Phrases entry,
+// all in bool.must so phrases are required (not just score-boosting).
+func TestSearchEngine_SearchDocuments_QueryStructure(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		phrases []string
+		check   func(*testing.T, []any)
+	}{
+		{
+			name:    "no phrases — single fuzzy multi_match clause",
+			query:   "merge sort",
+			phrases: nil,
+			check: func(t *testing.T, must []any) {
+				if len(must) != 1 {
+					t.Fatalf("want 1 must clause, got %d", len(must))
+				}
+				mm := must[0].(map[string]any)["multi_match"].(map[string]any)
+				if mm["query"] != "merge sort" {
+					t.Errorf("query = %v, want %q", mm["query"], "merge sort")
+				}
+				if mm["fuzziness"] != "AUTO" {
+					t.Errorf("fuzziness = %v, want AUTO", mm["fuzziness"])
+				}
+				if mm["type"] != "most_fields" {
+					t.Errorf("type = %v, want most_fields", mm["type"])
+				}
+			},
+		},
+		{
+			name:    "single phrase — fuzzy multi_match plus phrase multi_match",
+			query:   "stable",
+			phrases: []string{"merge sort"},
+			check: func(t *testing.T, must []any) {
+				if len(must) != 2 {
+					t.Fatalf("want 2 must clauses (loose + phrase), got %d", len(must))
+				}
+				phrase := must[1].(map[string]any)["multi_match"].(map[string]any)
+				if phrase["query"] != "merge sort" {
+					t.Errorf("phrase query = %v, want %q", phrase["query"], "merge sort")
+				}
+				if phrase["type"] != "phrase" {
+					t.Errorf("phrase clause type = %v, want phrase", phrase["type"])
+				}
+				fields := phrase["fields"].([]any)
+				if len(fields) != 2 || fields[0] != "title^3" || fields[1] != "content" {
+					t.Errorf("phrase fields = %v, want [title^3, content]", fields)
+				}
+			},
+		},
+		{
+			name:    "multiple phrases — one must clause each",
+			query:   "rust",
+			phrases: []string{"zero cost", "borrow checker"},
+			check: func(t *testing.T, must []any) {
+				if len(must) != 3 {
+					t.Fatalf("want 3 must clauses (loose + 2 phrases), got %d", len(must))
+				}
+				seen := make(map[string]bool)
+				for _, c := range must[1:] {
+					mm := c.(map[string]any)["multi_match"].(map[string]any)
+					if mm["type"] != "phrase" {
+						t.Errorf("non-phrase clause snuck in: %v", mm)
+					}
+					seen[mm["query"].(string)] = true
+				}
+				if !seen["zero cost"] || !seen["borrow checker"] {
+					t.Errorf("missing phrase: %v", seen)
+				}
+			},
+		},
+		{
+			name:    "blank phrases are dropped",
+			query:   "test",
+			phrases: []string{"", "   ", "real phrase"},
+			check: func(t *testing.T, must []any) {
+				if len(must) != 2 {
+					t.Fatalf("want 2 must clauses (loose + 1 real phrase), got %d", len(must))
+				}
+				phrase := must[1].(map[string]any)["multi_match"].(map[string]any)
+				if phrase["query"] != "real phrase" {
+					t.Errorf("phrase query = %v, want %q", phrase["query"], "real phrase")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+					var reqBody map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+						t.Fatalf("decode request: %v", err)
+					}
+					must := reqBody["query"].(map[string]any)["bool"].(map[string]any)["must"].([]any)
+					tt.check(t, must)
+
+					w.WriteHeader(http.StatusOK)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"hits": map[string]any{
+							"total": map[string]any{"value": 0},
+							"hits":  []map[string]any{},
+						},
+					})
+					return
+				}
+			}))
+			defer ts.Close()
+
+			engine, err := NewSearchEngine(Config{
+				URL:       ts.URL,
+				IndexName: "sercha_chunks",
+				Timeout:   5 * time.Second,
+			})
+			if err != nil {
+				t.Fatalf("NewSearchEngine: %v", err)
+			}
+
+			_, _, err = engine.SearchDocuments(context.Background(), tt.query, domain.SearchOptions{
+				Limit:   10,
+				Phrases: tt.phrases,
+			})
+			if err != nil {
+				t.Errorf("SearchDocuments: %v", err)
+			}
+		})
+	}
+}
+
+// TestSearchEngine_EnsureIndex_Mapping validates the index mapping uses the
+// english analyser (with stemming/stop words) and a title.raw keyword sub-field.
+func TestSearchEngine_EnsureIndex_Mapping(t *testing.T) {
+	var capturedMapping map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "HEAD":
+			// Index doesn't exist — force ensureIndex to create it.
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == "PUT":
+			if err := json.NewDecoder(r.Body).Decode(&capturedMapping); err != nil {
+				t.Fatalf("decode mapping: %v", err)
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{"acknowledged": true})
+		case r.Method == "POST" && strings.Contains(r.URL.Path, "_doc"):
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": "created"})
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{
+		URL:       ts.URL,
+		IndexName: "sercha_chunks",
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	// ensureIndex runs lazily on first IndexDocument call.
+	if err := engine.IndexDocument(context.Background(), &domain.DocumentContent{
+		DocumentID: "d1",
+		Title:      "test",
+		Body:       "body",
+	}); err != nil {
+		t.Fatalf("IndexDocument: %v", err)
+	}
+
+	if capturedMapping == nil {
+		t.Fatal("ensureIndex never sent a PUT — mapping not captured")
+	}
+	props := capturedMapping["mappings"].(map[string]any)["properties"].(map[string]any)
+
+	title := props["title"].(map[string]any)
+	if title["analyzer"] != "english" {
+		t.Errorf("title analyzer = %v, want english", title["analyzer"])
+	}
+	titleFields, ok := title["fields"].(map[string]any)
+	if !ok {
+		t.Fatal("title.fields missing — title.raw sub-field not configured")
+	}
+	rawField := titleFields["raw"].(map[string]any)
+	if rawField["type"] != "keyword" {
+		t.Errorf("title.raw type = %v, want keyword", rawField["type"])
+	}
+
+	content := props["content"].(map[string]any)
+	if content["analyzer"] != "english" {
+		t.Errorf("content analyzer = %v, want english", content["analyzer"])
+	}
+}
+
 // TestSearchEngine_InterfaceCompliance validates interface implementation
 func TestSearchEngine_InterfaceCompliance(t *testing.T) {
 	// This test verifies that SearchEngine implements the driven.SearchEngine interface
