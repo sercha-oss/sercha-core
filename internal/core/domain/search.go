@@ -26,6 +26,12 @@ type SearchOptions struct {
 	// main query terms — without this the standard analyser drops the quotes
 	// and a "merge sort" search collapses into two unrelated tokens.
 	Phrases []string `json:"phrases,omitempty"`
+
+	// PipelineID optionally selects a registered search pipeline by ID.
+	// Empty string falls back to the default ("default-search"). Callers
+	// can register additional pipelines via PipelineRegistry and route
+	// per-request by setting this field.
+	PipelineID string `json:"pipeline_id,omitempty"`
 }
 
 // Filters provides additional search filters
@@ -65,11 +71,3 @@ type SearchResultItem struct {
 	IndexedAt  time.Time `json:"indexed_at"`
 }
 
-// RankedChunk is kept for backward compatibility with the legacy Search port.
-// Deprecated: Use SearchResultItem instead.
-type RankedChunk struct {
-	Chunk      *Chunk    `json:"chunk"`
-	Document   *Document `json:"document"`
-	Score      float64   `json:"score"`
-	Highlights []string  `json:"highlights,omitempty"`
-}

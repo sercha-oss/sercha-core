@@ -128,38 +128,6 @@ func TestSearchResult(t *testing.T) {
 	}
 }
 
-func TestRankedChunk(t *testing.T) {
-	chunk := &Chunk{
-		ID:         "chunk-1",
-		DocumentID: "doc-1",
-		Content:    "test content",
-	}
-	doc := &Document{
-		ID:    "doc-1",
-		Title: "Test Document",
-	}
-
-	ranked := &RankedChunk{
-		Chunk:      chunk,
-		Document:   doc,
-		Score:      0.95,
-		Highlights: []string{"<em>test</em> content"},
-	}
-
-	if ranked.Chunk.ID != "chunk-1" {
-		t.Errorf("expected chunk ID chunk-1, got %s", ranked.Chunk.ID)
-	}
-	if ranked.Document.ID != "doc-1" {
-		t.Errorf("expected document ID doc-1, got %s", ranked.Document.ID)
-	}
-	if ranked.Score != 0.95 {
-		t.Errorf("expected score 0.95, got %f", ranked.Score)
-	}
-	if len(ranked.Highlights) != 1 {
-		t.Errorf("expected 1 highlight, got %d", len(ranked.Highlights))
-	}
-}
-
 func TestSearchOptionsWithBoostTerms(t *testing.T) {
 	tests := []struct {
 		name       string

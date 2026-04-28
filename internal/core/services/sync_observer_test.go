@@ -95,19 +95,9 @@ func createTestSyncOrchestratorWithObserver(
 
 	executor := &mockIndexingExecutor{
 		executeFn: func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
-			chunk := &domain.Chunk{
-				ID:         input.DocumentID + "-chunk-0",
-				DocumentID: input.DocumentID,
-				SourceID:   pctx.SourceID,
-				Content:    input.Content,
-				Position:   0,
-			}
-			if searchEngine != nil {
-				_ = searchEngine.Index(ctx, []*domain.Chunk{chunk})
-			}
 			return &pipeline.IndexingOutput{
 				DocumentID: input.DocumentID,
-				ChunkIDs:   []string{chunk.ID},
+				ChunkIDs:   []string{input.DocumentID + "-chunk-0"},
 			}, nil
 		},
 	}

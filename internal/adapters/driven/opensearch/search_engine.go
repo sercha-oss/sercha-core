@@ -16,82 +16,6 @@ import (
 // Ensure interface compliance
 var _ driven.SearchEngine = (*SearchEngine)(nil)
 
-// Index indexes chunks for searching
-func (s *SearchEngine) Index(ctx context.Context, chunks []*domain.Chunk) error {
-	if len(chunks) == 0 {
-		return nil
-	}
-
-	// Ensure index exists with correct mapping
-	if err := s.ensureIndex(ctx); err != nil {
-		return fmt.Errorf("failed to ensure index: %w", err)
-	}
-
-	// Build bulk request body
-	var buf bytes.Buffer
-	for _, chunk := range chunks {
-		// Index action
-		action := map[string]any{
-			"index": map[string]any{
-				"_index": s.indexName,
-				"_id":    chunk.ID,
-			},
-		}
-		if err := json.NewEncoder(&buf).Encode(action); err != nil {
-			return fmt.Errorf("failed to encode action: %w", err)
-		}
-
-		// Document
-		doc := map[string]any{
-			"id":             chunk.ID,
-			"document_id":    chunk.DocumentID,
-			"source_id":      chunk.SourceID,
-			"content":        chunk.Content,
-			"chunk_position": chunk.Position,
-		}
-		if err := json.NewEncoder(&buf).Encode(doc); err != nil {
-			return fmt.Errorf("failed to encode document: %w", err)
-		}
-	}
-
-	// Execute bulk request
-	req := opensearchapi.BulkReq{
-		Body: bytes.NewReader(buf.Bytes()),
-	}
-
-	resp, err := s.client.Bulk(ctx, req)
-	if err != nil {
-		return fmt.Errorf("bulk index failed: %w", err)
-	}
-
-	// Check for HTTP errors via Inspect
-	if httpResp := resp.Inspect().Response; httpResp != nil && httpResp.StatusCode != 200 {
-		body, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("bulk index failed with status %d: %s", httpResp.StatusCode, string(body))
-	}
-
-	// Check for item-level errors using typed response
-	if resp.Errors {
-		var errs []string
-		for i, item := range resp.Items {
-			for _, v := range item {
-				if v.Error != nil && v.Error.Type != "" {
-					errs = append(errs, fmt.Sprintf("item %d: %s - %s", i, v.Error.Type, v.Error.Reason))
-					if len(errs) >= 5 {
-						break
-					}
-				}
-			}
-			if len(errs) >= 5 {
-				break
-			}
-		}
-		return fmt.Errorf("bulk index had errors: %s", strings.Join(errs, "; "))
-	}
-
-	return nil
-}
-
 // IndexDocument indexes a full document for BM25 text search.
 // Uses document_id as the OpenSearch document _id for upsert semantics.
 func (s *SearchEngine) IndexDocument(ctx context.Context, doc *domain.DocumentContent) error {
@@ -163,30 +87,45 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		})
 	}
 
-	searchQuery := map[string]any{
-		"query": map[string]any{
-			"bool": map[string]any{
-				"must": mustClauses,
-			},
-		},
-		"from": opts.Offset,
-		"size": opts.Limit,
-		"highlight": map[string]any{
-			"fields": map[string]any{
-				"content": map[string]any{
-					"fragment_size":       200,
-					"number_of_fragments": 3,
-				},
-				"title": map[string]any{
-					"fragment_size":       200,
-					"number_of_fragments": 1,
-				},
-			},
-		},
+	searchQuery := s.buildBoolEnvelope(mustClauses, opts)
+	return s.executeSearch(ctx, searchQuery)
+}
+
+// SearchByQueryDSL runs an arbitrary OpenSearch query body inside the
+// adapter's standard bool envelope (filters, highlights, pagination).
+// Caller owns the inner query shape — useful when the standard match-based
+// retrieval doesn't fit (e.g. function_score, custom rescoring, or any
+// other query DSL the existing methods don't expose).
+//
+// queryBody is wrapped as a single must clause; opts.SourceIDs and
+// opts.DocumentIDFilter still apply as filter clauses, so the standard
+// access boundaries are preserved. opts.BoostTerms still produce
+// should clauses for score boosting. opts.Offset and opts.Limit drive
+// from/size pagination.
+//
+// Not on the driven.SearchEngine port — callers reach this method via
+// runtime type-assertion on the concrete *opensearch.SearchEngine, so
+// alternative backends aren't forced to implement arbitrary OpenSearch
+// DSL.
+func (s *SearchEngine) SearchByQueryDSL(ctx context.Context, queryBody json.RawMessage, opts domain.SearchOptions) ([]driven.DocumentResult, int, error) {
+	if len(queryBody) == 0 {
+		return nil, 0, fmt.Errorf("queryBody is empty")
+	}
+	mustClauses := []any{json.RawMessage(queryBody)}
+	searchQuery := s.buildBoolEnvelope(mustClauses, opts)
+	return s.executeSearch(ctx, searchQuery)
+}
+
+// buildBoolEnvelope wraps a slice of must clauses in the standard bool
+// query envelope: must + optional should (boost terms) + optional filter
+// (source/document filters), plus pagination and highlights. Shared by
+// SearchDocuments and SearchByQueryDSL so they apply filters and
+// highlights identically.
+func (s *SearchEngine) buildBoolEnvelope(mustClauses []any, opts domain.SearchOptions) map[string]any {
+	boolQuery := map[string]any{
+		"must": mustClauses,
 	}
 
-	// Add boost terms as should clauses
-	boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
 	if len(opts.BoostTerms) > 0 {
 		shouldClauses := []any{}
 		for term, boost := range opts.BoostTerms {
@@ -201,7 +140,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		boolQuery["should"] = shouldClauses
 	}
 
-	// Add filters if specified
 	var filterClauses []any
 	if len(opts.SourceIDs) > 0 {
 		filterClauses = append(filterClauses, map[string]any{
@@ -214,7 +152,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 	//   - Apply && len(IDs) > 0: allow-list on document_id.
 	if f := opts.DocumentIDFilter; f != nil && f.Apply {
 		if len(f.IDs) == 0 {
-			// Deny-all: append a clause that matches nothing.
 			filterClauses = append(filterClauses, map[string]any{
 				"ids": map[string]any{"values": []string{}},
 			})
@@ -228,6 +165,30 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		boolQuery["filter"] = filterClauses
 	}
 
+	return map[string]any{
+		"query": map[string]any{"bool": boolQuery},
+		"from":  opts.Offset,
+		"size":  opts.Limit,
+		"highlight": map[string]any{
+			"fields": map[string]any{
+				"content": map[string]any{
+					"fragment_size":       200,
+					"number_of_fragments": 3,
+				},
+				"title": map[string]any{
+					"fragment_size":       200,
+					"number_of_fragments": 1,
+				},
+			},
+		},
+	}
+}
+
+// executeSearch marshals the prepared query, hits OpenSearch, and parses
+// the typed response into []DocumentResult. Index-not-found errors are
+// translated to an empty result set so a fresh deployment doesn't 500
+// before the first document is indexed.
+func (s *SearchEngine) executeSearch(ctx context.Context, searchQuery map[string]any) ([]driven.DocumentResult, int, error) {
 	queryBody, err := json.Marshal(searchQuery)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to marshal query: %w", err)
@@ -240,7 +201,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 
 	resp, err := s.client.Search(ctx, req)
 	if err != nil {
-		// Index doesn't exist yet — return empty results instead of 500
 		if isIndexNotFoundError(err) {
 			return []driven.DocumentResult{}, 0, nil
 		}
@@ -264,185 +224,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 	}
 
 	return results, resp.Hits.Total.Value, nil
-}
-
-// Search performs a BM25 text search
-func (s *SearchEngine) Search(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error) {
-	mustClauses := []any{
-		map[string]any{
-			"match": map[string]any{
-				"content": map[string]any{
-					"query":     query,
-					"fuzziness": "AUTO",
-				},
-			},
-		},
-	}
-	for _, phrase := range opts.Phrases {
-		if strings.TrimSpace(phrase) == "" {
-			continue
-		}
-		mustClauses = append(mustClauses, map[string]any{
-			"match_phrase": map[string]any{
-				"content": phrase,
-			},
-		})
-	}
-
-	searchQuery := map[string]any{
-		"query": map[string]any{
-			"bool": map[string]any{
-				"must": mustClauses,
-			},
-		},
-		"from": opts.Offset,
-		"size": opts.Limit,
-		"highlight": map[string]any{
-			"fields": map[string]any{
-				"content": map[string]any{
-					"fragment_size":       200,
-					"number_of_fragments": 3,
-				},
-			},
-		},
-	}
-
-	// Add boost terms as should clauses
-	boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
-	if len(opts.BoostTerms) > 0 {
-		shouldClauses := []any{}
-		for term, boost := range opts.BoostTerms {
-			shouldClauses = append(shouldClauses, map[string]any{
-				"multi_match": map[string]any{
-					"query":  term,
-					"fields": []string{"title", "content"},
-					"boost":  boost,
-				},
-			})
-		}
-		boolQuery["should"] = shouldClauses
-	}
-
-	// Add filters if specified
-	var filterClauses []any
-	if len(opts.SourceIDs) > 0 {
-		filterClauses = append(filterClauses, map[string]any{
-			"terms": map[string]any{"source_id": opts.SourceIDs},
-		})
-	}
-	// Three-case contract on opts.DocumentIDFilter:
-	//   - nil or !Apply: no filter clause.
-	//   - Apply && len(IDs) == 0: authoritative deny-all; emit a match-nothing clause.
-	//   - Apply && len(IDs) > 0: allow-list on document_id.
-	if f := opts.DocumentIDFilter; f != nil && f.Apply {
-		if len(f.IDs) == 0 {
-			// Deny-all: append a clause that matches nothing.
-			filterClauses = append(filterClauses, map[string]any{
-				"ids": map[string]any{"values": []string{}},
-			})
-		} else {
-			filterClauses = append(filterClauses, map[string]any{
-				"terms": map[string]any{"document_id": f.IDs},
-			})
-		}
-	}
-	if len(filterClauses) > 0 {
-		boolQuery["filter"] = filterClauses
-	}
-
-	// Marshal query
-	queryBody, err := json.Marshal(searchQuery)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to marshal query: %w", err)
-	}
-
-	// Execute search
-	req := &opensearchapi.SearchReq{
-		Indices: []string{s.indexName},
-		Body:    bytes.NewReader(queryBody),
-	}
-
-	resp, err := s.client.Search(ctx, req)
-	if err != nil {
-		// Index doesn't exist yet — return empty results instead of 500
-		if isIndexNotFoundError(err) {
-			return []*domain.RankedChunk{}, 0, nil
-		}
-		return nil, 0, fmt.Errorf("search failed: %w", err)
-	}
-
-	// Convert typed response to domain objects
-	results := make([]*domain.RankedChunk, 0, len(resp.Hits.Hits))
-	for _, hit := range resp.Hits.Hits {
-		// Parse source
-		var source map[string]any
-		if err := json.Unmarshal(hit.Source, &source); err != nil {
-			return nil, 0, fmt.Errorf("failed to unmarshal source: %w", err)
-		}
-
-		chunk := &domain.Chunk{
-			ID:         hit.ID,
-			DocumentID: getString(source, "document_id"),
-			SourceID:   getString(source, "source_id"),
-			Content:    getString(source, "content"),
-			Position:   getInt(source, "chunk_position"),
-		}
-
-		// Extract highlights
-		var highlights []string
-		if hl, ok := hit.Highlight["content"]; ok {
-			highlights = hl
-		}
-
-		rankedChunk := &domain.RankedChunk{
-			Chunk:      chunk,
-			Score:      float64(hit.Score),
-			Highlights: highlights,
-		}
-
-		results = append(results, rankedChunk)
-	}
-
-	return results, resp.Hits.Total.Value, nil
-}
-
-// Delete deletes chunks by IDs
-func (s *SearchEngine) Delete(ctx context.Context, chunkIDs []string) error {
-	if len(chunkIDs) == 0 {
-		return nil
-	}
-
-	// Build bulk delete request
-	var buf bytes.Buffer
-	for _, id := range chunkIDs {
-		action := map[string]any{
-			"delete": map[string]any{
-				"_index": s.indexName,
-				"_id":    id,
-			},
-		}
-		if err := json.NewEncoder(&buf).Encode(action); err != nil {
-			return fmt.Errorf("failed to encode delete action: %w", err)
-		}
-	}
-
-	// Execute bulk request
-	req := opensearchapi.BulkReq{
-		Body: bytes.NewReader(buf.Bytes()),
-	}
-
-	resp, err := s.client.Bulk(ctx, req)
-	if err != nil {
-		return fmt.Errorf("bulk delete failed: %w", err)
-	}
-
-	// Check for HTTP errors
-	if httpResp := resp.Inspect().Response; httpResp != nil && httpResp.StatusCode != 200 {
-		body, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("bulk delete failed with status %d: %s", httpResp.StatusCode, string(body))
-	}
-
-	return nil
 }
 
 // DeleteByDocument deletes all chunks for a document

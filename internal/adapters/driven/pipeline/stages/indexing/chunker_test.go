@@ -378,37 +378,6 @@ func TestChunkerStage_TinySectionsMergeForward(t *testing.T) {
 	}
 }
 
-// Inside a fenced code block, lines starting with `#` are comments (Python,
-// shell, CSS selectors, Go cgo directives) — not headings. The chunker must
-// not split on them or it will produce nonsense sections from code samples.
-func TestChunkerStage_DoesNotSplitInsideCodeFences(t *testing.T) {
-	bigBody := strings.Repeat("real prose talking about the example. ", 20)
-	codeBlock := "```python\n" +
-		"# this is a Python comment, not an H1\n" +
-		"# def foo():\n" +
-		"#   return 1\n" +
-		"```\n"
-
-	// Newline before the fence so it opens on its own line — CommonMark
-	// requires this, and every normaliser/connector that emits fences
-	// (Notion, GitHub) follows that convention.
-	sections := splitSections("## Real heading\n\n" + bigBody + "\n" + codeBlock + bigBody)
-
-	// Exactly one section — `## Real heading`. The `#` lines inside the
-	// fence must not have spawned additional sections.
-	if len(sections) != 1 {
-		t.Fatalf("want 1 section, got %d:\n%v", len(sections), sectionHeadings(sections))
-	}
-	if sections[0].heading != "## Real heading" {
-		t.Errorf("section heading = %q, want %q", sections[0].heading, "## Real heading")
-	}
-	// The Python comments must end up in the section body (not stripped
-	// or spawning new sections).
-	if !strings.Contains(sections[0].body, "# this is a Python comment, not an H1") {
-		t.Error("python comment body got dropped")
-	}
-}
-
 func TestChunkerStage_InvalidInput(t *testing.T) {
 	factory := NewChunkerFactory()
 	stage, _ := factory.Create(pipeline.StageConfig{}, nil)
@@ -432,10 +401,3 @@ func chunkContents(chunks []*pipeline.Chunk) []string {
 	return out
 }
 
-func sectionHeadings(sections []section) []string {
-	out := make([]string, len(sections))
-	for i, s := range sections {
-		out[i] = s.heading
-	}
-	return out
-}

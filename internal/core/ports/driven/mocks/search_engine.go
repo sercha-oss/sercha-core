@@ -31,20 +31,6 @@ func NewMockSearchEngine() *MockSearchEngine {
 	}
 }
 
-func (m *MockSearchEngine) Index(ctx context.Context, chunks []*domain.Chunk) error {
-	// Legacy chunk-level indexing - store as doc entries keyed by chunk ID for backward compat
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, chunk := range chunks {
-		m.docs[chunk.ID] = &docEntry{
-			DocumentID: chunk.DocumentID,
-			SourceID:   chunk.SourceID,
-			Content:    chunk.Content,
-		}
-	}
-	return nil
-}
-
 func (m *MockSearchEngine) IndexDocument(ctx context.Context, doc *domain.DocumentContent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -57,56 +43,6 @@ func (m *MockSearchEngine) IndexDocument(ctx context.Context, doc *domain.Docume
 		MimeType:   doc.MimeType,
 	}
 	return nil
-}
-
-func (m *MockSearchEngine) Search(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var results []*domain.RankedChunk
-	queryLower := strings.ToLower(query)
-
-	for id, doc := range m.docs {
-		if len(opts.SourceIDs) > 0 {
-			found := false
-			for _, sourceID := range opts.SourceIDs {
-				if doc.SourceID == sourceID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-		}
-
-		if strings.Contains(strings.ToLower(doc.Content), queryLower) || strings.Contains(strings.ToLower(doc.Title), queryLower) {
-			results = append(results, &domain.RankedChunk{
-				Chunk: &domain.Chunk{
-					ID:         id,
-					DocumentID: doc.DocumentID,
-					SourceID:   doc.SourceID,
-					Content:    doc.Content,
-				},
-				Score:      1.0,
-				Highlights: []string{doc.Content},
-			})
-		}
-	}
-
-	total := len(results)
-	if opts.Offset >= len(results) {
-		return []*domain.RankedChunk{}, total, nil
-	}
-	end := opts.Offset + opts.Limit
-	if end > len(results) {
-		end = len(results)
-	}
-	if opts.Limit <= 0 {
-		end = len(results)
-	}
-
-	return results[opts.Offset:end], total, nil
 }
 
 func (m *MockSearchEngine) SearchDocuments(ctx context.Context, query string, opts domain.SearchOptions) ([]driven.DocumentResult, int, error) {
@@ -154,15 +90,6 @@ func (m *MockSearchEngine) SearchDocuments(ctx context.Context, query string, op
 	}
 
 	return results[opts.Offset:end], total, nil
-}
-
-func (m *MockSearchEngine) Delete(ctx context.Context, chunkIDs []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, id := range chunkIDs {
-		delete(m.docs, id)
-	}
-	return nil
 }
 
 func (m *MockSearchEngine) DeleteByDocument(ctx context.Context, documentID string) error {

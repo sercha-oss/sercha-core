@@ -105,14 +105,21 @@ func (s *searchService) searchWithPipeline(
 		pipelineInput.Filters.DocumentIDFilter = opts.DocumentIDFilter
 	}
 
-	// Build pipeline context
+	// Build pipeline context. PipelineID falls back to default-search
+	// when the caller didn't set one — keeps existing behaviour for
+	// callers that don't know about per-request pipeline routing.
+	pipelineID := opts.PipelineID
+	if pipelineID == "" {
+		pipelineID = "default-search"
+	}
 	pipelineContext := &pipeline.SearchContext{
-		PipelineID: "default-search",
+		PipelineID: pipelineID,
 		Filters:    pipelineInput.Filters,
 		Pagination: pipeline.PaginationConfig{
 			Offset: opts.Offset,
 			Limit:  opts.Limit,
 		},
+		BoostTerms: opts.BoostTerms,
 	}
 
 	// Start with defaults: BM25 enabled, vector disabled

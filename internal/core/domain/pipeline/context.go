@@ -35,6 +35,14 @@ type SearchContext struct {
 	Preferences  *StagePreferences `json:"-"`          // User capability preferences
 	Filters      SearchFilters     `json:"filters"`
 	Pagination   PaginationConfig  `json:"pagination"`
+
+	// BoostTerms carries user-supplied keyword boost factors (term →
+	// multiplier) into the pipeline. Stages that build their own queries
+	// can use this to apply the boost; the OpenSearch adapter still reads
+	// the same map directly off SearchOptions for the standard query
+	// path, so this field is additive — adding it doesn't change
+	// existing behaviour.
+	BoostTerms map[string]float64 `json:"boost_terms,omitempty"`
 }
 
 // SearchFilters contains user-applied search filters.

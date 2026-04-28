@@ -1821,42 +1821,6 @@ func (s *Server) handleListSyncStates(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, states)
 }
 
-// Document chunk endpoints
-
-// handleGetDocumentChunks godoc
-// @Summary      Get document chunks
-// @Description  Get all chunks for a specific document. Chunks are the indexed segments of a document used for search.
-// @Tags         Documents
-// @Produce      json
-// @Security     BearerAuth
-// @Param        id   path      string  true  "Document ID"
-// @Success      200  {object}  domain.DocumentWithChunks
-// @Failure      400  {object}  ErrorResponse  "Missing document ID"
-// @Failure      401  {object}  ErrorResponse  "Unauthorized"
-// @Failure      404  {object}  ErrorResponse  "Document not found"
-// @Failure      500  {object}  ErrorResponse  "Internal server error"
-// @Router       /documents/{id}/chunks [get]
-func (s *Server) handleGetDocumentChunks(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		WriteError(w, http.StatusBadRequest, "missing document id")
-		return
-	}
-
-	doc, err := s.docService.GetWithChunks(r.Context(), id)
-	if err != nil {
-		switch err {
-		case domain.ErrNotFound:
-			WriteError(w, http.StatusNotFound, "document not found")
-		default:
-			WriteError(w, http.StatusInternalServerError, "failed to get document chunks: "+err.Error())
-		}
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, doc)
-}
-
 // Source document endpoints
 
 // SourceDocumentsResponse represents a paginated list of documents for a source

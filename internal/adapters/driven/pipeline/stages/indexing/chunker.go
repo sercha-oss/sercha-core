@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/stages/chunking"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/stages/textfilter"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
@@ -15,11 +16,6 @@ const (
 	ChunkerStageID      = "chunker"
 	DefaultChunkSize    = 1024
 	DefaultChunkOverlap = 100
-	// MinSectionLength is the body-length threshold below which a section
-	// is merged forward into the next section. Connectors emit `# Title\n\nbody`
-	// as the first lines of every doc; without this, "Title" becomes a
-	// 10-character chunk on its own — too small to embed usefully.
-	MinSectionLength = 256
 )
 
 // ChunkerFactory creates chunker stages.
@@ -104,13 +100,6 @@ func (s *ChunkerStage) Process(ctx context.Context, input any) (any, error) {
 	return chunks, nil
 }
 
-// section is one record produced by splitSections — a heading line (or "")
-// plus the body text up to the next heading.
-type section struct {
-	heading string // e.g. "## Auth flow", or "" for pre-heading prelude
-	body    string
-}
-
 // chunkText splits text into chunks. If the input has any ATX headings
 // outside of fenced code blocks, it splits on those and emits one or more
 // chunks per section (size-windowed within long sections, with the heading
@@ -121,8 +110,8 @@ func (s *ChunkerStage) chunkText(documentID, sourceID, mimeType, text string) []
 	}
 	text = strings.TrimSpace(text)
 
-	sections := splitSections(text)
-	if len(sections) <= 1 && sections[0].heading == "" {
+	sections := chunking.SplitSections(text)
+	if len(sections) <= 1 && sections[0].Heading == "" {
 		// No headings detected — preserve the existing size-based behaviour
 		// verbatim. The forward-progress guards here are load-bearing for
 		// the non-text-skip case (regression test
@@ -130,11 +119,11 @@ func (s *ChunkerStage) chunkText(documentID, sourceID, mimeType, text string) []
 		return s.windowText(documentID, sourceID, mimeType, text, "")
 	}
 
-	sections = mergeTinySections(sections, MinSectionLength)
+	sections = chunking.MergeTinySections(sections, chunking.MinSectionLength)
 
 	var chunks []*pipeline.Chunk
 	for _, sec := range sections {
-		secChunks := s.windowText(documentID, sourceID, mimeType, sec.body, sec.heading)
+		secChunks := s.windowText(documentID, sourceID, mimeType, sec.Body, sec.Heading)
 		chunks = append(chunks, secChunks...)
 	}
 	// Re-number positions across the document so consumers see a stable
@@ -223,154 +212,6 @@ func (s *ChunkerStage) windowText(documentID, sourceID, mimeType, body, heading 
 	}
 
 	return chunks
-}
-
-// splitSections walks the text line by line, tracking fenced-code state,
-// and produces a flat slice of {heading, body} records. If no headings are
-// found outside fenced blocks, returns a single record with an empty
-// heading and the entire text as body (signal to fall back to size-based
-// chunking).
-//
-// Markdown ATX headings only — fenced code lines starting with `#` are NOT
-// treated as headings. Comments inside Python/Go/shell code blocks routinely
-// look like `# something` and would otherwise produce spurious sections.
-func splitSections(text string) []section {
-	lines := strings.Split(text, "\n")
-	var sections []section
-	var currentHeading string
-	var currentBody strings.Builder
-	inFence := false
-
-	flush := func() {
-		body := strings.TrimSpace(currentBody.String())
-		if currentHeading == "" && body == "" {
-			return
-		}
-		sections = append(sections, section{heading: currentHeading, body: body})
-		currentBody.Reset()
-	}
-
-	for _, line := range lines {
-		// Toggle fenced-code state on lines that start with ``` (allowing
-		// optional language suffix). We don't try to be clever about
-		// indented/tilde fences — if a corpus needs them, extend here.
-		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "```") {
-			inFence = !inFence
-			currentBody.WriteString(line)
-			currentBody.WriteByte('\n')
-			continue
-		}
-
-		if !inFence && isATXHeading(line) {
-			flush()
-			currentHeading = strings.TrimSpace(line)
-			continue
-		}
-
-		currentBody.WriteString(line)
-		currentBody.WriteByte('\n')
-	}
-	flush()
-
-	if len(sections) == 0 {
-		return []section{{heading: "", body: strings.TrimSpace(text)}}
-	}
-	return sections
-}
-
-// isATXHeading reports whether a line is an ATX-style markdown heading
-// (`#`..`######` followed by a space and at least one non-space character).
-// Lines like `#foo` (no space) or `#` alone are rejected so we don't mistake
-// hashtag-style content or empty lines for headings.
-func isATXHeading(line string) bool {
-	trimmed := strings.TrimLeft(line, " \t")
-	if !strings.HasPrefix(trimmed, "#") {
-		return false
-	}
-	level := 0
-	for level < len(trimmed) && trimmed[level] == '#' {
-		level++
-	}
-	if level == 0 || level > 6 {
-		return false
-	}
-	if level >= len(trimmed) || trimmed[level] != ' ' {
-		return false
-	}
-	return strings.TrimSpace(trimmed[level+1:]) != ""
-}
-
-// mergeTinySections folds short sections forward into the next section's
-// body. The connectors all emit `# Title\n\nbody` as the first lines of
-// every document; without this, "Title" alone is the prelude of the first
-// section and produces a chunk that's just the title — embedding-cheap and
-// signal-weak.
-//
-// A section is "tiny" if its body is shorter than threshold. The merge
-// preserves the heading line as the first line of the merged body so the
-// downstream embedder still sees the title text — just attached to enough
-// context to be useful.
-func mergeTinySections(sections []section, threshold int) []section {
-	if len(sections) <= 1 {
-		return sections
-	}
-
-	out := make([]section, 0, len(sections))
-	var pending []section // sections waiting to be folded into the next
-
-	flushPending := func(target *section) {
-		if len(pending) == 0 {
-			return
-		}
-		var b strings.Builder
-		for _, p := range pending {
-			if p.heading != "" {
-				b.WriteString(p.heading)
-				b.WriteString("\n\n")
-			}
-			if p.body != "" {
-				b.WriteString(p.body)
-				b.WriteString("\n\n")
-			}
-		}
-		b.WriteString(target.body)
-		target.body = strings.TrimSpace(b.String())
-		pending = pending[:0]
-	}
-
-	for i := range sections {
-		sec := sections[i]
-		if len(sec.body) < threshold && i < len(sections)-1 {
-			// Not the last section — defer it.
-			pending = append(pending, sec)
-			continue
-		}
-		flushPending(&sec)
-		out = append(out, sec)
-	}
-
-	// Anything still pending means the trailing sections were all tiny.
-	// Append them as a final chunk rather than dropping them.
-	if len(pending) > 0 {
-		var b strings.Builder
-		for i, p := range pending {
-			if p.heading != "" {
-				b.WriteString(p.heading)
-				b.WriteString("\n\n")
-			}
-			if p.body != "" {
-				b.WriteString(p.body)
-				if i < len(pending)-1 {
-					b.WriteString("\n\n")
-				}
-			}
-		}
-		body := strings.TrimSpace(b.String())
-		if body != "" {
-			out = append(out, section{heading: "", body: body})
-		}
-	}
-	return out
 }
 
 // Ensure ChunkerFactory implements StageFactory.

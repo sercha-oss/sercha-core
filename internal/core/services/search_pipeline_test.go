@@ -8,7 +8,18 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven/mocks"
+	"github.com/sercha-oss/sercha-core/internal/runtime"
 )
+
+// createTestServices builds runtime services for search-side tests.
+func createTestServices(embeddingService *mocks.MockEmbeddingService) *runtime.Services {
+	config := domain.NewRuntimeConfig("postgres")
+	services := runtime.NewServices(config)
+	if embeddingService != nil {
+		services.SetEmbeddingService(embeddingService)
+	}
+	return services
+}
 
 // mockSearchExecutor is a mock implementation of SearchExecutor for testing
 type mockSearchExecutor struct {
@@ -38,6 +49,83 @@ func (m *mockSearchExecutor) Execute(ctx context.Context, sctx *pipeline.SearchC
 			TotalMs: 10,
 		},
 	}, nil
+}
+
+// TestSearchService_BoostTerms_FlowToContext verifies that user-supplied
+// boost terms reach pipeline stages via SearchContext. The OpenSearch
+// adapter still reads them directly off SearchOptions for the standard
+// query path; this plumbing is for custom retriever stages that build
+// their own queries.
+func TestSearchService_BoostTerms_FlowToContext(t *testing.T) {
+	searchEngine := mocks.NewMockSearchEngine()
+	documentStore := mocks.NewMockDocumentStore()
+	runtimeServices := createTestServices(mocks.NewMockEmbeddingService())
+
+	var capturedBoost map[string]float64
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			capturedBoost = sctx.BoostTerms
+			return &pipeline.SearchOutput{}, nil
+		},
+	}
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	boost := map[string]float64{"kubernetes": 2.0, "helm": 1.5}
+	_, err := svc.Search(context.Background(), "q", domain.SearchOptions{
+		Limit:      10,
+		BoostTerms: boost,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(capturedBoost) != 2 {
+		t.Fatalf("captured BoostTerms len = %d, want 2: %v", len(capturedBoost), capturedBoost)
+	}
+	if capturedBoost["kubernetes"] != 2.0 || capturedBoost["helm"] != 1.5 {
+		t.Errorf("boost terms not propagated correctly: %v", capturedBoost)
+	}
+}
+
+// TestSearchService_PipelineID_RoutingHonoursOptsValue verifies that
+// callers can route to a custom registered pipeline by setting
+// SearchOptions.PipelineID. Empty falls back to "default-search".
+func TestSearchService_PipelineID_RoutingHonoursOptsValue(t *testing.T) {
+	cases := []struct {
+		name         string
+		optsID       string
+		wantPipeline string
+	}{
+		{"empty falls back to default", "", "default-search"},
+		{"custom id is honoured", "my-custom-pipeline", "my-custom-pipeline"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			searchEngine := mocks.NewMockSearchEngine()
+			documentStore := mocks.NewMockDocumentStore()
+			runtimeServices := createTestServices(mocks.NewMockEmbeddingService())
+
+			var capturedPipelineID string
+			executor := &mockSearchExecutor{
+				executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+					capturedPipelineID = sctx.PipelineID
+					return &pipeline.SearchOutput{}, nil
+				},
+			}
+			svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
+
+			_, err := svc.Search(context.Background(), "q", domain.SearchOptions{
+				Limit:      10,
+				PipelineID: tc.optsID,
+			})
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			if capturedPipelineID != tc.wantPipeline {
+				t.Errorf("pipeline = %q, want %q", capturedPipelineID, tc.wantPipeline)
+			}
+		})
+	}
 }
 
 // TestSearchService_WithSearchExecutor tests that SearchService uses pipeline executor when provided

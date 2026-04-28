@@ -324,14 +324,6 @@ func TestSourceService_Delete(t *testing.T) {
 	}
 	_ = documentStore.Save(context.Background(), doc)
 
-	chunk := &domain.Chunk{
-		ID:         "chunk-123",
-		DocumentID: "doc-123",
-		SourceID:   "source-123",
-		Content:    "Test content",
-	}
-	_ = searchEngine.Index(context.Background(), []*domain.Chunk{chunk})
-
 	syncState := &domain.SyncState{
 		SourceID: "source-123",
 		Status:   domain.SyncStatusIdle,

@@ -242,8 +242,6 @@ func (s *Server) setupRoutes() {
 	// Document endpoints (authenticated)
 	s.router.Handle("GET /api/v1/documents/{id}",
 		authMiddleware.Authenticate(http.HandlerFunc(s.handleGetDocument)))
-	s.router.Handle("GET /api/v1/documents/{id}/chunks",
-		authMiddleware.Authenticate(http.HandlerFunc(s.handleGetDocumentChunks)))
 	s.router.Handle("GET /api/v1/documents/{id}/open",
 		authMiddleware.Authenticate(http.HandlerFunc(s.handleOpenDocument)))
 

@@ -257,20 +257,12 @@ func (m *mockConnectionService) ListByProvider(ctx context.Context, providerType
 }
 
 type mockDocumentService struct {
-	getFn           func(ctx context.Context, id string) (*domain.Document, error)
-	getWithChunksFn func(ctx context.Context, id string) (*domain.DocumentWithChunks, error)
+	getFn func(ctx context.Context, id string) (*domain.Document, error)
 }
 
 func (m *mockDocumentService) Get(ctx context.Context, id string) (*domain.Document, error) {
 	if m.getFn != nil {
 		return m.getFn(ctx, id)
-	}
-	return nil, errors.New("not implemented")
-}
-
-func (m *mockDocumentService) GetWithChunks(ctx context.Context, id string) (*domain.DocumentWithChunks, error) {
-	if m.getWithChunksFn != nil {
-		return m.getWithChunksFn(ctx, id)
 	}
 	return nil, errors.New("not implemented")
 }
