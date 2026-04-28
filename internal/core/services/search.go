@@ -119,6 +119,7 @@ func (s *searchService) searchWithPipeline(
 			Offset: opts.Offset,
 			Limit:  opts.Limit,
 		},
+		BoostTerms: opts.BoostTerms,
 	}
 
 	// Start with defaults: BM25 enabled, vector disabled

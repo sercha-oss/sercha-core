@@ -51,6 +51,41 @@ func (m *mockSearchExecutor) Execute(ctx context.Context, sctx *pipeline.SearchC
 	}, nil
 }
 
+// TestSearchService_BoostTerms_FlowToContext verifies that user-supplied
+// boost terms reach pipeline stages via SearchContext. The OpenSearch
+// adapter still reads them directly off SearchOptions for the standard
+// query path; this plumbing is for custom retriever stages that build
+// their own queries.
+func TestSearchService_BoostTerms_FlowToContext(t *testing.T) {
+	searchEngine := mocks.NewMockSearchEngine()
+	documentStore := mocks.NewMockDocumentStore()
+	runtimeServices := createTestServices(mocks.NewMockEmbeddingService())
+
+	var capturedBoost map[string]float64
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			capturedBoost = sctx.BoostTerms
+			return &pipeline.SearchOutput{}, nil
+		},
+	}
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	boost := map[string]float64{"kubernetes": 2.0, "helm": 1.5}
+	_, err := svc.Search(context.Background(), "q", domain.SearchOptions{
+		Limit:      10,
+		BoostTerms: boost,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(capturedBoost) != 2 {
+		t.Fatalf("captured BoostTerms len = %d, want 2: %v", len(capturedBoost), capturedBoost)
+	}
+	if capturedBoost["kubernetes"] != 2.0 || capturedBoost["helm"] != 1.5 {
+		t.Errorf("boost terms not propagated correctly: %v", capturedBoost)
+	}
+}
+
 // TestSearchService_PipelineID_RoutingHonoursOptsValue verifies that
 // callers can route to a custom registered pipeline by setting
 // SearchOptions.PipelineID. Empty falls back to "default-search".
