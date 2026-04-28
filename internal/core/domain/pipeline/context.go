@@ -37,11 +37,12 @@ type SearchContext struct {
 	Pagination   PaginationConfig  `json:"pagination"`
 
 	// BoostTerms carries user-supplied keyword boost factors (term →
-	// multiplier) into the pipeline. Stages that build their own queries
-	// can use this to apply the boost; the OpenSearch adapter still reads
-	// the same map directly off SearchOptions for the standard query
-	// path, so this field is additive — adding it doesn't change
-	// existing behaviour.
+	// multiplier). Kept on the context for observability and tracing —
+	// the consume path retriever stages actually read is
+	//   SearchInput.BoostTerms → ParsedQuery.BoostTerms → SearchOptions.BoostTerms
+	// (see multi-retriever for the canonical wiring). Stages building
+	// their own queries should read q.BoostTerms off the parsed query,
+	// not from the context.
 	BoostTerms map[string]float64 `json:"boost_terms,omitempty"`
 }
 

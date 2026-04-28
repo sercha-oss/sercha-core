@@ -19,8 +19,9 @@ type IndexingOutput struct {
 
 // SearchInput is the input to a search pipeline.
 type SearchInput struct {
-	Query   string        `json:"query"` // Raw user query
-	Filters SearchFilters `json:"filters"`
+	Query      string             `json:"query"` // Raw user query
+	Filters    SearchFilters      `json:"filters"`
+	BoostTerms map[string]float64 `json:"boost_terms,omitempty"` // term -> multiplier; copied through query-parser to ParsedQuery for retriever stages
 }
 
 // SearchOutput is the final output from a search pipeline.
@@ -88,10 +89,11 @@ type Candidate struct {
 
 // ParsedQuery represents a parsed search query with extracted components.
 type ParsedQuery struct {
-	Original      string        `json:"original"`
-	Terms         []string      `json:"terms"`
-	Phrases       []string      `json:"phrases,omitempty"`
-	Filters       []string      `json:"filters,omitempty"`        // Extracted filter expressions from query text
-	SearchFilters SearchFilters `json:"search_filters,omitempty"` // Structured backend filters (source_ids, etc.)
-	Intent        string        `json:"intent,omitempty"`         // Detected intent
+	Original      string             `json:"original"`
+	Terms         []string           `json:"terms"`
+	Phrases       []string           `json:"phrases,omitempty"`
+	Filters       []string           `json:"filters,omitempty"`        // Extracted filter expressions from query text
+	SearchFilters SearchFilters      `json:"search_filters,omitempty"` // Structured backend filters (source_ids, etc.)
+	Intent        string             `json:"intent,omitempty"`         // Detected intent
+	BoostTerms    map[string]float64 `json:"boost_terms,omitempty"`    // term -> multiplier; retriever stages copy onto SearchOptions when issuing engine queries
 }

@@ -181,12 +181,17 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 		queryStr = q.Original
 	}
 
+	// BoostTerms must be copied here from the parsed query — the OpenSearch
+	// adapter consumes them off SearchOptions to build should-clauses, but
+	// the pipeline executor doesn't propagate them automatically. Without
+	// this line user-supplied boost terms silently no-op on every search.
 	opts := domain.SearchOptions{
 		Limit:            s.topK,
 		Mode:             domain.SearchModeTextOnly,
 		SourceIDs:        q.SearchFilters.Sources,
 		DocumentIDFilter: q.SearchFilters.DocumentIDFilter,
 		Phrases:          q.Phrases,
+		BoostTerms:       q.BoostTerms,
 	}
 
 	bm25Results, _, err := s.searchEngine.SearchDocuments(ctx, queryStr, opts)

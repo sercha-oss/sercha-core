@@ -52,10 +52,9 @@ func (m *mockSearchExecutor) Execute(ctx context.Context, sctx *pipeline.SearchC
 }
 
 // TestSearchService_BoostTerms_FlowToContext verifies that user-supplied
-// boost terms reach pipeline stages via SearchContext. The OpenSearch
-// adapter still reads them directly off SearchOptions for the standard
-// query path; this plumbing is for custom retriever stages that build
-// their own queries.
+// boost terms reach SearchContext for observability/tracing. The actual
+// consume path retrievers use is SearchInput.BoostTerms → ParsedQuery —
+// see TestSearchService_BoostTerms_FlowToSearchInput.
 func TestSearchService_BoostTerms_FlowToContext(t *testing.T) {
 	searchEngine := mocks.NewMockSearchEngine()
 	documentStore := mocks.NewMockDocumentStore()
@@ -83,6 +82,41 @@ func TestSearchService_BoostTerms_FlowToContext(t *testing.T) {
 	}
 	if capturedBoost["kubernetes"] != 2.0 || capturedBoost["helm"] != 1.5 {
 		t.Errorf("boost terms not propagated correctly: %v", capturedBoost)
+	}
+}
+
+// TestSearchService_BoostTerms_FlowToSearchInput verifies that user-supplied
+// boost terms reach SearchInput.BoostTerms — the path retriever stages
+// actually consume (via ParsedQuery.BoostTerms after query-parser copies
+// them through). The SearchContext.BoostTerms field is also populated for
+// observability but stages don't read it directly.
+func TestSearchService_BoostTerms_FlowToSearchInput(t *testing.T) {
+	searchEngine := mocks.NewMockSearchEngine()
+	documentStore := mocks.NewMockDocumentStore()
+	runtimeServices := createTestServices(mocks.NewMockEmbeddingService())
+
+	var capturedInputBoost map[string]float64
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			capturedInputBoost = input.BoostTerms
+			return &pipeline.SearchOutput{}, nil
+		},
+	}
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	boost := map[string]float64{"kubernetes": 2.0, "helm": 1.5}
+	_, err := svc.Search(context.Background(), "q", domain.SearchOptions{
+		Limit:      10,
+		BoostTerms: boost,
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(capturedInputBoost) != 2 {
+		t.Fatalf("captured input.BoostTerms len = %d, want 2: %v", len(capturedInputBoost), capturedInputBoost)
+	}
+	if capturedInputBoost["kubernetes"] != 2.0 || capturedInputBoost["helm"] != 1.5 {
+		t.Errorf("boost terms not propagated to SearchInput: %v", capturedInputBoost)
 	}
 }
 
