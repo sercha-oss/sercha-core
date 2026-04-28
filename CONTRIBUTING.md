@@ -152,7 +152,7 @@ type/short-description
 | `style` | Code style/formatting | `style/format-handlers` |
 | `refactor` | Code refactoring | `refactor/extract-search-service` |
 | `perf` | Performance improvement | `perf/optimize-batch-indexing` |
-| `test` | Tests | `test/add-integration-tests` |
+| `test` | Tests | `test/add-search-service-tests` |
 | `chore` | Maintenance | `chore/update-dependencies` |
 
 ## Commit Messages
@@ -262,7 +262,7 @@ Before submitting a PR, run the same checks that CI runs:
 # Build
 go build ./...
 
-# Run unit tests (integration tests excluded via build tag)
+# Run unit tests
 go test ./...
 
 # Run vet
@@ -278,14 +278,12 @@ go mod tidy
 git diff --exit-code go.mod go.sum
 ```
 
-**Note:** Integration tests require Docker and are run separately. See the [Integration Tests](#integration-tests) section.
-
 ## Testing
 
 ### Running Tests
 
 ```bash
-# Run all unit tests (integration tests excluded via build tag)
+# Run all unit tests
 go test ./...
 
 # Run tests with verbose output
@@ -299,8 +297,6 @@ go tool cover -html=coverage.out
 # Run specific package tests
 go test ./internal/core/services/...
 ```
-
-Integration tests use a build tag and are excluded by default. See [Integration Tests](#integration-tests) for how to run them.
 
 ### Writing Tests
 
@@ -325,80 +321,6 @@ docker run -d --name postgres-test \
 # Set test database URL
 export DATABASE_URL="postgres://test:test@localhost:5433/sercha_test?sslmode=disable"
 ```
-
-### Integration Tests
-
-Integration tests use [godog](https://github.com/cucumber/godog) (Cucumber for Go) with BDD-style Gherkin feature files. They live in `tests/integration/` and use a build tag to exclude them from regular test runs.
-
-```bash
-# Run integration tests (starts Docker, runs tests, tears down)
-cd tests/integration
-make test
-
-# Or run directly with build tag (requires Docker environment running)
-go test -tags=integration ./tests/integration/...
-
-# Run but keep environment running for debugging
-make test-keep
-
-# Just run tests (if containers already running)
-make run-tests
-
-# Teardown after debugging
-make teardown
-```
-
-#### When to Write Integration Tests
-
-Write integration tests for:
-- New connectors (data source integrations)
-- End-to-end API flows (FTUE, sync, search)
-- Multi-service interactions
-
-Skip integration tests for:
-- Pure unit-level behavior (use unit tests)
-- Internal implementation details
-- Simple CRUD operations
-
-#### Writing Feature Files
-
-Create `.feature` files in `tests/integration/features/`:
-
-```gherkin
-Feature: LocalFS Source Indexing
-  As an administrator
-  I want to index local files
-  So they are searchable
-
-  Background:
-    Given I am logged in as admin
-    And Vespa is fully ready
-
-  Scenario: Index and search local directory
-    When I create a localfs installation with path "/data/test-docs"
-    Then the response status should be 201
-    And I should have an installation ID
-```
-
-#### Adding Step Definitions
-
-Add new step definitions to `tests/integration/steps/steps.go`:
-
-```go
-ctx.Step(`^I create a localfs installation with path "([^"]*)"$`, tc.iCreateLocalfsInstallation)
-
-func (tc *TestContext) iCreateLocalfsInstallation(path string) error {
-    resp, err := tc.client.Post("/api/v1/admin/installations", map[string]any{
-        "name":          "Test Install",
-        "provider_type": "localfs",
-        "api_key":       path,
-    })
-    tc.lastResponse = resp
-    return err
-}
-```
-
-See `tests/integration/README.md` for complete documentation.
 
 ## UI Development
 

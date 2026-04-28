@@ -1069,6 +1069,41 @@ func TestMultiRetrieverStage_Process_EmbedderError_ContinuesWithBM25(t *testing.
 	}
 }
 
+// Regression: BoostTerms set on the parsed query reach the search engine via
+// SearchOptions. Prior to wiring this through, the multi-retriever built a
+// fresh SearchOptions without copying boost terms, silently no-opping every
+// user-supplied boost on the pipeline path.
+func TestMultiRetrieverStage_Process_BoostTermsPlumbedToSearchOptions(t *testing.T) {
+	searchEngine := newMockSearchEngine()
+	stage := &MultiRetrieverStage{
+		descriptor:              NewMultiRetrieverFactory().Descriptor(),
+		searchEngine:            searchEngine,
+		topK:                    100,
+		rrfK:                    DefaultRRFK,
+		vectorDistanceThreshold: DefaultVectorDistanceThreshold,
+	}
+
+	parsed := &pipeline.ParsedQuery{
+		Original:   "test",
+		Terms:      []string{"test"},
+		BoostTerms: map[string]float64{"kubernetes": 2.0, "helm": 1.5},
+	}
+	if _, err := stage.Process(context.Background(), []*pipeline.ParsedQuery{parsed}); err != nil {
+		t.Fatalf("Process() error = %v", err)
+	}
+
+	got := searchEngine.lastOpts.BoostTerms
+	if len(got) != 2 {
+		t.Fatalf("opts.BoostTerms len = %d, want 2: %v", len(got), got)
+	}
+	if got["kubernetes"] != 2.0 {
+		t.Errorf("opts.BoostTerms[kubernetes] = %v, want 2.0", got["kubernetes"])
+	}
+	if got["helm"] != 1.5 {
+		t.Errorf("opts.BoostTerms[helm] = %v, want 1.5", got["helm"])
+	}
+}
+
 // --- Helper mock for selective errors ---
 
 type selectiveErrorSearchEngine struct {
