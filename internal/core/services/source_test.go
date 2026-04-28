@@ -2,12 +2,22 @@ package services
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven/mocks"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
+)
+
+// errBoomDocDelete and errBoomSrcDelete are sentinel errors used by
+// TestSourceService_Delete_ObserverErrorIgnored to exercise the
+// log-and-continue posture on the deletion observer hooks.
+var (
+	errBoomDocDelete = errors.New("doc delete observer boom")
+	errBoomSrcDelete = errors.New("source delete observer boom")
 )
 
 func TestSourceService_Create(t *testing.T) {
@@ -18,7 +28,15 @@ func TestSourceService_Create(t *testing.T) {
 	vectorIndex := mocks.NewMockVectorIndex()
 	taskQueue := mocks.NewMockTaskQueue()
 	teamID := "test-team"
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, vectorIndex, taskQueue, teamID, nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   vectorIndex,
+		TaskQueue:     taskQueue,
+		TeamID:        teamID,
+	})
 
 	tests := []struct {
 		name      string
@@ -88,7 +106,15 @@ func TestSourceService_Create_DuplicateName(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	req := driving.CreateSourceRequest{
 		Name:         "Test Source",
@@ -113,7 +139,15 @@ func TestSourceService_Get(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create a source
 	source := &domain.Source{
@@ -145,7 +179,15 @@ func TestSourceService_List(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create sources
 	for i := 0; i < 3; i++ {
@@ -173,7 +215,15 @@ func TestSourceService_ListWithSummary(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create a source
 	source := &domain.Source{
@@ -232,7 +282,15 @@ func TestSourceService_Update(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create a source
 	source := &domain.Source{
@@ -279,7 +337,15 @@ func TestSourceService_Update_ConflictingName(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create two sources
 	source1 := &domain.Source{
@@ -309,7 +375,15 @@ func TestSourceService_Delete(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create a source with documents and chunks
 	source := &domain.Source{
@@ -349,12 +423,212 @@ func TestSourceService_Delete(t *testing.T) {
 	}
 }
 
+// spyDocumentDeleteObserver is a test-local spy for driven.DocumentDeleteObserver.
+// Records OnDocumentDeleted invocations (per doc) and the OnSourceDeleted call,
+// and can be configured to return a sentinel error so the log-and-continue
+// posture can be exercised.
+type spyDocumentDeleteObserver struct {
+	mu              sync.Mutex
+	docCalls        int
+	lastDocSource   *domain.Source
+	lastDoc         *domain.Document
+	sourceCalls     int
+	lastSrcDeleted  *domain.Source
+	docReturnErr    error
+	sourceReturnErr error
+}
+
+func (s *spyDocumentDeleteObserver) OnDocumentDeleted(
+	_ context.Context,
+	source *domain.Source,
+	doc *domain.Document,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.docCalls++
+	s.lastDocSource = source
+	s.lastDoc = doc
+	return s.docReturnErr
+}
+
+func (s *spyDocumentDeleteObserver) OnSourceDeleted(
+	_ context.Context,
+	source *domain.Source,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sourceCalls++
+	s.lastSrcDeleted = source
+	return s.sourceReturnErr
+}
+
+// TestSourceService_Delete_VectorIndexCleanup is a regression test for the
+// orphan-embeddings bug fixed in #108. embeddings.source_id has no FK to
+// documents, so before the fix a whole-source delete left every embedding
+// row in place. We pre-populate three embeddings, call Delete, and assert
+// the vector index is empty.
+func TestSourceService_Delete_VectorIndexCleanup(t *testing.T) {
+	sourceStore := mocks.NewMockSourceStore()
+	documentStore := mocks.NewMockDocumentStore()
+	syncStore := mocks.NewMockSyncStateStore()
+	searchEngine := mocks.NewMockSearchEngine()
+	vectorIndex := mocks.NewMockVectorIndex()
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   vectorIndex,
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src-vec", Name: "Vec Source"}
+	_ = sourceStore.Save(ctx, source)
+
+	// Three docs with one chunk each.
+	docIDs := []string{"doc-a", "doc-b", "doc-c"}
+	for _, id := range docIDs {
+		_ = documentStore.Save(ctx, &domain.Document{ID: id, SourceID: "src-vec"})
+	}
+	chunkIDs := []string{"chunk-a", "chunk-b", "chunk-c"}
+	srcIDs := []string{"src-vec", "src-vec", "src-vec"}
+	contents := []string{"a", "b", "c"}
+	embeddings := [][]float32{{1, 0}, {0, 1}, {1, 1}}
+	if err := vectorIndex.IndexBatch(ctx, chunkIDs, docIDs, srcIDs, contents, embeddings); err != nil {
+		t.Fatalf("seed embeddings: %v", err)
+	}
+	if got := vectorIndex.Count(); got != 3 {
+		t.Fatalf("seed embeddings: want 3, got %d", got)
+	}
+
+	if err := svc.Delete(ctx, "src-vec"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if got := vectorIndex.Count(); got != 0 {
+		t.Errorf("vector index leak: want 0 embeddings, got %d", got)
+	}
+}
+
+// TestSourceService_Delete_FiresDeleteObserver verifies that the new observer
+// hook fires once per document and once for the source on the cascade path.
+func TestSourceService_Delete_FiresDeleteObserver(t *testing.T) {
+	sourceStore := mocks.NewMockSourceStore()
+	documentStore := mocks.NewMockDocumentStore()
+	syncStore := mocks.NewMockSyncStateStore()
+	searchEngine := mocks.NewMockSearchEngine()
+	spy := &spyDocumentDeleteObserver{}
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:            sourceStore,
+		DocumentStore:          documentStore,
+		SyncStore:              syncStore,
+		SearchEngine:           searchEngine,
+		VectorIndex:            mocks.NewMockVectorIndex(),
+		TaskQueue:              mocks.NewMockTaskQueue(),
+		TeamID:                 "test-team",
+		DocumentDeleteObserver: spy,
+	})
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src-obs", Name: "Obs Source"}
+	_ = sourceStore.Save(ctx, source)
+	for _, id := range []string{"doc-1", "doc-2"} {
+		_ = documentStore.Save(ctx, &domain.Document{ID: id, SourceID: "src-obs"})
+	}
+
+	if err := svc.Delete(ctx, "src-obs"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if spy.docCalls != 2 {
+		t.Errorf("OnDocumentDeleted: want 2 calls, got %d", spy.docCalls)
+	}
+	if spy.sourceCalls != 1 {
+		t.Errorf("OnSourceDeleted: want 1 call, got %d", spy.sourceCalls)
+	}
+	if spy.lastSrcDeleted == nil || spy.lastSrcDeleted.ID != "src-obs" {
+		t.Errorf("OnSourceDeleted: source not propagated (got %+v)", spy.lastSrcDeleted)
+	}
+}
+
+// TestSourceService_Delete_NilDeleteObserver verifies the cascade path runs
+// cleanly when no observer is registered (the OSS default).
+func TestSourceService_Delete_NilDeleteObserver(t *testing.T) {
+	sourceStore := mocks.NewMockSourceStore()
+	documentStore := mocks.NewMockDocumentStore()
+	syncStore := mocks.NewMockSyncStateStore()
+	searchEngine := mocks.NewMockSearchEngine()
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
+	ctx := context.Background()
+
+	source := &domain.Source{ID: "src-nil", Name: "Nil Obs"}
+	_ = sourceStore.Save(ctx, source)
+	_ = documentStore.Save(ctx, &domain.Document{ID: "doc-x", SourceID: "src-nil"})
+
+	if err := svc.Delete(ctx, "src-nil"); err != nil {
+		t.Fatalf("Delete with nil observer: %v", err)
+	}
+}
+
+// TestSourceService_Delete_ObserverErrorIgnored verifies the log-and-continue
+// posture: observer errors do not propagate up from Delete.
+func TestSourceService_Delete_ObserverErrorIgnored(t *testing.T) {
+	sourceStore := mocks.NewMockSourceStore()
+	documentStore := mocks.NewMockDocumentStore()
+	syncStore := mocks.NewMockSyncStateStore()
+	searchEngine := mocks.NewMockSearchEngine()
+	spy := &spyDocumentDeleteObserver{
+		docReturnErr:    errBoomDocDelete,
+		sourceReturnErr: errBoomSrcDelete,
+	}
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:            sourceStore,
+		DocumentStore:          documentStore,
+		SyncStore:              syncStore,
+		SearchEngine:           searchEngine,
+		VectorIndex:            mocks.NewMockVectorIndex(),
+		TaskQueue:              mocks.NewMockTaskQueue(),
+		TeamID:                 "test-team",
+		DocumentDeleteObserver: spy,
+	})
+	ctx := context.Background()
+
+	_ = sourceStore.Save(ctx, &domain.Source{ID: "src-err", Name: "ErrObs"})
+	_ = documentStore.Save(ctx, &domain.Document{ID: "doc-err", SourceID: "src-err"})
+
+	if err := svc.Delete(ctx, "src-err"); err != nil {
+		t.Errorf("Delete must swallow observer errors, got %v", err)
+	}
+	if spy.docCalls != 1 || spy.sourceCalls != 1 {
+		t.Errorf("expected both hooks invoked once each, got doc=%d src=%d",
+			spy.docCalls, spy.sourceCalls)
+	}
+}
+
 func TestSourceService_EnableDisable(t *testing.T) {
 	sourceStore := mocks.NewMockSourceStore()
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create a source
 	source := &domain.Source{
@@ -390,7 +664,15 @@ func TestSourceService_ListByConnection(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create sources with different connections
 	source1 := &domain.Source{
@@ -474,7 +756,15 @@ func TestSourceService_UpdateContainers(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Create a source
 	source := &domain.Source{
@@ -514,7 +804,15 @@ func TestSourceService_UpdateContainers_NotFound(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	syncStore := mocks.NewMockSyncStateStore()
 	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewSourceService(sourceStore, documentStore, syncStore, searchEngine, mocks.NewMockVectorIndex(), mocks.NewMockTaskQueue(), "test-team", nil)
+	svc := NewSourceService(SourceServiceConfig{
+		SourceStore:   sourceStore,
+		DocumentStore: documentStore,
+		SyncStore:     syncStore,
+		SearchEngine:  searchEngine,
+		VectorIndex:   mocks.NewMockVectorIndex(),
+		TaskQueue:     mocks.NewMockTaskQueue(),
+		TeamID:        "test-team",
+	})
 
 	// Try to update containers for non-existent source
 	containers := []domain.Container{

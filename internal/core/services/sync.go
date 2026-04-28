@@ -40,6 +40,7 @@ type SyncOrchestrator struct {
 	syncEventRepo          driven.SyncEventRepository    // For audit logging of sync events
 	teamID                 string                        // Team ID for settings lookup
 	documentIngestObserver driven.DocumentIngestObserver // Optional; nil means no observer.
+	documentDeleteObserver driven.DocumentDeleteObserver // Optional; nil means no observer.
 	lock                   driven.DistributedLock        // Optional; nil means no per-source serialization (single-instance mode).
 	lockTTL                time.Duration                 // TTL for sync locks; ignored by Postgres advisory locks.
 }
@@ -62,6 +63,7 @@ type SyncOrchestratorConfig struct {
 	SyncEventRepo          driven.SyncEventRepository    // For audit logging of sync events
 	TeamID                 string                        // Team ID for settings lookup
 	DocumentIngestObserver driven.DocumentIngestObserver // Optional; nil means no observer.
+	DocumentDeleteObserver driven.DocumentDeleteObserver // Optional; nil means no observer.
 	Lock                   driven.DistributedLock        // Optional. When set, SyncSource/SyncContainer acquire "sync:source:<id>" before running so concurrent invocations no-op (Skipped=true) instead of racing.
 	LockTTL                time.Duration                 // Optional. Defaults to 1h. Ignored by PG advisory locks (which release on connection close).
 }
@@ -100,6 +102,7 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		syncEventRepo:          cfg.SyncEventRepo,
 		teamID:                 cfg.TeamID,
 		documentIngestObserver: cfg.DocumentIngestObserver,
+		documentDeleteObserver: cfg.DocumentDeleteObserver,
 		lock:                   cfg.Lock,
 		lockTTL:                lockTTL,
 	}
@@ -637,7 +640,7 @@ func (o *SyncOrchestrator) processChange(
 ) error {
 	switch change.Type {
 	case domain.ChangeTypeDeleted:
-		return o.processDelete(ctx, source.ID, change, stats)
+		return o.processDelete(ctx, source, change, stats)
 	case domain.ChangeTypeAdded, domain.ChangeTypeModified:
 		return o.processAddOrUpdate(ctx, source, change, stats)
 	default:
@@ -648,11 +651,11 @@ func (o *SyncOrchestrator) processChange(
 // processDelete handles document deletion across all storage layers.
 func (o *SyncOrchestrator) processDelete(
 	ctx context.Context,
-	sourceID string,
+	source *domain.Source,
 	change *domain.Change,
 	stats *domain.SyncStats,
 ) error {
-	doc, err := o.documentStore.GetByExternalID(ctx, sourceID, change.ExternalID)
+	doc, err := o.documentStore.GetByExternalID(ctx, source.ID, change.ExternalID)
 	if err != nil {
 		return nil
 	}
@@ -674,6 +677,19 @@ func (o *SyncOrchestrator) processDelete(
 	// Delete document (source of truth)
 	if err := o.documentStore.Delete(ctx, doc.ID); err != nil {
 		return fmt.Errorf("failed to delete document: %w", err)
+	}
+
+	// Observer fires only after successful deletion. Failures are logged and
+	// ignored — observer health must not affect deletion correctness, mirroring
+	// the ingest observer posture.
+	if o.documentDeleteObserver != nil {
+		if err := o.documentDeleteObserver.OnDocumentDeleted(ctx, source, doc); err != nil {
+			o.logger.Warn("document delete observer failed",
+				"document_id", doc.ID,
+				"source_id", source.ID,
+				"error", err,
+			)
+		}
 	}
 
 	stats.DocumentsDeleted++

@@ -16,39 +16,46 @@ var _ driving.SourceService = (*sourceService)(nil)
 
 // sourceService implements the SourceService interface
 type sourceService struct {
-	sourceStore   driven.SourceStore
-	documentStore driven.DocumentStore
-	syncStore     driven.SyncStateStore
-	searchEngine  driven.SearchEngine
-	vectorIndex   driven.VectorIndex
-	taskQueue     driven.TaskQueue
-	teamID        string
-	logger        *slog.Logger
+	sourceStore            driven.SourceStore
+	documentStore          driven.DocumentStore
+	syncStore              driven.SyncStateStore
+	searchEngine           driven.SearchEngine
+	vectorIndex            driven.VectorIndex
+	taskQueue              driven.TaskQueue
+	teamID                 string
+	logger                 *slog.Logger
+	documentDeleteObserver driven.DocumentDeleteObserver // Optional; nil means no observer.
 }
 
-// NewSourceService creates a new SourceService
-func NewSourceService(
-	sourceStore driven.SourceStore,
-	documentStore driven.DocumentStore,
-	syncStore driven.SyncStateStore,
-	searchEngine driven.SearchEngine,
-	vectorIndex driven.VectorIndex,
-	taskQueue driven.TaskQueue,
-	teamID string,
-	logger *slog.Logger,
-) driving.SourceService {
+// SourceServiceConfig holds dependencies for SourceService.
+type SourceServiceConfig struct {
+	SourceStore            driven.SourceStore
+	DocumentStore          driven.DocumentStore
+	SyncStore              driven.SyncStateStore
+	SearchEngine           driven.SearchEngine
+	VectorIndex            driven.VectorIndex
+	TaskQueue              driven.TaskQueue
+	TeamID                 string
+	Logger                 *slog.Logger
+	DocumentDeleteObserver driven.DocumentDeleteObserver // Optional; nil means no observer.
+}
+
+// NewSourceService creates a new SourceService.
+func NewSourceService(cfg SourceServiceConfig) driving.SourceService {
+	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &sourceService{
-		sourceStore:   sourceStore,
-		documentStore: documentStore,
-		syncStore:     syncStore,
-		searchEngine:  searchEngine,
-		vectorIndex:   vectorIndex,
-		taskQueue:     taskQueue,
-		teamID:        teamID,
-		logger:        logger,
+		sourceStore:            cfg.SourceStore,
+		documentStore:          cfg.DocumentStore,
+		syncStore:              cfg.SyncStore,
+		searchEngine:           cfg.SearchEngine,
+		vectorIndex:            cfg.VectorIndex,
+		taskQueue:              cfg.TaskQueue,
+		teamID:                 cfg.TeamID,
+		logger:                 logger,
+		documentDeleteObserver: cfg.DocumentDeleteObserver,
 	}
 }
 
@@ -175,8 +182,21 @@ func (s *sourceService) Update(ctx context.Context, id string, req driving.Updat
 
 // Delete deletes a source and all its documents (admin only)
 func (s *sourceService) Delete(ctx context.Context, id string) error {
-	// Verify source exists
-	_, err := s.sourceStore.Get(ctx, id)
+	// Verify source exists. Capture by value so observers can read source
+	// metadata after sourceStore.Delete below.
+	source, err := s.sourceStore.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Capture documents up-front. We need them for two reasons:
+	//   1. The vector index has no source-level delete — embeddings.source_id
+	//      has no FK to documents, so we prune embeddings per-document via
+	//      DeleteByDocuments. Without this, vector rows persist after source
+	//      deletion.
+	//   2. If an observer is registered, fire OnDocumentDeleted per doc
+	//      after the bulk delete completes.
+	docs, err := s.collectDocumentsBySource(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -184,6 +204,20 @@ func (s *sourceService) Delete(ctx context.Context, id string) error {
 	// Delete from search engine first
 	if s.searchEngine != nil {
 		_ = s.searchEngine.DeleteBySource(ctx, id)
+	}
+
+	// Delete embeddings via per-document IDs. The vector index has no
+	// source-level delete; this is the only path that prunes embeddings
+	// rows on whole-source deletion.
+	if s.vectorIndex != nil && len(docs) > 0 {
+		docIDs := make([]string, len(docs))
+		for i, d := range docs {
+			docIDs[i] = d.ID
+		}
+		if err := s.vectorIndex.DeleteByDocuments(ctx, docIDs); err != nil {
+			s.logger.Warn("failed to delete embeddings by source",
+				"source_id", id, "error", err)
+		}
 	}
 
 	// Delete documents
@@ -195,7 +229,58 @@ func (s *sourceService) Delete(ctx context.Context, id string) error {
 	_ = s.syncStore.Delete(ctx, id)
 
 	// Delete source
-	return s.sourceStore.Delete(ctx, id)
+	if err := s.sourceStore.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	// Fire observers after the underlying delete succeeds. Failures are
+	// logged and ignored — observer health must not affect deletion
+	// correctness, mirroring the ingest observer posture.
+	if s.documentDeleteObserver != nil {
+		for _, doc := range docs {
+			if err := s.documentDeleteObserver.OnDocumentDeleted(ctx, source, doc); err != nil {
+				s.logger.Warn("document delete observer failed",
+					"document_id", doc.ID,
+					"source_id", id,
+					"error", err,
+				)
+			}
+		}
+		if err := s.documentDeleteObserver.OnSourceDeleted(ctx, source); err != nil {
+			s.logger.Warn("source delete observer failed",
+				"source_id", id,
+				"error", err,
+			)
+		}
+	}
+
+	return nil
+}
+
+// collectDocumentsBySource pages through every document for a source. Used
+// by Delete to capture docs before the bulk DeleteBySource — the IDs feed
+// vectorIndex.DeleteByDocuments (since the port has no source-level delete),
+// and the captures let observers be invoked with stable references after
+// the underlying rows are gone.
+func (s *sourceService) collectDocumentsBySource(ctx context.Context, sourceID string) ([]*domain.Document, error) {
+	const pageSize = 500
+	var all []*domain.Document
+	offset := 0
+	for {
+		page, err := s.documentStore.GetBySource(ctx, sourceID, pageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		all = append(all, page...)
+		if len(page) < pageSize {
+			break
+		}
+		offset += pageSize
+	}
+	return all, nil
 }
 
 // Enable enables a source
