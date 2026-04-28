@@ -438,3 +438,186 @@ func TestSyncSource_ObserverHook_NotCalledOnSaveFailure(t *testing.T) {
 		t.Errorf("expected DocumentsAdded == 0 on Save failure, got %d", stats.DocumentsAdded)
 	}
 }
+
+// createTestSyncOrchestratorWithDeleteObserver builds a SyncOrchestrator wired
+// with the supplied delete observer. Mirrors createTestSyncOrchestratorWithObserver
+// but plumbs DocumentDeleteObserver instead so processDelete tests can verify
+// the new hook fires.
+func createTestSyncOrchestratorWithDeleteObserver(
+	t *testing.T,
+	observer driven.DocumentDeleteObserver,
+) (
+	*SyncOrchestrator,
+	*mocks.MockSourceStore,
+	*mocks.MockDocumentStore,
+	*mocks.MockSearchEngine,
+	*mockConnectorFactory,
+) {
+	t.Helper()
+
+	sourceStore := mocks.NewMockSourceStore()
+	documentStore := mocks.NewMockDocumentStore()
+	syncStore := mocks.NewMockSyncStateStore()
+	searchEngine := mocks.NewMockSearchEngine()
+	connectorFactory := newMockConnectorFactory()
+	normaliserRegistry := mocks.NewMockNormaliserRegistry()
+
+	cfg := domain.NewRuntimeConfig("memory")
+	services := runtime.NewServices(cfg)
+
+	executor := &mockIndexingExecutor{
+		executeFn: func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
+			return &pipeline.IndexingOutput{
+				DocumentID: input.DocumentID,
+				ChunkIDs:   []string{input.DocumentID + "-chunk-0"},
+			}, nil
+		},
+	}
+	capabilitySet := pipeline.NewCapabilitySet()
+
+	orchestrator := NewSyncOrchestrator(SyncOrchestratorConfig{
+		SourceStore:            sourceStore,
+		DocumentStore:          documentStore,
+		SyncStore:              syncStore,
+		SearchEngine:           searchEngine,
+		ConnectorFactory:       connectorFactory,
+		NormaliserReg:          normaliserRegistry,
+		Services:               services,
+		IndexingExecutor:       executor,
+		CapabilitySet:          capabilitySet,
+		DocumentDeleteObserver: observer,
+	})
+
+	return orchestrator, sourceStore, documentStore, searchEngine, connectorFactory
+}
+
+// TestSyncSource_DeleteObserverHook_Fires verifies that processDelete invokes
+// OnDocumentDeleted on the observer with the source and the captured document
+// after the underlying store delete succeeds.
+func TestSyncSource_DeleteObserverHook_Fires(t *testing.T) {
+	spy := &spyDocumentDeleteObserver{}
+	orch, sourceStore, documentStore, _, connectorFactory :=
+		createTestSyncOrchestratorWithDeleteObserver(t, spy)
+	ctx := context.Background()
+
+	source := &domain.Source{
+		ID:           "source-del",
+		Name:         "Del Source",
+		ProviderType: domain.ProviderTypeGitHub,
+		Enabled:      true,
+	}
+	_ = sourceStore.Save(ctx, source)
+	_ = documentStore.Save(ctx, &domain.Document{
+		ID:         "doc-del",
+		SourceID:   "source-del",
+		ExternalID: "ext-del",
+	})
+
+	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
+		if cursor == "" {
+			return []*domain.Change{
+				{ExternalID: "ext-del", Type: domain.ChangeTypeDeleted},
+			}, "", nil
+		}
+		return nil, "", nil
+	}
+
+	result, err := orch.SyncSource(ctx, "source-del")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected Success=true, got error %s", result.Error)
+	}
+	if result.Stats.DocumentsDeleted != 1 {
+		t.Fatalf("expected 1 doc deleted, got %d", result.Stats.DocumentsDeleted)
+	}
+
+	if spy.docCalls != 1 {
+		t.Errorf("OnDocumentDeleted: want 1 call, got %d", spy.docCalls)
+	}
+	if spy.lastDocSource == nil || spy.lastDocSource.ID != "source-del" {
+		t.Errorf("OnDocumentDeleted: source not propagated, got %+v", spy.lastDocSource)
+	}
+	if spy.lastDoc == nil || spy.lastDoc.ID != "doc-del" {
+		t.Errorf("OnDocumentDeleted: doc not propagated, got %+v", spy.lastDoc)
+	}
+	// Sync path must NOT fire OnSourceDeleted — that's reserved for the
+	// admin-cascade path in SourceService.Delete.
+	if spy.sourceCalls != 0 {
+		t.Errorf("OnSourceDeleted must not fire from sync, got %d calls", spy.sourceCalls)
+	}
+}
+
+// TestSyncSource_DeleteObserverHook_NilObserver verifies the sync delete path
+// runs cleanly when no observer is wired.
+func TestSyncSource_DeleteObserverHook_NilObserver(t *testing.T) {
+	orch, sourceStore, documentStore, _, connectorFactory :=
+		createTestSyncOrchestratorWithDeleteObserver(t, nil)
+	ctx := context.Background()
+
+	_ = sourceStore.Save(ctx, &domain.Source{
+		ID: "source-nil-del", Name: "Nil Del", ProviderType: domain.ProviderTypeGitHub, Enabled: true,
+	})
+	_ = documentStore.Save(ctx, &domain.Document{ID: "doc-nil-del", SourceID: "source-nil-del", ExternalID: "ext-x"})
+
+	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
+		if cursor == "" {
+			return []*domain.Change{{ExternalID: "ext-x", Type: domain.ChangeTypeDeleted}}, "", nil
+		}
+		return nil, "", nil
+	}
+
+	result, err := orch.SyncSource(ctx, "source-nil-del")
+	if err != nil || !result.Success {
+		t.Fatalf("SyncSource with nil delete observer must succeed, got err=%v result=%+v", err, result)
+	}
+	if result.Stats.DocumentsDeleted != 1 {
+		t.Errorf("expected 1 doc deleted, got %d", result.Stats.DocumentsDeleted)
+	}
+}
+
+// TestSyncSource_DeleteObserverHook_ErrorIgnored exercises the log-and-continue
+// posture: an observer error must not propagate up from processDelete.
+func TestSyncSource_DeleteObserverHook_ErrorIgnored(t *testing.T) {
+	sentinel := errors.New("delete observer boom")
+	spy := &spyDocumentDeleteObserver{docReturnErr: sentinel}
+
+	// Capture log output to confirm the warning is emitted.
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	orch, sourceStore, documentStore, _, connectorFactory :=
+		createTestSyncOrchestratorWithDeleteObserver(t, spy)
+	orch.logger = logger
+	ctx := context.Background()
+
+	_ = sourceStore.Save(ctx, &domain.Source{
+		ID: "src-err-del", Name: "Err Del", ProviderType: domain.ProviderTypeGitHub, Enabled: true,
+	})
+	_ = documentStore.Save(ctx, &domain.Document{ID: "doc-err-del", SourceID: "src-err-del", ExternalID: "ext-e"})
+
+	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
+		if cursor == "" {
+			return []*domain.Change{{ExternalID: "ext-e", Type: domain.ChangeTypeDeleted}}, "", nil
+		}
+		return nil, "", nil
+	}
+
+	result, err := orch.SyncSource(ctx, "src-err-del")
+	if err != nil {
+		t.Fatalf("SyncSource must swallow delete-observer errors, got %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected Success=true even with observer error, got %s", result.Error)
+	}
+	if result.Stats.DocumentsDeleted != 1 {
+		t.Errorf("expected 1 doc deleted, got %d", result.Stats.DocumentsDeleted)
+	}
+	if spy.docCalls != 1 {
+		t.Errorf("OnDocumentDeleted: want 1 call, got %d", spy.docCalls)
+	}
+	if !strings.Contains(buf.String(), "document delete observer failed") {
+		t.Errorf("expected warning log on observer error, got: %s", buf.String())
+	}
+}

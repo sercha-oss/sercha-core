@@ -71,6 +71,7 @@ func (s *QueryParserStage) Process(ctx context.Context, input any) (any, error) 
 
 	parsed := s.parseQuery(searchInput.Query)
 	parsed.SearchFilters = searchInput.Filters
+	parsed.BoostTerms = searchInput.BoostTerms
 
 	return parsed, nil
 }

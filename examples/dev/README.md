@@ -77,9 +77,6 @@ docker compose logs -f sercha
 # Rebuild after code changes
 docker compose up -d --build sercha
 
-# Run integration tests
-go test ./tests/integration/... -v
-
 # Stop services (preserve data)
 docker compose down
 

@@ -62,8 +62,6 @@ services:
       NOTION_CLIENT_SECRET: ${NOTION_CLIENT_SECRET:-}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
-    volumes:
-      - ./test-docs:/data/test-docs:ro
     ports:
       - "8080:8080"
     healthcheck:

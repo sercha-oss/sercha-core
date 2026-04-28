@@ -95,6 +95,7 @@ func (s *searchService) searchWithPipeline(
 		Filters: pipeline.SearchFilters{
 			Custom: make(map[string]any),
 		},
+		BoostTerms: opts.BoostTerms,
 	}
 
 	// Map domain search options to pipeline filters
