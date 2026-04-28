@@ -23,23 +23,14 @@ type VectorSearchResult struct {
 	Distance   float64
 }
 
-// SearchEngine handles search indexing and querying
+// SearchEngine handles search indexing and querying.
 type SearchEngine interface {
-	// Index indexes chunks for a document (legacy, kept for backward compat)
-	Index(ctx context.Context, chunks []*domain.Chunk) error
-
 	// IndexDocument indexes a full document for BM25 text search.
 	// Uses document_id as the OpenSearch document ID (upsert semantics).
 	IndexDocument(ctx context.Context, doc *domain.DocumentContent) error
 
-	// Search performs a search query (legacy chunk-level search)
-	Search(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error)
-
 	// SearchDocuments performs a BM25 text search returning document-level results.
 	SearchDocuments(ctx context.Context, query string, opts domain.SearchOptions) ([]DocumentResult, int, error)
-
-	// Delete deletes chunks by IDs
-	Delete(ctx context.Context, chunkIDs []string) error
 
 	// DeleteByDocument deletes all indexed data for a document
 	DeleteByDocument(ctx context.Context, documentID string) error

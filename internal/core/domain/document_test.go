@@ -45,48 +45,6 @@ func TestDocument(t *testing.T) {
 	}
 }
 
-func TestChunk(t *testing.T) {
-	now := time.Now()
-	embedding := []float32{0.1, 0.2, 0.3}
-
-	chunk := &Chunk{
-		ID:         "chunk-123",
-		DocumentID: "doc-456",
-		SourceID:   "source-789",
-		Content:    "This is the chunk content.",
-		Embedding:  embedding,
-		Position:   0,
-		StartChar:  0,
-		EndChar:    26,
-		CreatedAt:  now,
-	}
-
-	if chunk.ID != "chunk-123" {
-		t.Errorf("expected ID chunk-123, got %s", chunk.ID)
-	}
-	if chunk.DocumentID != "doc-456" {
-		t.Errorf("expected DocumentID doc-456, got %s", chunk.DocumentID)
-	}
-	if chunk.SourceID != "source-789" {
-		t.Errorf("expected SourceID source-789, got %s", chunk.SourceID)
-	}
-	if chunk.Content != "This is the chunk content." {
-		t.Errorf("expected Content 'This is the chunk content.', got %s", chunk.Content)
-	}
-	if len(chunk.Embedding) != 3 {
-		t.Errorf("expected 3 embedding dimensions, got %d", len(chunk.Embedding))
-	}
-	if chunk.Position != 0 {
-		t.Errorf("expected Position 0, got %d", chunk.Position)
-	}
-	if chunk.StartChar != 0 {
-		t.Errorf("expected StartChar 0, got %d", chunk.StartChar)
-	}
-	if chunk.EndChar != 26 {
-		t.Errorf("expected EndChar 26, got %d", chunk.EndChar)
-	}
-}
-
 func TestDocumentContent(t *testing.T) {
 	content := &DocumentContent{
 		DocumentID: "doc-123",
@@ -111,31 +69,3 @@ func TestDocumentContent(t *testing.T) {
 	}
 }
 
-func TestDocumentWithChunks(t *testing.T) {
-	doc := &Document{
-		ID:    "doc-123",
-		Title: "Test Document",
-	}
-	chunks := []*Chunk{
-		{ID: "chunk-1", DocumentID: "doc-123", Content: "First chunk"},
-		{ID: "chunk-2", DocumentID: "doc-123", Content: "Second chunk"},
-	}
-
-	docWithChunks := &DocumentWithChunks{
-		Document: doc,
-		Chunks:   chunks,
-	}
-
-	if docWithChunks.Document.ID != "doc-123" {
-		t.Errorf("expected Document ID doc-123, got %s", docWithChunks.Document.ID)
-	}
-	if len(docWithChunks.Chunks) != 2 {
-		t.Errorf("expected 2 chunks, got %d", len(docWithChunks.Chunks))
-	}
-	if docWithChunks.Chunks[0].Content != "First chunk" {
-		t.Errorf("expected first chunk content 'First chunk', got %s", docWithChunks.Chunks[0].Content)
-	}
-	if docWithChunks.Chunks[1].Content != "Second chunk" {
-		t.Errorf("expected second chunk content 'Second chunk', got %s", docWithChunks.Chunks[1].Content)
-	}
-}

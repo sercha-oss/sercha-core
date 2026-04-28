@@ -11,9 +11,6 @@ type DocumentService interface {
 	// Get retrieves a document by ID
 	Get(ctx context.Context, id string) (*domain.Document, error)
 
-	// GetWithChunks retrieves a document with its chunks
-	GetWithChunks(ctx context.Context, id string) (*domain.DocumentWithChunks, error)
-
 	// GetContent retrieves the full content of a document
 	GetContent(ctx context.Context, id string) (*domain.DocumentContent, error)
 

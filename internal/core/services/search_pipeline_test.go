@@ -8,7 +8,18 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven/mocks"
+	"github.com/sercha-oss/sercha-core/internal/runtime"
 )
+
+// createTestServices builds runtime services for search-side tests.
+func createTestServices(embeddingService *mocks.MockEmbeddingService) *runtime.Services {
+	config := domain.NewRuntimeConfig("postgres")
+	services := runtime.NewServices(config)
+	if embeddingService != nil {
+		services.SetEmbeddingService(embeddingService)
+	}
+	return services
+}
 
 // mockSearchExecutor is a mock implementation of SearchExecutor for testing
 type mockSearchExecutor struct {

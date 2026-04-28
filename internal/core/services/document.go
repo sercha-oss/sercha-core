@@ -33,21 +33,6 @@ func (s *documentService) Get(ctx context.Context, id string) (*domain.Document,
 	return s.documentStore.Get(ctx, id)
 }
 
-// GetWithChunks retrieves a document with its chunks.
-// Note: This method is deprecated. It returns the document with empty chunks.
-// Use GetContent instead to retrieve document content from the search engine.
-func (s *documentService) GetWithChunks(ctx context.Context, id string) (*domain.DocumentWithChunks, error) {
-	doc, err := s.documentStore.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-
-	return &domain.DocumentWithChunks{
-		Document: doc,
-		Chunks:   []*domain.Chunk{},
-	}, nil
-}
-
 // GetContent retrieves the full content of a document from the search index.
 // This uses OpenSearch to fetch the already-indexed full-text content instead of
 // reconstructing from chunks. Returns domain.ErrNotFound if not in search index.

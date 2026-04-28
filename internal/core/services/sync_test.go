@@ -34,26 +34,14 @@ func createTestSyncOrchestrator(t *testing.T) (
 	cfg := domain.NewRuntimeConfig("memory")
 	services := runtime.NewServices(cfg)
 
-	// Create mock indexing executor that indexes chunks
+	// Mock indexing executor returns a synthetic output so the sync
+	// orchestrator can advance — the chunk-level OpenSearch path was
+	// removed, but these tests only need IndexingOutput to be non-nil.
 	executor := &mockIndexingExecutor{
 		executeFn: func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
-			// Create a chunk from the input
-			chunk := &domain.Chunk{
-				ID:         input.DocumentID + "-chunk-0",
-				DocumentID: input.DocumentID,
-				SourceID:   pctx.SourceID,
-				Content:    input.Content,
-				Position:   0,
-			}
-
-			// Index in search engine if available
-			if searchEngine != nil {
-				_ = searchEngine.Index(ctx, []*domain.Chunk{chunk})
-			}
-
 			return &pipeline.IndexingOutput{
 				DocumentID: input.DocumentID,
-				ChunkIDs:   []string{chunk.ID},
+				ChunkIDs:   []string{input.DocumentID + "-chunk-0"},
 			}, nil
 		},
 	}
@@ -326,7 +314,7 @@ func TestSyncSource_ContextCancelled(t *testing.T) {
 
 // TestSyncSource_Success_AddDocument tests successful document addition
 func TestSyncSource_Success_AddDocument(t *testing.T) {
-	orchestrator, sourceStore, documentStore, syncStore, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, documentStore, syncStore, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	// Create enabled source
@@ -385,10 +373,11 @@ func TestSyncSource_Success_AddDocument(t *testing.T) {
 		t.Errorf("expected source ID 'source-1', got '%s'", savedDoc.SourceID)
 	}
 
-	// Verify chunks were indexed in search engine
-	count, _ := searchEngine.Count(ctx)
-	if count != 1 {
-		t.Errorf("expected 1 chunk in search engine, got %d", count)
+	// Verify the indexing executor reported chunks (the chunk-level
+	// search-engine count is no longer maintained — chunks live in
+	// pgvector now and this orchestrator-level test doesn't wire one up).
+	if result.Stats.ChunksIndexed != 1 {
+		t.Errorf("expected 1 chunk indexed, got %d", result.Stats.ChunksIndexed)
 	}
 
 	// Verify sync state was updated
@@ -503,11 +492,6 @@ func TestSyncSource_Success_DeleteDocument(t *testing.T) {
 		Title:      "To Delete",
 	}
 	_ = documentStore.Save(ctx, existingDoc)
-
-	// Add a chunk to search engine
-	_ = searchEngine.Index(ctx, []*domain.Chunk{
-		{ID: "chunk-1", DocumentID: "doc-to-delete", Content: "content"},
-	})
 
 	// Setup connector to return delete change
 	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
@@ -782,7 +766,7 @@ func TestSyncSource_UnknownChangeType(t *testing.T) {
 
 // TestSyncSource_MultipleChunks tests that multiple chunks are created and indexed
 func TestSyncSource_MultipleChunks(t *testing.T) {
-	orchestrator, sourceStore, _, _, searchEngine, connectorFactory := createTestSyncOrchestrator(t)
+	orchestrator, sourceStore, _, _, _, connectorFactory := createTestSyncOrchestrator(t)
 	ctx := context.Background()
 
 	source := &domain.Source{
@@ -791,17 +775,9 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 	}
 	_ = sourceStore.Save(ctx, source)
 
-	// Mock indexing executor to return multiple chunks
+	// Mock indexing executor returns synthetic 3-chunk output.
 	executor := orchestrator.indexingExecutor.(*mockIndexingExecutor)
 	executor.executeFn = func(ctx context.Context, pctx *pipeline.IndexingContext, input *pipeline.IndexingInput) (*pipeline.IndexingOutput, error) {
-		// Create and index 3 chunks
-		chunks := []*domain.Chunk{
-			{ID: "chunk-1", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 1", Position: 0},
-			{ID: "chunk-2", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 2", Position: 1},
-			{ID: "chunk-3", DocumentID: input.DocumentID, SourceID: pctx.SourceID, Content: "Chunk 3", Position: 2},
-		}
-		_ = searchEngine.Index(ctx, chunks)
-
 		return &pipeline.IndexingOutput{
 			DocumentID: input.DocumentID,
 			ChunkIDs:   []string{"chunk-1", "chunk-2", "chunk-3"},
@@ -824,12 +800,6 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 
 	if result.Stats.ChunksIndexed != 3 {
 		t.Errorf("expected 3 chunks indexed, got %d", result.Stats.ChunksIndexed)
-	}
-
-	// Verify chunks were indexed in search engine
-	seCount, _ := searchEngine.Count(ctx)
-	if seCount != 3 {
-		t.Errorf("expected 3 chunks in search engine, got %d", seCount)
 	}
 }
 

@@ -43,32 +43,6 @@ func TestDocumentService_Get(t *testing.T) {
 	}
 }
 
-func TestDocumentService_GetWithChunks(t *testing.T) {
-	documentStore := mocks.NewMockDocumentStore()
-	searchEngine := mocks.NewMockSearchEngine()
-	svc := NewDocumentService(documentStore, searchEngine)
-
-	// Create a document
-	doc := &domain.Document{
-		ID:       "doc-123",
-		SourceID: "source-456",
-		Title:    "Test Document",
-	}
-	_ = documentStore.Save(context.Background(), doc)
-
-	// GetWithChunks returns document with empty chunks (deprecated)
-	result, err := svc.GetWithChunks(context.Background(), "doc-123")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Document.ID != doc.ID {
-		t.Errorf("expected document ID %s, got %s", doc.ID, result.Document.ID)
-	}
-	if len(result.Chunks) != 0 {
-		t.Errorf("expected 0 chunks (deprecated), got %d", len(result.Chunks))
-	}
-}
-
 func TestDocumentService_GetContent(t *testing.T) {
 	documentStore := mocks.NewMockDocumentStore()
 	searchEngine := mocks.NewMockSearchEngine()

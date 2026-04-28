@@ -65,11 +65,3 @@ type SearchResultItem struct {
 	IndexedAt  time.Time `json:"indexed_at"`
 }
 
-// RankedChunk is kept for backward compatibility with the legacy Search port.
-// Deprecated: Use SearchResultItem instead.
-type RankedChunk struct {
-	Chunk      *Chunk    `json:"chunk"`
-	Document   *Document `json:"document"`
-	Score      float64   `json:"score"`
-	Highlights []string  `json:"highlights,omitempty"`
-}

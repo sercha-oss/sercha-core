@@ -35,16 +35,8 @@ func (m *mockSearchEngine) setResults(query string, results []driven.DocumentRes
 	m.queryResults[query] = results
 }
 
-func (m *mockSearchEngine) Index(ctx context.Context, chunks []*domain.Chunk) error {
-	return nil
-}
-
 func (m *mockSearchEngine) IndexDocument(ctx context.Context, doc *domain.DocumentContent) error {
 	return nil
-}
-
-func (m *mockSearchEngine) Search(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error) {
-	return nil, 0, nil
 }
 
 func (m *mockSearchEngine) SearchDocuments(ctx context.Context, query string, opts domain.SearchOptions) ([]driven.DocumentResult, int, error) {
@@ -64,10 +56,6 @@ func (m *mockSearchEngine) SearchDocuments(ctx context.Context, query string, op
 		return []driven.DocumentResult{}, 0, nil
 	}
 	return results, len(results), nil
-}
-
-func (m *mockSearchEngine) Delete(ctx context.Context, chunkIDs []string) error {
-	return nil
 }
 
 func (m *mockSearchEngine) DeleteByDocument(ctx context.Context, documentID string) error {
@@ -1088,16 +1076,8 @@ type selectiveErrorSearchEngine struct {
 	failOnQuery string
 }
 
-func (s *selectiveErrorSearchEngine) Index(ctx context.Context, chunks []*domain.Chunk) error {
-	return s.base.Index(ctx, chunks)
-}
-
 func (s *selectiveErrorSearchEngine) IndexDocument(ctx context.Context, doc *domain.DocumentContent) error {
 	return s.base.IndexDocument(ctx, doc)
-}
-
-func (s *selectiveErrorSearchEngine) Search(ctx context.Context, query string, queryEmbedding []float32, opts domain.SearchOptions) ([]*domain.RankedChunk, int, error) {
-	return s.base.Search(ctx, query, queryEmbedding, opts)
 }
 
 func (s *selectiveErrorSearchEngine) SearchDocuments(ctx context.Context, query string, opts domain.SearchOptions) ([]driven.DocumentResult, int, error) {
@@ -1105,10 +1085,6 @@ func (s *selectiveErrorSearchEngine) SearchDocuments(ctx context.Context, query 
 		return nil, 0, errors.New("selective search error")
 	}
 	return s.base.SearchDocuments(ctx, query, opts)
-}
-
-func (s *selectiveErrorSearchEngine) Delete(ctx context.Context, chunkIDs []string) error {
-	return s.base.Delete(ctx, chunkIDs)
 }
 
 func (s *selectiveErrorSearchEngine) DeleteByDocument(ctx context.Context, documentID string) error {
