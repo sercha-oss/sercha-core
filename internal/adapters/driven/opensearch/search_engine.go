@@ -87,30 +87,45 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		})
 	}
 
-	searchQuery := map[string]any{
-		"query": map[string]any{
-			"bool": map[string]any{
-				"must": mustClauses,
-			},
-		},
-		"from": opts.Offset,
-		"size": opts.Limit,
-		"highlight": map[string]any{
-			"fields": map[string]any{
-				"content": map[string]any{
-					"fragment_size":       200,
-					"number_of_fragments": 3,
-				},
-				"title": map[string]any{
-					"fragment_size":       200,
-					"number_of_fragments": 1,
-				},
-			},
-		},
+	searchQuery := s.buildBoolEnvelope(mustClauses, opts)
+	return s.executeSearch(ctx, searchQuery)
+}
+
+// SearchByQueryDSL runs an arbitrary OpenSearch query body inside the
+// adapter's standard bool envelope (filters, highlights, pagination).
+// Caller owns the inner query shape — useful when the standard match-based
+// retrieval doesn't fit (e.g. function_score, custom rescoring, or any
+// other query DSL the existing methods don't expose).
+//
+// queryBody is wrapped as a single must clause; opts.SourceIDs and
+// opts.DocumentIDFilter still apply as filter clauses, so the standard
+// access boundaries are preserved. opts.BoostTerms still produce
+// should clauses for score boosting. opts.Offset and opts.Limit drive
+// from/size pagination.
+//
+// Not on the driven.SearchEngine port — callers reach this method via
+// runtime type-assertion on the concrete *opensearch.SearchEngine, so
+// alternative backends aren't forced to implement arbitrary OpenSearch
+// DSL.
+func (s *SearchEngine) SearchByQueryDSL(ctx context.Context, queryBody json.RawMessage, opts domain.SearchOptions) ([]driven.DocumentResult, int, error) {
+	if len(queryBody) == 0 {
+		return nil, 0, fmt.Errorf("queryBody is empty")
+	}
+	mustClauses := []any{json.RawMessage(queryBody)}
+	searchQuery := s.buildBoolEnvelope(mustClauses, opts)
+	return s.executeSearch(ctx, searchQuery)
+}
+
+// buildBoolEnvelope wraps a slice of must clauses in the standard bool
+// query envelope: must + optional should (boost terms) + optional filter
+// (source/document filters), plus pagination and highlights. Shared by
+// SearchDocuments and SearchByQueryDSL so they apply filters and
+// highlights identically.
+func (s *SearchEngine) buildBoolEnvelope(mustClauses []any, opts domain.SearchOptions) map[string]any {
+	boolQuery := map[string]any{
+		"must": mustClauses,
 	}
 
-	// Add boost terms as should clauses
-	boolQuery := searchQuery["query"].(map[string]any)["bool"].(map[string]any)
 	if len(opts.BoostTerms) > 0 {
 		shouldClauses := []any{}
 		for term, boost := range opts.BoostTerms {
@@ -125,7 +140,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		boolQuery["should"] = shouldClauses
 	}
 
-	// Add filters if specified
 	var filterClauses []any
 	if len(opts.SourceIDs) > 0 {
 		filterClauses = append(filterClauses, map[string]any{
@@ -138,7 +152,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 	//   - Apply && len(IDs) > 0: allow-list on document_id.
 	if f := opts.DocumentIDFilter; f != nil && f.Apply {
 		if len(f.IDs) == 0 {
-			// Deny-all: append a clause that matches nothing.
 			filterClauses = append(filterClauses, map[string]any{
 				"ids": map[string]any{"values": []string{}},
 			})
@@ -152,6 +165,30 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		boolQuery["filter"] = filterClauses
 	}
 
+	return map[string]any{
+		"query": map[string]any{"bool": boolQuery},
+		"from":  opts.Offset,
+		"size":  opts.Limit,
+		"highlight": map[string]any{
+			"fields": map[string]any{
+				"content": map[string]any{
+					"fragment_size":       200,
+					"number_of_fragments": 3,
+				},
+				"title": map[string]any{
+					"fragment_size":       200,
+					"number_of_fragments": 1,
+				},
+			},
+		},
+	}
+}
+
+// executeSearch marshals the prepared query, hits OpenSearch, and parses
+// the typed response into []DocumentResult. Index-not-found errors are
+// translated to an empty result set so a fresh deployment doesn't 500
+// before the first document is indexed.
+func (s *SearchEngine) executeSearch(ctx context.Context, searchQuery map[string]any) ([]driven.DocumentResult, int, error) {
 	queryBody, err := json.Marshal(searchQuery)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to marshal query: %w", err)
@@ -164,7 +201,6 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 
 	resp, err := s.client.Search(ctx, req)
 	if err != nil {
-		// Index doesn't exist yet — return empty results instead of 500
 		if isIndexNotFoundError(err) {
 			return []driven.DocumentResult{}, 0, nil
 		}

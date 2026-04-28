@@ -1646,6 +1646,90 @@ func TestSearchEngine_EnsureIndex_Mapping(t *testing.T) {
 	}
 }
 
+// TestSearchEngine_SearchByQueryDSL_WrapsCallerQueryInBoolEnvelope verifies
+// that the caller-supplied query body lands as a must clause inside the
+// standard bool envelope, with filters and pagination applied identically
+// to SearchDocuments.
+func TestSearchEngine_SearchByQueryDSL_WrapsCallerQueryInBoolEnvelope(t *testing.T) {
+	var capturedBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+			if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hits": map[string]any{
+					"total": map[string]any{"value": 0},
+					"hits":  []map[string]any{},
+				},
+			})
+			return
+		}
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{URL: ts.URL, IndexName: "sercha_chunks", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	// Caller-supplied DSL: a function_score wrapper around a match query.
+	innerQuery := json.RawMessage(`{"function_score":{"query":{"match":{"content":"hello"}},"boost":2.0}}`)
+
+	_, _, err = engine.SearchByQueryDSL(context.Background(), innerQuery, domain.SearchOptions{
+		Limit:     20,
+		Offset:    5,
+		SourceIDs: []string{"src-1"},
+	})
+	if err != nil {
+		t.Fatalf("SearchByQueryDSL: %v", err)
+	}
+
+	// Pagination applied.
+	if from, _ := capturedBody["from"].(float64); from != 5 {
+		t.Errorf("from = %v, want 5", from)
+	}
+	if size, _ := capturedBody["size"].(float64); size != 20 {
+		t.Errorf("size = %v, want 20", size)
+	}
+
+	// Caller's body lands as the only must clause.
+	boolQuery := capturedBody["query"].(map[string]any)["bool"].(map[string]any)
+	must := boolQuery["must"].([]any)
+	if len(must) != 1 {
+		t.Fatalf("want 1 must clause (caller's body), got %d", len(must))
+	}
+	mustClause := must[0].(map[string]any)
+	if _, ok := mustClause["function_score"]; !ok {
+		t.Errorf("caller's function_score not preserved: %v", mustClause)
+	}
+
+	// Source filter still applied via the standard envelope.
+	filter := boolQuery["filter"].([]any)
+	if len(filter) != 1 {
+		t.Fatalf("want 1 filter clause (source_id), got %d", len(filter))
+	}
+
+	// Highlight config still attached so consumers get fragment data.
+	if _, ok := capturedBody["highlight"]; !ok {
+		t.Error("highlight config missing from envelope")
+	}
+}
+
+// SearchByQueryDSL with empty queryBody is a programmer error and must
+// fail fast rather than fire an unbounded match-all at OpenSearch.
+func TestSearchEngine_SearchByQueryDSL_EmptyBodyErrors(t *testing.T) {
+	engine, err := NewSearchEngine(Config{URL: "http://localhost:0", IndexName: "test", Timeout: time.Second})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+	_, _, err = engine.SearchByQueryDSL(context.Background(), nil, domain.SearchOptions{})
+	if err == nil {
+		t.Error("want error for empty queryBody, got nil")
+	}
+}
+
 // TestSearchEngine_InterfaceCompliance validates interface implementation
 func TestSearchEngine_InterfaceCompliance(t *testing.T) {
 	// This test verifies that SearchEngine implements the driven.SearchEngine interface
