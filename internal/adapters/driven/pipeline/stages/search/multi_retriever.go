@@ -14,6 +14,7 @@ import (
 
 const (
 	MultiRetrieverStageID          = "multi-retriever"
+	DefaultTopK                    = 100
 	DefaultRRFK                    = 60
 	DefaultVectorDistanceThreshold = 0.55 // Only include vector results closer than this
 )
@@ -89,6 +90,8 @@ func (f *MultiRetrieverFactory) Create(config pipeline.StageConfig, capabilities
 		vectorDistanceThreshold = t
 	}
 
+	disableVector, _ := config.Parameters["disable_vector"].(bool)
+
 	return &MultiRetrieverStage{
 		descriptor:              f.descriptor,
 		searchEngine:            searchEngine,
@@ -97,6 +100,7 @@ func (f *MultiRetrieverFactory) Create(config pipeline.StageConfig, capabilities
 		topK:                    topK,
 		rrfK:                    rrfK,
 		vectorDistanceThreshold: vectorDistanceThreshold,
+		disableVector:           disableVector,
 	}, nil
 }
 
@@ -110,6 +114,7 @@ type MultiRetrieverStage struct {
 	topK                    int
 	rrfK                    int
 	vectorDistanceThreshold float64
+	disableVector           bool
 }
 
 func (s *MultiRetrieverStage) Descriptor() pipeline.StageDescriptor { return s.descriptor }
@@ -166,20 +171,22 @@ func (s *MultiRetrieverStage) Process(ctx context.Context, input any) (any, erro
 func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQuery) ([]*pipeline.Candidate, error) {
 	var candidates []*pipeline.Candidate
 
-	queryStr := q.Original
-	if queryStr == "" {
-		queryStr = strings.Join(q.Terms, " ")
-		if len(q.Phrases) > 0 {
-			queryStr += " " + strings.Join(q.Phrases, " ")
-		}
+	// Pass terms as the loose-match query string, phrases via SearchOptions so
+	// the OpenSearch adapter can build match_phrase clauses for them. Using
+	// q.Original would leak the literal `"` characters into the analyser,
+	// which strips them as punctuation and silently degrades the phrase to
+	// two unrelated tokens.
+	queryStr := strings.Join(q.Terms, " ")
+	if queryStr == "" && len(q.Phrases) == 0 {
+		queryStr = q.Original
 	}
 
-	// BM25 search (required)
 	opts := domain.SearchOptions{
 		Limit:            s.topK,
 		Mode:             domain.SearchModeTextOnly,
 		SourceIDs:        q.SearchFilters.Sources,
 		DocumentIDFilter: q.SearchFilters.DocumentIDFilter,
+		Phrases:          q.Phrases,
 	}
 
 	bm25Results, _, err := s.searchEngine.SearchDocuments(ctx, queryStr, opts)
@@ -189,8 +196,9 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 
 	candidates = append(candidates, convertDocResultsToCandidates(bm25Results, "bm25")...)
 
-	// Vector search (optional - only if both vectorIndex and embedder are available)
-	if s.vectorIndex != nil && s.embedder != nil {
+	// Vector search (optional - only if both vectorIndex and embedder are available
+	// and the admin pref VectorSearchEnabled hasn't disabled it via stage config)
+	if !s.disableVector && s.vectorIndex != nil && s.embedder != nil {
 		queryEmbedding, err := s.embedder.EmbedQuery(ctx, q.Original)
 		if err != nil {
 			return candidates, nil
@@ -291,6 +299,45 @@ func (s *MultiRetrieverStage) mergeWithRRF(results [][]*pipeline.Candidate, quer
 	}
 
 	return merged
+}
+
+// convertDocResultsToCandidates converts document-level BM25 results to pipeline candidates.
+func convertDocResultsToCandidates(results []driven.DocumentResult, source string) []*pipeline.Candidate {
+	candidates := make([]*pipeline.Candidate, len(results))
+	for i, r := range results {
+		candidates[i] = &pipeline.Candidate{
+			DocumentID: r.DocumentID,
+			ChunkID:    "", // Document-level result, no chunk
+			SourceID:   r.SourceID,
+			Content:    r.Content,
+			Score:      r.Score,
+			Source:     source,
+			Metadata:   map[string]any{"title": r.Title},
+		}
+	}
+	return candidates
+}
+
+// convertVectorResultsToCandidates converts chunk-level vector results to pipeline candidates.
+func convertVectorResultsToCandidates(results []driven.VectorSearchResult, source string) []*pipeline.Candidate {
+	candidates := make([]*pipeline.Candidate, len(results))
+	for i, r := range results {
+		// Convert distance to similarity score (1 - cosine_distance for cosine)
+		score := 1.0 - r.Distance
+		if score < 0 {
+			score = 0
+		}
+		candidates[i] = &pipeline.Candidate{
+			DocumentID: r.DocumentID,
+			ChunkID:    r.ChunkID,
+			SourceID:   "", // pgvector doesn't store source_id; ranker/presenter can resolve via DocumentID
+			Content:    r.Content,
+			Score:      score,
+			Source:     source,
+			Metadata:   make(map[string]any),
+		}
+	}
+	return candidates
 }
 
 // Interface assertions

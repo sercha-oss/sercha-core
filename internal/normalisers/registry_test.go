@@ -1,6 +1,7 @@
 package normalisers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
@@ -332,8 +333,10 @@ func TestHTMLNormaliser(t *testing.T) {
 		{"nested tags", "<div><p>Hello</p></div>", "Hello"},
 		{"script removal", "<script>alert('x')</script>Text", "Text"},
 		{"style removal", "<style>.a{}</style>Text", "Text"},
+		{"noscript removal", "<noscript>fallback</noscript>Text", "Text"},
 		{"entity decode", "&amp; &lt; &gt;", "& < >"},
-		{"multiple spaces", "<p>Hello     World</p>", "Hello World"},
+		{"multiple spaces collapsed", "<p>Hello     World</p>", "Hello World"},
+		{"empty input", "", ""},
 	}
 
 	for _, tt := range tests {
@@ -345,16 +348,14 @@ func TestHTMLNormaliser(t *testing.T) {
 		})
 	}
 
-	// Check priority (should be 50 - format-specific)
 	if n.Priority() != 50 {
 		t.Errorf("expected priority 50, got %d", n.Priority())
 	}
 
-	// Check supported types
 	types := n.SupportedTypes()
 	found := false
-	for _, t := range types {
-		if t == "text/html" {
+	for _, ty := range types {
+		if ty == "text/html" {
 			found = true
 			break
 		}
@@ -364,75 +365,89 @@ func TestHTMLNormaliser(t *testing.T) {
 	}
 }
 
-func TestRemoveHTMLBlocks(t *testing.T) {
-	tests := []struct {
-		name     string
-		content  string
-		tagName  string
-		expected string
-	}{
-		{"script tag", "<script>code</script>text", "script", "text"},
-		{"style tag", "<style>css</style>text", "style", "text"},
-		{"multiple script tags", "<script>a</script>text<script>b</script>", "script", "text"},
-		{"nested content", "before<script>alert();</script>after", "script", "beforeafter"},
-		{"no matching tag", "<div>content</div>", "script", "<div>content</div>"},
+// Heading levels survive normalisation as ATX-style markdown so a
+// section-aware chunker can split on `^#+ ` later. Body content keeps its
+// blank-line separation from headings.
+func TestHTMLNormaliser_PreservesHeadingHierarchy(t *testing.T) {
+	n := &HTMLNormaliser{}
+
+	in := `<h1>Architecture</h1><p>top level intro</p>` +
+		`<h2>Auth</h2><p>auth body</p>` +
+		`<h3>OAuth</h3><p>oauth body</p>` +
+		`<h4>Token refresh</h4><p>refresh body</p>`
+
+	out := n.Normalise(in, "text/html")
+
+	for _, want := range []string{
+		"# Architecture",
+		"## Auth",
+		"### OAuth",
+		"#### Token refresh",
+		"top level intro",
+		"auth body",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("normalised output missing %q\nfull output:\n%s", want, out)
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := removeHTMLBlocks(tt.content, tt.tagName)
-			if result != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestStripHTMLTags(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"simple tag", "<p>hello</p>", " hello "},
-		{"nested tags", "<div><p>hello</p></div>", "  hello  "},
-		{"self-closing", "hello<br/>world", "hello world"},
-		{"attributes", "<a href='url'>link</a>", " link "},
-		{"no tags", "plain text", "plain text"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := stripHTMLTags(tt.input)
-			if result != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, result)
-			}
-		})
+	if i, j := strings.Index(out, "# Architecture"), strings.Index(out, "## Auth"); i < 0 || j < 0 || i >= j {
+		t.Errorf("h1 should appear before h2 in output:\n%s", out)
 	}
 }
 
-func TestDecodeHTMLEntities(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"amp", "&amp;", "&"},
-		{"lt gt", "&lt;&gt;", "<>"},
-		{"nbsp", "&nbsp;", " "},
-		{"quote", "&quot;", "\""},
-		{"apos", "&apos;", "'"},
-		{"multiple", "&amp; &lt;test&gt;", "& <test>"},
-		{"no entities", "plain text", "plain text"},
-	}
+// Image alt text and link title attributes are inline metadata that's
+// useful for retrieval — strip the tags but fold the text in.
+func TestHTMLNormaliser_PreservesAltAndTitleText(t *testing.T) {
+	n := &HTMLNormaliser{}
 
-	for _, tt := range tests {
+	cases := []struct {
+		name     string
+		in       string
+		mustHave []string
+	}{
+		{
+			"img alt is preserved",
+			`<p>Logo: <img alt="company logo" src="/logo.png"> done.</p>`,
+			[]string{"company logo"},
+		},
+		{
+			"link anchor text is preserved",
+			`<p>See <a href="/x">the docs</a>.</p>`,
+			[]string{"the docs"},
+		},
+		{
+			"link title supplements anchor text when different",
+			`<p><a href="/x" title="API reference">click</a></p>`,
+			[]string{"click", "API reference"},
+		},
+		{
+			"link title is omitted when it duplicates anchor text",
+			`<p><a href="/x" title="API reference">API reference</a></p>`,
+			[]string{"API reference"},
+		},
+		{
+			"img with no alt produces no extra noise",
+			`<p>before<img src="/x.png">after</p>`,
+			[]string{"before", "after"},
+		},
+	}
+	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			result := decodeHTMLEntities(tt.input)
-			if result != tt.expected {
-				t.Errorf("expected %q, got %q", tt.expected, result)
+			out := n.Normalise(tt.in, "text/html")
+			for _, want := range tt.mustHave {
+				if !strings.Contains(out, want) {
+					t.Errorf("missing %q in: %q", want, out)
+				}
 			}
 		})
+	}
+
+	// "API reference" should appear exactly once when the anchor text
+	// already contains the title.
+	out := n.Normalise(`<a href="/x" title="API reference">API reference</a>`, "text/html")
+	if strings.Count(out, "API reference") != 1 {
+		t.Errorf("expected title to dedupe with anchor text, got %q", out)
 	}
 }
 

@@ -27,7 +27,6 @@ func (m *mockIndexingExecutor) Execute(ctx context.Context, pctx *pipeline.Index
 	return &pipeline.IndexingOutput{
 		DocumentID: input.DocumentID,
 		ChunkIDs:   []string{input.DocumentID + "-chunk-0"},
-		Manifest:   nil,
 	}, nil
 }
 
@@ -282,7 +281,6 @@ func TestProcessWithPipeline_MultipleChunks(t *testing.T) {
 			return &pipeline.IndexingOutput{
 				DocumentID: input.DocumentID,
 				ChunkIDs:   []string{"chunk-1", "chunk-2", "chunk-3"},
-				Manifest:   nil,
 			}, nil
 		},
 	}

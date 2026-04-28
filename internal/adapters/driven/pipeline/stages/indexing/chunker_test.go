@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/stages/textfilter"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 )
 
@@ -148,7 +149,7 @@ func TestChunkerStage_FiltersNonTextChunks(t *testing.T) {
 
 	// All returned chunks should be text content, not base64
 	for i, chunk := range chunks {
-		if isLikelyNonText(chunk.Content) {
+		if textfilter.IsLikelyNonText(chunk.Content) {
 			t.Errorf("chunk %d should have been filtered (non-text content): %q", i, chunk.Content[:min(60, len(chunk.Content))])
 		}
 	}
@@ -243,13 +244,168 @@ func TestChunkerStage_NoInfiniteLoopOnMixedContent(t *testing.T) {
 			t.Error("expected at least one chunk from the normal text portions")
 		}
 		for i, chunk := range chunks {
-			if isLikelyNonText(chunk.Content) {
+			if textfilter.IsLikelyNonText(chunk.Content) {
 				t.Errorf("chunk %d contains non-text content that should have been filtered", i)
 			}
 		}
 		t.Logf("completed with %d chunks (no infinite loop)", len(chunks))
 	case <-time.After(3 * time.Second):
 		t.Fatal("chunker stuck in infinite loop — did not complete within 3 seconds")
+	}
+}
+
+// Headings emitted by the HTML/PDF/Notion normalisers split the document
+// into one chunk per section, with the section heading prepended to each
+// chunk's content so the embedder has topical context.
+func TestChunkerStage_SplitsOnATXHeadings(t *testing.T) {
+	factory := NewChunkerFactory()
+	stage, _ := factory.Create(pipeline.StageConfig{
+		StageID: ChunkerStageID,
+		Enabled: true,
+		// Big chunk size — sections fit in one window each.
+		Parameters: map[string]any{"chunk_size": float64(4096), "chunk_overlap": float64(100)},
+	}, nil)
+
+	body1 := strings.Repeat("Auth flow body content. ", 30) // ~700 chars > MinSectionLength
+	body2 := strings.Repeat("OAuth specifics body. ", 30)
+	body3 := strings.Repeat("Token refresh body content. ", 30)
+
+	input := &pipeline.IndexingInput{
+		DocumentID: "doc-sections",
+		SourceID:   "src-1",
+		Content: "## Auth flow\n\n" + body1 +
+			"\n\n## OAuth\n\n" + body2 +
+			"\n\n## Token refresh\n\n" + body3,
+	}
+
+	result, err := stage.Process(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	chunks := result.([]*pipeline.Chunk)
+
+	if len(chunks) != 3 {
+		t.Fatalf("want 3 chunks (one per section), got %d", len(chunks))
+	}
+
+	wants := []string{
+		"## Auth flow\n\nAuth flow body content.",
+		"## OAuth\n\nOAuth specifics body.",
+		"## Token refresh\n\nToken refresh body content.",
+	}
+	for i, want := range wants {
+		if !strings.HasPrefix(chunks[i].Content, want) {
+			t.Errorf("chunk %d: want prefix %q, got %q", i, want, chunks[i].Content[:min(80, len(chunks[i].Content))])
+		}
+	}
+
+	for i, c := range chunks {
+		if c.Position != i {
+			t.Errorf("chunk %d: position = %d, want %d", i, c.Position, i)
+		}
+	}
+}
+
+// A section longer than chunk_size gets sub-chunked, and every sub-chunk
+// keeps the section heading prepended so the embedder doesn't lose context.
+func TestChunkerStage_LongSectionGetsSubChunkedWithHeadingPrepended(t *testing.T) {
+	factory := NewChunkerFactory()
+	stage, _ := factory.Create(pipeline.StageConfig{
+		StageID:    ChunkerStageID,
+		Enabled:    true,
+		Parameters: map[string]any{"chunk_size": float64(300), "chunk_overlap": float64(30)},
+	}, nil)
+
+	longBody := strings.Repeat("Authentication flow detailed content with words. ", 50) // ~2400 chars
+	input := &pipeline.IndexingInput{
+		DocumentID: "doc-long-section",
+		SourceID:   "src-1",
+		Content:    "## Auth flow\n\n" + longBody,
+	}
+
+	result, err := stage.Process(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	chunks := result.([]*pipeline.Chunk)
+
+	if len(chunks) < 2 {
+		t.Fatalf("want at least 2 sub-chunks for a long section, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if !strings.HasPrefix(c.Content, "## Auth flow\n\n") {
+			t.Errorf("sub-chunk %d missing heading prefix:\n%s", i, c.Content[:min(80, len(c.Content))])
+		}
+	}
+}
+
+// Tiny sections (e.g. the connector-emitted `# Title\n\nbody` prelude) get
+// folded forward into the next section so we don't end up with a 10-char
+// chunk that's just the title.
+func TestChunkerStage_TinySectionsMergeForward(t *testing.T) {
+	factory := NewChunkerFactory()
+	stage, _ := factory.Create(pipeline.StageConfig{
+		StageID:    ChunkerStageID,
+		Enabled:    true,
+		Parameters: map[string]any{"chunk_size": float64(4096), "chunk_overlap": float64(100)},
+	}, nil)
+
+	bigBody := strings.Repeat("body content for the auth section. ", 30) // > MinSectionLength
+	input := &pipeline.IndexingInput{
+		DocumentID: "doc-with-title",
+		SourceID:   "src-1",
+		// `# Title` is a tiny section (no body); should fold into Auth flow.
+		Content: "# Title\n\n## Auth flow\n\n" + bigBody,
+	}
+
+	result, err := stage.Process(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Process: %v", err)
+	}
+	chunks := result.([]*pipeline.Chunk)
+
+	if len(chunks) != 1 {
+		t.Fatalf("want 1 chunk after merging, got %d:\n%v", len(chunks), chunkContents(chunks))
+	}
+	if !strings.Contains(chunks[0].Content, "# Title") {
+		t.Errorf("merged chunk missing title:\n%s", chunks[0].Content[:min(120, len(chunks[0].Content))])
+	}
+	if !strings.Contains(chunks[0].Content, "Auth flow") {
+		t.Errorf("merged chunk missing Auth flow heading:\n%s", chunks[0].Content[:min(120, len(chunks[0].Content))])
+	}
+	if !strings.Contains(chunks[0].Content, "body content for the auth section") {
+		t.Errorf("merged chunk missing body:\n%s", chunks[0].Content[:min(120, len(chunks[0].Content))])
+	}
+}
+
+// Inside a fenced code block, lines starting with `#` are comments (Python,
+// shell, CSS selectors, Go cgo directives) — not headings. The chunker must
+// not split on them or it will produce nonsense sections from code samples.
+func TestChunkerStage_DoesNotSplitInsideCodeFences(t *testing.T) {
+	bigBody := strings.Repeat("real prose talking about the example. ", 20)
+	codeBlock := "```python\n" +
+		"# this is a Python comment, not an H1\n" +
+		"# def foo():\n" +
+		"#   return 1\n" +
+		"```\n"
+
+	// Newline before the fence so it opens on its own line — CommonMark
+	// requires this, and every normaliser/connector that emits fences
+	// (Notion, GitHub) follows that convention.
+	sections := splitSections("## Real heading\n\n" + bigBody + "\n" + codeBlock + bigBody)
+
+	// Exactly one section — `## Real heading`. The `#` lines inside the
+	// fence must not have spawned additional sections.
+	if len(sections) != 1 {
+		t.Fatalf("want 1 section, got %d:\n%v", len(sections), sectionHeadings(sections))
+	}
+	if sections[0].heading != "## Real heading" {
+		t.Errorf("section heading = %q, want %q", sections[0].heading, "## Real heading")
+	}
+	// The Python comments must end up in the section body (not stripped
+	// or spawning new sections).
+	if !strings.Contains(sections[0].body, "# this is a Python comment, not an H1") {
+		t.Error("python comment body got dropped")
 	}
 }
 
@@ -262,4 +418,24 @@ func TestChunkerStage_InvalidInput(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid input type")
 	}
+}
+
+func chunkContents(chunks []*pipeline.Chunk) []string {
+	out := make([]string, len(chunks))
+	for i, c := range chunks {
+		end := len(c.Content)
+		if end > 80 {
+			end = 80
+		}
+		out[i] = c.Content[:end]
+	}
+	return out
+}
+
+func sectionHeadings(sections []section) []string {
+	out := make([]string, len(sections))
+	for i, s := range sections {
+		out[i] = s.heading
+	}
+	return out
 }

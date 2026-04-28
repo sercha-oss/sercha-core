@@ -321,6 +321,123 @@ func (c *Client) ListIssues(ctx context.Context, owner, repo string, since *time
 	return issues, nextCursor, nil
 }
 
+// IssueComment is a single conversation comment on an issue or PR. The
+// /issues/{n}/comments endpoint serves both — PRs share the conversation
+// timeline with issues. Distinct from PR review comments (line-level on
+// the diff) and reviews (approve/request-changes envelopes).
+type IssueComment struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	User      *User     `json:"user"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PRReviewComment is a line-level comment attached to a PR's diff. Has a
+// path/line for context that's useful in retrieval.
+type PRReviewComment struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	User      *User     `json:"user"`
+	Path      string    `json:"path"`
+	Line      int       `json:"line"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PRReview is one approve/request-changes/comment envelope from a reviewer.
+// State is "APPROVED", "CHANGES_REQUESTED", "COMMENTED", or "DISMISSED".
+type PRReview struct {
+	ID          int64     `json:"id"`
+	Body        string    `json:"body"`
+	State       string    `json:"state"`
+	User        *User     `json:"user"`
+	SubmittedAt time.Time `json:"submitted_at"`
+}
+
+// ListIssueComments fetches all conversation comments for an issue or PR.
+// Walks pagination until exhausted — comments per issue are typically
+// small (<100), so this usually completes in one call. Any page error
+// aborts the walk so callers never see a partial slice.
+func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, number int) ([]*IssueComment, error) {
+	var all []*IssueComment
+	page := 1
+	for {
+		path := fmt.Sprintf("/repos/%s/%s/issues/%d/comments?per_page=100&page=%d", owner, repo, number, page)
+		resp, err := c.doRequest(ctx, "GET", path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("list issue comments: %w", err)
+		}
+		var batch []*IssueComment
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decode issue comments: %w", err)
+		}
+		linkHeader := resp.Header.Get("Link")
+		_ = resp.Body.Close()
+		all = append(all, batch...)
+		if !hasNextPage(linkHeader) {
+			break
+		}
+		page++
+	}
+	return all, nil
+}
+
+// ListPRReviewComments fetches all review comments (line-level on the diff)
+// for a pull request.
+func (c *Client) ListPRReviewComments(ctx context.Context, owner, repo string, number int) ([]*PRReviewComment, error) {
+	var all []*PRReviewComment
+	page := 1
+	for {
+		path := fmt.Sprintf("/repos/%s/%s/pulls/%d/comments?per_page=100&page=%d", owner, repo, number, page)
+		resp, err := c.doRequest(ctx, "GET", path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("list pr review comments: %w", err)
+		}
+		var batch []*PRReviewComment
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decode pr review comments: %w", err)
+		}
+		linkHeader := resp.Header.Get("Link")
+		_ = resp.Body.Close()
+		all = append(all, batch...)
+		if !hasNextPage(linkHeader) {
+			break
+		}
+		page++
+	}
+	return all, nil
+}
+
+// ListPRReviews fetches all reviews (approve/request-changes envelopes) for
+// a pull request.
+func (c *Client) ListPRReviews(ctx context.Context, owner, repo string, number int) ([]*PRReview, error) {
+	var all []*PRReview
+	page := 1
+	for {
+		path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews?per_page=100&page=%d", owner, repo, number, page)
+		resp, err := c.doRequest(ctx, "GET", path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("list pr reviews: %w", err)
+		}
+		var batch []*PRReview
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("decode pr reviews: %w", err)
+		}
+		linkHeader := resp.Header.Get("Link")
+		_ = resp.Body.Close()
+		all = append(all, batch...)
+		if !hasNextPage(linkHeader) {
+			break
+		}
+		page++
+	}
+	return all, nil
+}
+
 // ListPullRequests lists pull requests for a repository.
 func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, cursor string) ([]*PullRequest, string, error) {
 	page := 1
@@ -583,3 +700,35 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body io.Rea
 
 	return resp, nil
 }
+
+// Do implements driven.RESTClient. Wraps doRequest with JSON encode/decode
+// so callers that hold this Client through the RESTClient port can invoke
+// GitHub endpoints not covered by the typed methods above while reusing
+// the same auth, rate-limit, and retry behaviour.
+func (c *Client) Do(ctx context.Context, method, path string, body, result any) error {
+	var bodyReader io.Reader
+	if body != nil {
+		buf, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal request body: %w", err)
+		}
+		bodyReader = strings.NewReader(string(buf))
+	}
+
+	resp, err := c.doRequest(ctx, method, path, bodyReader)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if result == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+// Compile-time assertion that *Client satisfies the RESTClient port.
+var _ driven.RESTClient = (*Client)(nil)

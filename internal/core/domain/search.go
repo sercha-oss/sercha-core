@@ -20,6 +20,12 @@ type SearchOptions struct {
 	DocumentIDFilter *DocumentIDFilter  `json:"document_id_filter,omitempty"` // Three-case filter (see DocumentIDFilter godoc). Nil = no filter.
 	Filters          Filters            `json:"filters,omitempty"`
 	BoostTerms       map[string]float64 `json:"boost_terms,omitempty"` // term -> boost factor
+
+	// Phrases lists user-quoted phrases extracted by the query parser. Each is
+	// run as a match_phrase clause against title^3 and content alongside the
+	// main query terms — without this the standard analyser drops the quotes
+	// and a "merge sort" search collapses into two unrelated tokens.
+	Phrases []string `json:"phrases,omitempty"`
 }
 
 // Filters provides additional search filters

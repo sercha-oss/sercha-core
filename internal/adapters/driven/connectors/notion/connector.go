@@ -43,6 +43,12 @@ func (c *Connector) Type() domain.ProviderType {
 	return domain.ProviderTypeNotion
 }
 
+// RESTClient implements driven.Connector. Returns the embedded Notion Client,
+// which satisfies driven.RESTClient natively.
+func (c *Connector) RESTClient() driven.RESTClient {
+	return c.client
+}
+
 // ValidateConfig validates source configuration.
 func (c *Connector) ValidateConfig(config domain.SourceConfig) error {
 	// No special validation needed for Notion

@@ -2,8 +2,10 @@ package normalisers
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 
+	pdftotext "github.com/heussd/pdftotext-go"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
 
@@ -139,6 +141,65 @@ func TestPDFNormaliser_WhitespaceNormalization(t *testing.T) {
 	result := n.Normalise("", "application/pdf")
 	if result != "" {
 		t.Errorf("expected empty result for empty input")
+	}
+}
+
+// Page boundaries are emitted as `## Page N` so a section-aware chunker can
+// keep page-coherent windows. The actual PDF byte parsing is exercised by the
+// integration test above; this test feeds the helper directly to avoid
+// constructing multi-page PDFs in fixtures.
+func TestPDFNormaliser_AssemblePages_PageMarkers(t *testing.T) {
+	out := assemblePages([]pdftotext.PdfPage{
+		{Number: 1, Content: "intro paragraph"},
+		{Number: 2, Content: "second page body"},
+		{Number: 3, Content: "third page"},
+	})
+
+	for _, want := range []string{
+		"## Page 1\n\nintro paragraph",
+		"## Page 2\n\nsecond page body",
+		"## Page 3\n\nthird page",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+
+	// Pages should appear in order.
+	if i, j := strings.Index(out, "## Page 1"), strings.Index(out, "## Page 2"); i < 0 || j < 0 || i >= j {
+		t.Errorf("page 1 should precede page 2 in:\n%s", out)
+	}
+}
+
+// Empty pages get dropped (some PDFs have blank covers / chapter breaks)
+// and the page-number is preserved when poppler reports it, even when the
+// slice index would disagree.
+func TestPDFNormaliser_AssemblePages_SkipsEmptyAndPreservesNumbers(t *testing.T) {
+	out := assemblePages([]pdftotext.PdfPage{
+		{Number: 1, Content: "  "}, // whitespace-only counts as empty
+		{Number: 2, Content: ""},   // blank
+		{Number: 7, Content: "real content"},
+	})
+
+	if strings.Contains(out, "## Page 1") || strings.Contains(out, "## Page 2") {
+		t.Errorf("empty pages should be dropped, got:\n%s", out)
+	}
+	if !strings.Contains(out, "## Page 7\n\nreal content") {
+		t.Errorf("non-empty page 7 missing or mislabelled:\n%s", out)
+	}
+}
+
+// When poppler reports zero/negative page numbers (malformed PDFs), the
+// helper falls back to the slice index so each page still gets a distinct
+// marker.
+func TestPDFNormaliser_AssemblePages_FallbackNumber(t *testing.T) {
+	out := assemblePages([]pdftotext.PdfPage{
+		{Number: 0, Content: "first"},
+		{Number: 0, Content: "second"},
+	})
+
+	if !strings.Contains(out, "## Page 1") || !strings.Contains(out, "## Page 2") {
+		t.Errorf("fallback page numbers missing:\n%s", out)
 	}
 }
 

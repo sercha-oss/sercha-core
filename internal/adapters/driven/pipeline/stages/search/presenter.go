@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/stages/textfilter"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
 )
@@ -121,8 +122,11 @@ func (s *PresenterStage) createSnippet(content string) string {
 		return ""
 	}
 
-	// Skip binary/encoded content (e.g. base64-encoded zlib from Docusaurus .api.mdx files)
-	if isLikelyNonText(content) {
+	// Skip binary/encoded content (e.g. base64-encoded zlib from Docusaurus .api.mdx files).
+	// No MIME-aware variant here: Candidate carries no MimeType, so we can't take the
+	// structured-text fast-path. The bare heuristic is fine for snippet display — a
+	// false-positive on a minified-JSON candidate just blanks one snippet, not the doc.
+	if textfilter.IsLikelyNonText(content) {
 		return ""
 	}
 
@@ -138,48 +142,6 @@ func (s *PresenterStage) createSnippet(content string) string {
 	}
 
 	return snippet + "..."
-}
-
-// isLikelyNonText detects binary or encoded content that isn't useful for display.
-// It checks for control characters (binary) and very low whitespace ratio (base64/encoded).
-// Normal prose has ~15-20% whitespace, code ~10-15%, minified code ~3-5%.
-// Base64 and binary data have <1%.
-func isLikelyNonText(content string) bool {
-	if len(content) < 64 {
-		return false
-	}
-
-	sample := content
-	if len(sample) > 512 {
-		sample = sample[:512]
-	}
-
-	var whitespace, nonPrintable int
-	for _, r := range sample {
-		switch {
-		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
-			whitespace++
-		case r < 32 || r == 0x7f:
-			nonPrintable++
-		}
-	}
-
-	total := len([]rune(sample))
-	if total == 0 {
-		return false
-	}
-
-	// Control characters beyond 5% → binary
-	if float64(nonPrintable)/float64(total) > 0.05 {
-		return true
-	}
-
-	// Less than 2% whitespace in 64+ chars → likely encoded (base64, compressed, etc.)
-	if float64(whitespace)/float64(total) < 0.02 {
-		return true
-	}
-
-	return false
 }
 
 // Ensure PresenterFactory implements StageFactory.

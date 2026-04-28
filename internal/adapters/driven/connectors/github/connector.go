@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -85,6 +86,12 @@ func (s cursorState) encode() string {
 // Type returns the provider type.
 func (c *Connector) Type() domain.ProviderType {
 	return domain.ProviderTypeGitHub
+}
+
+// RESTClient implements driven.Connector. Returns the embedded GitHub Client,
+// which satisfies driven.RESTClient natively.
+func (c *Connector) RESTClient() driven.RESTClient {
+	return c.client
 }
 
 // ValidateConfig validates source configuration.
@@ -187,7 +194,7 @@ func (c *Connector) fetchIssueChanges(ctx context.Context, since *time.Time) ([]
 				Type:       domain.ChangeTypeModified,
 				ExternalID: fmt.Sprintf("issue-%d", issue.Number),
 				Document:   c.issueToDocument(issue),
-				Content:    c.formatIssueContent(issue),
+				Content:    c.formatIssueContent(ctx, issue),
 			}
 			if since == nil {
 				change.Type = domain.ChangeTypeAdded
@@ -220,7 +227,7 @@ func (c *Connector) fetchPRChanges(ctx context.Context) ([]*domain.Change, error
 				Type:       domain.ChangeTypeModified,
 				ExternalID: fmt.Sprintf("pr-%d", pr.Number),
 				Document:   c.prToDocument(pr),
-				Content:    c.formatPRContent(pr),
+				Content:    c.formatPRContent(ctx, pr),
 			}
 			allChanges = append(allChanges, change)
 		}
@@ -474,7 +481,7 @@ func (c *Connector) FetchDocument(ctx context.Context, source *domain.Source, ex
 			return nil, "", fmt.Errorf("fetch issue %d: %w", number, err)
 		}
 		doc := c.issueToDocument(issue)
-		content := c.formatIssueContent(issue)
+		content := c.formatIssueContent(ctx, issue)
 		contentHash := computeContentHash(content)
 		return doc, contentHash, nil
 
@@ -488,7 +495,7 @@ func (c *Connector) FetchDocument(ctx context.Context, source *domain.Source, ex
 			return nil, "", fmt.Errorf("fetch PR %d: %w", number, err)
 		}
 		doc := c.prToDocument(pr)
-		content := c.formatPRContent(pr)
+		content := c.formatPRContent(ctx, pr)
 		contentHash := computeContentHash(content)
 		return doc, contentHash, nil
 
@@ -600,8 +607,12 @@ func (c *Connector) fileToDocument(entry *TreeEntry, content *FileContent) *doma
 	}
 }
 
-// formatIssueContent formats issue content for indexing.
-func (c *Connector) formatIssueContent(issue *Issue) string {
+// formatIssueContent formats issue content for indexing. Conversation
+// comments are fetched and appended as a `## Comments` section so the
+// section-aware chunker can split on them; the discussion thread is
+// usually where the actual context lives. A failed comments fetch logs
+// and falls through — the issue body alone is still better than nothing.
+func (c *Connector) formatIssueContent(ctx context.Context, issue *Issue) string {
 	var sb strings.Builder
 	sb.WriteString("# ")
 	sb.WriteString(issue.Title)
@@ -622,11 +633,31 @@ func (c *Connector) formatIssueContent(issue *Issue) string {
 		sb.WriteString(issue.Body)
 	}
 
+	// Issue.Comments is the count from the list endpoint; skip the API
+	// call when there's nothing to fetch.
+	if issue.Comments > 0 {
+		comments, err := c.client.ListIssueComments(ctx, c.owner, c.repo, issue.Number)
+		if err != nil {
+			slog.Warn("github: failed to fetch issue comments",
+				"repo", FormatContainerID(c.owner, c.repo),
+				"issue", issue.Number,
+				"error", err)
+		} else {
+			appendComments(&sb, comments)
+		}
+	}
+
 	return sb.String()
 }
 
-// formatPRContent formats pull request content for indexing.
-func (c *Connector) formatPRContent(pr *PullRequest) string {
+// formatPRContent formats pull request content for indexing. Three extra
+// buckets are appended: conversation comments (the issue-style timeline,
+// served by the same /issues/{n}/comments endpoint), review comments
+// (line-level on the diff), and reviews (approve/request-changes
+// envelopes). Each bucket is a `## ` heading so the chunker can
+// section-split. PR list responses don't carry a comment count, so we
+// always attempt the fetch — the API returns an empty slice cheaply.
+func (c *Connector) formatPRContent(ctx context.Context, pr *PullRequest) string {
 	var sb strings.Builder
 	sb.WriteString("# ")
 	sb.WriteString(pr.Title)
@@ -638,7 +669,102 @@ func (c *Connector) formatPRContent(pr *PullRequest) string {
 		sb.WriteString(pr.Body)
 	}
 
+	if comments, err := c.client.ListIssueComments(ctx, c.owner, c.repo, pr.Number); err != nil {
+		slog.Warn("github: failed to fetch PR conversation comments",
+			"repo", FormatContainerID(c.owner, c.repo), "pr", pr.Number, "error", err)
+	} else {
+		appendComments(&sb, comments)
+	}
+
+	if reviewComments, err := c.client.ListPRReviewComments(ctx, c.owner, c.repo, pr.Number); err != nil {
+		slog.Warn("github: failed to fetch PR review comments",
+			"repo", FormatContainerID(c.owner, c.repo), "pr", pr.Number, "error", err)
+	} else {
+		appendReviewComments(&sb, reviewComments)
+	}
+
+	if reviews, err := c.client.ListPRReviews(ctx, c.owner, c.repo, pr.Number); err != nil {
+		slog.Warn("github: failed to fetch PR reviews",
+			"repo", FormatContainerID(c.owner, c.repo), "pr", pr.Number, "error", err)
+	} else {
+		appendReviews(&sb, reviews)
+	}
+
 	return sb.String()
+}
+
+func appendComments(sb *strings.Builder, comments []*IssueComment) {
+	if len(comments) == 0 {
+		return
+	}
+	sb.WriteString("\n\n## Comments\n\n")
+	for _, c := range comments {
+		body := strings.TrimSpace(c.Body)
+		if body == "" {
+			continue
+		}
+		author := "unknown"
+		if c.User != nil {
+			author = c.User.Login
+		}
+		fmt.Fprintf(sb, "### @%s (%s)\n\n%s\n\n", author, c.CreatedAt.Format("2006-01-02"), body)
+	}
+}
+
+func appendReviewComments(sb *strings.Builder, comments []*PRReviewComment) {
+	if len(comments) == 0 {
+		return
+	}
+	sb.WriteString("\n\n## Review comments\n\n")
+	for _, c := range comments {
+		body := strings.TrimSpace(c.Body)
+		if body == "" {
+			continue
+		}
+		author := "unknown"
+		if c.User != nil {
+			author = c.User.Login
+		}
+		// Path/line context goes into the heading so retrieval can match
+		// queries like "review of pkg/foo/bar.go".
+		loc := c.Path
+		if loc != "" && c.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", c.Path, c.Line)
+		}
+		if loc != "" {
+			fmt.Fprintf(sb, "### @%s on %s (%s)\n\n%s\n\n", author, loc, c.CreatedAt.Format("2006-01-02"), body)
+		} else {
+			fmt.Fprintf(sb, "### @%s (%s)\n\n%s\n\n", author, c.CreatedAt.Format("2006-01-02"), body)
+		}
+	}
+}
+
+func appendReviews(sb *strings.Builder, reviews []*PRReview) {
+	// Filter empty reviews — GitHub records every approval click as a
+	// review, most have no body and would dilute the section.
+	hasBody := false
+	for _, r := range reviews {
+		if strings.TrimSpace(r.Body) != "" {
+			hasBody = true
+			break
+		}
+	}
+	if !hasBody {
+		return
+	}
+	sb.WriteString("\n\n## Reviews\n\n")
+	for _, r := range reviews {
+		body := strings.TrimSpace(r.Body)
+		if body == "" {
+			continue
+		}
+		author := "unknown"
+		if r.User != nil {
+			author = r.User.Login
+		}
+		state := strings.ToLower(strings.ReplaceAll(r.State, "_", " "))
+		fmt.Fprintf(sb, "### @%s %s (%s)\n\n%s\n\n", author, state, r.SubmittedAt.Format("2006-01-02"), body)
+	}
 }
 
 // computeContentHash computes a SHA256 hash of content for change detection.

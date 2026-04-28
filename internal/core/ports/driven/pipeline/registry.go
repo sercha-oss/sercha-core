@@ -93,35 +93,3 @@ type CapabilityRegistry interface {
 	BuildCapabilitySet(required []pipeline.CapabilityRequirement) (*pipeline.CapabilitySet, error)
 }
 
-// ManifestStore persists and retrieves produces manifests.
-type ManifestStore interface {
-	// Save stores a produces manifest.
-	Save(manifest *pipeline.ProducesManifest) error
-
-	// Get retrieves the latest manifest for a connector.
-	Get(connectorID string) (*pipeline.ProducesManifest, error)
-
-	// GetByPipeline retrieves the latest manifest for a pipeline/connector pair.
-	GetByPipeline(pipelineID, connectorID string) (*pipeline.ProducesManifest, error)
-
-	// List returns all manifests.
-	List() ([]*pipeline.ProducesManifest, error)
-
-	// ListByConnector returns all manifests for a connector.
-	ListByConnector(connectorID string) ([]*pipeline.ProducesManifest, error)
-}
-
-// EnablementStore persists search pipeline enablement configuration.
-type EnablementStore interface {
-	// Save saves or updates an enablement configuration.
-	Save(enablement *pipeline.SearchPipelineEnablement) error
-
-	// Get retrieves enablement for a pipeline.
-	Get(pipelineID string) (*pipeline.SearchPipelineEnablement, bool)
-
-	// ListEnabled returns all enabled search pipelines, sorted by priority.
-	ListEnabled() []*pipeline.SearchPipelineEnablement
-
-	// Delete removes an enablement configuration.
-	Delete(pipelineID string) error
-}

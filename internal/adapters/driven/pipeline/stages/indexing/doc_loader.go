@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/sercha-oss/sercha-core/internal/adapters/driven/pipeline/stages/textfilter"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
@@ -91,7 +92,9 @@ func (s *DocLoaderStage) Process(ctx context.Context, input any) (any, error) {
 
 	// Detect binary/encoded content (e.g. base64-zlib from auto-generated .api.mdx files).
 	// Index metadata only; clear content so downstream stages skip chunking/embedding.
-	if isLikelyNonText(body) {
+	// Known structured-text MIMEs (minified JSON/JS/CSS) bypass the whitespace heuristic
+	// to avoid false-positives.
+	if textfilter.IsLikelyNonTextWithMime(body, indexInput.MimeType) {
 		slog.Warn("skipping binary/encoded content",
 			"document_id", indexInput.DocumentID,
 			"content_length", len(body),

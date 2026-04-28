@@ -13,9 +13,8 @@ type IndexingInput struct {
 
 // IndexingOutput is the final output from an indexing pipeline.
 type IndexingOutput struct {
-	DocumentID string            `json:"document_id"`
-	ChunkIDs   []string          `json:"chunk_ids"`
-	Manifest   *ProducesManifest `json:"manifest,omitempty"` // Updated manifest
+	DocumentID string   `json:"document_id"`
+	ChunkIDs   []string `json:"chunk_ids"`
 }
 
 // SearchInput is the input to a search pipeline.

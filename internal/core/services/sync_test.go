@@ -54,7 +54,6 @@ func createTestSyncOrchestrator(t *testing.T) (
 			return &pipeline.IndexingOutput{
 				DocumentID: input.DocumentID,
 				ChunkIDs:   []string{chunk.ID},
-				Manifest:   nil,
 			}, nil
 		},
 	}
@@ -806,7 +805,6 @@ func TestSyncSource_MultipleChunks(t *testing.T) {
 		return &pipeline.IndexingOutput{
 			DocumentID: input.DocumentID,
 			ChunkIDs:   []string{"chunk-1", "chunk-2", "chunk-3"},
-			Manifest:   nil,
 		}, nil
 	}
 

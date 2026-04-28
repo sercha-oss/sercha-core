@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
@@ -14,7 +13,6 @@ type IndexingExecutor struct {
 	builder          pipelineport.PipelineBuilder
 	pipelineRegistry pipelineport.PipelineRegistry
 	capRegistry      pipelineport.CapabilityRegistry
-	manifestStore    pipelineport.ManifestStore
 	stageRegistry    pipelineport.StageRegistry
 }
 
@@ -23,14 +21,12 @@ func NewIndexingExecutor(
 	builder pipelineport.PipelineBuilder,
 	pipelineRegistry pipelineport.PipelineRegistry,
 	capRegistry pipelineport.CapabilityRegistry,
-	manifestStore pipelineport.ManifestStore,
 	stageRegistry pipelineport.StageRegistry,
 ) *IndexingExecutor {
 	return &IndexingExecutor{
 		builder:          builder,
 		pipelineRegistry: pipelineRegistry,
 		capRegistry:      capRegistry,
-		manifestStore:    manifestStore,
 		stageRegistry:    stageRegistry,
 	}
 }
@@ -119,15 +115,6 @@ func (e *IndexingExecutor) ExecuteBatch(
 		outputs = append(outputs, output)
 	}
 
-	// Update manifest after batch completes
-	if len(outputs) > 0 && e.manifestStore != nil {
-		manifest := e.buildManifest(pctx, outputs)
-		if err := e.manifestStore.Save(manifest); err != nil {
-			// Log but don't fail - documents were indexed successfully
-			_ = err
-		}
-	}
-
 	return outputs, nil
 }
 
@@ -196,41 +183,6 @@ func (e *IndexingExecutor) applyPreferences(def pipeline.PipelineDefinition, pre
 
 	def.Stages = stages
 	return def
-}
-
-// buildManifest creates a produces manifest from indexing outputs.
-func (e *IndexingExecutor) buildManifest(
-	pctx *pipeline.IndexingContext,
-	outputs []*pipeline.IndexingOutput,
-) *pipeline.ProducesManifest {
-	var docCount, chunkCount int64
-	for _, out := range outputs {
-		docCount++
-		chunkCount += int64(len(out.ChunkIDs))
-	}
-
-	// Get capabilities that were used
-	var producedCaps []pipeline.ProducedCapability
-	if pctx.Capabilities != nil {
-		for _, capType := range pctx.Capabilities.Types() {
-			inst, ok := pctx.Capabilities.Get(capType)
-			if ok {
-				producedCaps = append(producedCaps, pipeline.ProducedCapability{
-					Type:  capType,
-					Store: inst.ID,
-				})
-			}
-		}
-	}
-
-	return &pipeline.ProducesManifest{
-		PipelineID:    pctx.PipelineID,
-		ConnectorID:   pctx.ConnectorID,
-		Timestamp:     time.Now(),
-		Capabilities:  producedCaps,
-		DocumentCount: docCount,
-		ChunkCount:    chunkCount,
-	}
 }
 
 // Ensure IndexingExecutor implements the interface.

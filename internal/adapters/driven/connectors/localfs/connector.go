@@ -43,6 +43,22 @@ func (c *Connector) Type() domain.ProviderType {
 	return domain.ProviderTypeLocalFS
 }
 
+// unsupportedRESTClient is the RESTClient implementation returned by
+// connectors with no HTTP surface. Every Do call returns ErrRESTUnsupported
+// so callers can detect the capability gap without nil-checking.
+type unsupportedRESTClient struct{}
+
+func (unsupportedRESTClient) Do(_ context.Context, _, _ string, _, _ any) error {
+	return driven.ErrRESTUnsupported
+}
+
+// RESTClient implements driven.Connector. The local filesystem connector has
+// no REST surface; callers receive a sentinel client whose Do always returns
+// driven.ErrRESTUnsupported.
+func (c *Connector) RESTClient() driven.RESTClient {
+	return unsupportedRESTClient{}
+}
+
 // ValidateConfig validates source configuration.
 func (c *Connector) ValidateConfig(config domain.SourceConfig) error {
 	return nil

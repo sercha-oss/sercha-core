@@ -178,6 +178,17 @@ func (c *Client) GetUser(ctx context.Context) (*UserResponse, error) {
 	return &user, nil
 }
 
+// Do implements driven.RESTClient. It is a thin export of doRequest so
+// callers that hold this Client through the RESTClient port can invoke
+// Notion endpoints not covered by the typed methods above while reusing
+// the same auth, rate-limit, and retry behaviour.
+func (c *Client) Do(ctx context.Context, method, path string, body, result any) error {
+	return c.doRequest(ctx, method, path, body, result)
+}
+
+// Compile-time assertion that *Client satisfies the RESTClient port.
+var _ driven.RESTClient = (*Client)(nil)
+
 // doRequest performs an authenticated HTTP request with rate limiting and retry logic.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
 	token, err := c.tokenProvider.GetAccessToken(ctx)

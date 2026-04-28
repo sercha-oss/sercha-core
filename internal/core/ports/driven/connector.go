@@ -65,6 +65,16 @@ type Connector interface {
 	//   - Connectors that do not support inventory (empty scopes) return
 	//     ErrInventoryNotSupported.
 	Inventory(ctx context.Context, source *domain.Source, scope string) ([]string, error)
+
+	// RESTClient returns a RESTClient that reuses this connector's auth,
+	// rate-limiting, and retry plumbing for callers that need to invoke
+	// upstream REST endpoints not covered by the typed methods above.
+	//
+	// MUST always return a non-nil value. Connectors without a REST surface
+	// (e.g. local filesystem) return a sentinel whose Do always returns
+	// ErrRESTUnsupported — callers type-check the error rather than the
+	// return value.
+	RESTClient() RESTClient
 }
 
 // ConnectorBuilder creates connector instances for a specific provider type.

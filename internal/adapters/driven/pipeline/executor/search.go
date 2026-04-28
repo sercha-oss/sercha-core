@@ -47,9 +47,9 @@ func (e *SearchExecutor) Execute(
 		return nil, fmt.Errorf("pipeline not found: %s", sctx.PipelineID)
 	}
 
-	// Apply preference-based stage filtering
+	// Apply preference-based stage configuration
 	if sctx.Preferences != nil {
-		def = e.applyPreferences(def, sctx.Preferences)
+		def = applyPreferences(def, sctx.Preferences)
 	}
 
 	// Collect required capabilities from all stages
@@ -148,50 +148,27 @@ func (e *SearchExecutor) collectRequiredCapabilities(def pipeline.PipelineDefini
 	return result
 }
 
-// applyPreferences filters pipeline stages based on user preferences.
-// Exactly one retriever is enabled based on the BM25/Vector flags:
-//   - Both enabled  → hybrid-retriever (BM25 + vector with RRF fusion)
-//   - BM25 only     → bm25-retriever
-//   - Vector only   → vector-retriever
-//   - Neither       → bm25-retriever (fallback)
-func (e *SearchExecutor) applyPreferences(def pipeline.PipelineDefinition, prefs *pipeline.StagePreferences) pipeline.PipelineDefinition {
-	// Clone stages slice
+// applyPreferences applies search-side admin preferences to the pipeline definition.
+// Today this only honours VectorSearchEnabled, by setting the multi-retriever's
+// disable_vector parameter so its runSearch skips the pgvector path. Other prefs
+// (BM25-only, query expansion, etc.) can be plumbed here as additional cases.
+func applyPreferences(def pipeline.PipelineDefinition, prefs *pipeline.StagePreferences) pipeline.PipelineDefinition {
 	stages := make([]pipeline.StageConfig, len(def.Stages))
 	copy(stages, def.Stages)
 
-	// Determine which retriever to use
-	useBM25 := prefs.BM25SearchEnabled
-	useVector := prefs.VectorSearchEnabled
-
 	for i := range stages {
-		switch stages[i].StageID {
-		case "bm25-retriever":
-			// BM25-only: enabled when BM25 is on and vector is off
-			stages[i].Enabled = useBM25 && !useVector
-		case "vector-retriever":
-			// Vector-only: enabled when vector is on and BM25 is off
-			stages[i].Enabled = useVector && !useBM25
-		case "hybrid-retriever":
-			// Hybrid: enabled when both are on
-			stages[i].Enabled = useBM25 && useVector
+		if stages[i].StageID != "multi-retriever" {
+			continue
 		}
-	}
-
-	// Fallback: if no retriever ended up enabled, enable BM25
-	hasRetriever := false
-	for _, s := range stages {
-		if (s.StageID == "bm25-retriever" || s.StageID == "vector-retriever" || s.StageID == "hybrid-retriever") && s.Enabled {
-			hasRetriever = true
-			break
+		if prefs.VectorSearchEnabled {
+			continue
 		}
-	}
-	if !hasRetriever {
-		for i := range stages {
-			if stages[i].StageID == "bm25-retriever" {
-				stages[i].Enabled = true
-				break
-			}
+		params := make(map[string]any, len(stages[i].Parameters)+1)
+		for k, v := range stages[i].Parameters {
+			params[k] = v
 		}
+		params["disable_vector"] = true
+		stages[i].Parameters = params
 	}
 
 	def.Stages = stages

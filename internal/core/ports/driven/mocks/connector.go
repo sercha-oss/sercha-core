@@ -16,6 +16,16 @@ type MockConnector struct {
 	FetchDocumentFn        func(ctx context.Context, source *domain.Source, externalID string) (*domain.Document, string, error)
 	ReconciliationScopesFn func() []string
 	InventoryFn            func(ctx context.Context, source *domain.Source, scope string) ([]string, error)
+	RESTClientFn           func() driven.RESTClient
+}
+
+// unsupportedRESTClient mirrors the localfs sentinel — every Do returns
+// ErrRESTUnsupported. Used as MockConnector's default so existing tests
+// don't have to wire RESTClient explicitly.
+type unsupportedRESTClient struct{}
+
+func (unsupportedRESTClient) Do(_ context.Context, _, _ string, _, _ any) error {
+	return driven.ErrRESTUnsupported
 }
 
 func NewMockConnector() *MockConnector {
@@ -69,6 +79,13 @@ func (m *MockConnector) Inventory(ctx context.Context, source *domain.Source, sc
 		return m.InventoryFn(ctx, source, scope)
 	}
 	return nil, driven.ErrInventoryNotSupported
+}
+
+func (m *MockConnector) RESTClient() driven.RESTClient {
+	if m.RESTClientFn != nil {
+		return m.RESTClientFn()
+	}
+	return unsupportedRESTClient{}
 }
 
 // MockConnectorFactory is a mock implementation of ConnectorFactory for testing

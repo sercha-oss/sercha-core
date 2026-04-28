@@ -68,9 +68,7 @@ func RegisterAll(registry pipelineport.StageRegistry) error {
 
 		// Search stages
 		search.NewQueryParserFactory(),
-		search.NewBM25RetrieverFactory(),
-		search.NewVectorRetrieverFactory(),
-		search.NewHybridRetrieverFactory(),
+		search.NewMultiRetrieverFactory(),
 		search.NewRankerFactory(),
 		search.NewPresenterFactory(),
 	}
