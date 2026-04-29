@@ -85,8 +85,16 @@ func TestConnector_FetchChanges(t *testing.T) {
 		if change.Document == nil {
 			t.Error("expected document to be set")
 		}
-		if change.Content == "" {
-			t.Error("expected content to be set")
+		if change.LoadContent == nil {
+			t.Error("expected LoadContent thunk to be set")
+			continue
+		}
+		loaded, err := change.LoadContent(context.Background())
+		if err != nil {
+			t.Errorf("LoadContent error = %v", err)
+		}
+		if loaded == "" {
+			t.Error("expected loaded content to be non-empty")
 		}
 	}
 }

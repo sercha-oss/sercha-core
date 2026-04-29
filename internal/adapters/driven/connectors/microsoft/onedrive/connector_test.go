@@ -189,8 +189,15 @@ func TestConnector_FetchChanges_InitialSync(t *testing.T) {
 		t.Errorf("Document title = %q, want document.txt", change.Document.Title)
 	}
 
-	if change.Content != "Hello, OneDrive!" {
-		t.Errorf("Content = %q, want 'Hello, OneDrive!'", change.Content)
+	if change.LoadContent == nil {
+		t.Fatal("expected LoadContent thunk to be set")
+	}
+	loaded, err := change.LoadContent(context.Background())
+	if err != nil {
+		t.Fatalf("LoadContent error = %v", err)
+	}
+	if loaded != "Hello, OneDrive!" {
+		t.Errorf("Content = %q, want 'Hello, OneDrive!'", loaded)
 	}
 
 	if cursor == "" {

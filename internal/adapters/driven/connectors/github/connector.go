@@ -190,11 +190,17 @@ func (c *Connector) fetchIssueChanges(ctx context.Context, since *time.Time) ([]
 				continue
 			}
 
+			// Defer comment fetch into LoadContent so the listing path
+			// returns metadata-only and the comment GETs parallelise
+			// across the orchestrator's worker pool.
+			issue := issue
 			change := &domain.Change{
 				Type:       domain.ChangeTypeModified,
 				ExternalID: fmt.Sprintf("issue-%d", issue.Number),
 				Document:   c.issueToDocument(issue),
-				Content:    c.formatIssueContent(ctx, issue),
+				LoadContent: func(ctx context.Context) (string, error) {
+					return c.formatIssueContent(ctx, issue), nil
+				},
 			}
 			if since == nil {
 				change.Type = domain.ChangeTypeAdded
@@ -223,11 +229,16 @@ func (c *Connector) fetchPRChanges(ctx context.Context) ([]*domain.Change, error
 		}
 
 		for _, pr := range prs {
+			// Defer comment + review fetch into LoadContent (same
+			// rationale as fetchIssueChanges).
+			pr := pr
 			change := &domain.Change{
 				Type:       domain.ChangeTypeModified,
 				ExternalID: fmt.Sprintf("pr-%d", pr.Number),
 				Document:   c.prToDocument(pr),
-				Content:    c.formatPRContent(ctx, pr),
+				LoadContent: func(ctx context.Context) (string, error) {
+					return c.formatPRContent(ctx, pr), nil
+				},
 			}
 			allChanges = append(allChanges, change)
 		}

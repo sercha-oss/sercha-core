@@ -85,15 +85,10 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 				return nil, cursor, nil
 			}
 
-			// Get page content
-			blocks, err := c.client.GetBlocksRecursive(ctx, c.containerID, c.config.MaxBlockDepth)
-			if err != nil {
-				return nil, "", fmt.Errorf("get blocks for page %s: %w", c.containerID, err)
-			}
-			content := c.formatPageContent(page, blocks)
-
-			// If the page belongs to a database, treat it as a database entry
-			// to maintain consistent document types and avoid duplicates
+			// Resolve document type up front (cheap). Defer the heavy
+			// blocks fetch + content formatting into LoadContent so the
+			// listing path returns quickly and downloads parallelise
+			// across the orchestrator's worker pool.
 			var doc *domain.Document
 			var externalID string
 			if page.Parent.Type == "database_id" {
@@ -108,11 +103,22 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 				externalID = fmt.Sprintf("page-%s", page.ID)
 			}
 
+			pageCopy := page
+			pageID := c.containerID
+			client := c.client
+			maxDepth := c.config.MaxBlockDepth
+			formatPageContent := c.formatPageContent
 			change := &domain.Change{
 				Type:       domain.ChangeTypeModified,
 				ExternalID: externalID,
 				Document:   doc,
-				Content:    content,
+				LoadContent: func(ctx context.Context) (string, error) {
+					blocks, err := client.GetBlocksRecursive(ctx, pageID, maxDepth)
+					if err != nil {
+						return "", fmt.Errorf("get blocks for page %s: %w", pageID, err)
+					}
+					return formatPageContent(pageCopy, blocks), nil
+				},
 			}
 			changes = append(changes, change)
 			lastModified = page.LastEditedTime
@@ -215,27 +221,31 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 	return changes, newCursor, nil
 }
 
-// fetchPageChanges fetches a page and its content as changes.
+// fetchPageChanges fetches a page's metadata as a change. The blocks
+// fetch + content formatting is deferred to LoadContent so listing stays
+// metadata-only and the heavy work parallelises across the worker pool.
 func (c *Connector) fetchPageChanges(ctx context.Context, pageID string) ([]*domain.Change, error) {
 	page, err := c.client.GetPage(ctx, pageID)
 	if err != nil {
 		return nil, fmt.Errorf("get page: %w", err)
 	}
 
-	// Get page content (blocks)
-	blocks, err := c.client.GetBlocksRecursive(ctx, pageID, c.config.MaxBlockDepth)
-	if err != nil {
-		return nil, fmt.Errorf("get blocks: %w", err)
-	}
-
-	content := c.formatPageContent(page, blocks)
 	doc := c.pageToDocument(page)
 
+	client := c.client
+	maxDepth := c.config.MaxBlockDepth
+	formatPageContent := c.formatPageContent
 	change := &domain.Change{
 		Type:       domain.ChangeTypeModified,
 		ExternalID: fmt.Sprintf("page-%s", page.ID),
 		Document:   doc,
-		Content:    content,
+		LoadContent: func(ctx context.Context) (string, error) {
+			blocks, err := client.GetBlocksRecursive(ctx, pageID, maxDepth)
+			if err != nil {
+				return "", fmt.Errorf("get blocks: %w", err)
+			}
+			return formatPageContent(page, blocks), nil
+		},
 	}
 
 	return []*domain.Change{change}, nil
@@ -263,21 +273,27 @@ func (c *Connector) fetchDatabaseChanges(ctx context.Context, databaseID string)
 				continue
 			}
 
-			// Get page content
-			blocks, err := c.client.GetBlocksRecursive(ctx, page.ID, c.config.MaxBlockDepth)
-			if err != nil {
-				// Log error but continue
-				continue
-			}
-
-			content := c.formatPageContent(&page, blocks)
+			// Capture page-by-value for the closure since `page` is the
+			// loop variable. The Go 1.22 loop-var rebinding makes &page
+			// safe across iterations; capture by-value here for clarity.
+			page := page
 			doc := c.databaseEntryToDocument(&page, db)
 
+			pageID := page.ID
+			client := c.client
+			maxDepth := c.config.MaxBlockDepth
+			formatPageContent := c.formatPageContent
 			change := &domain.Change{
 				Type:       domain.ChangeTypeModified,
-				ExternalID: fmt.Sprintf("database-entry-%s", page.ID),
+				ExternalID: fmt.Sprintf("database-entry-%s", pageID),
 				Document:   doc,
-				Content:    content,
+				LoadContent: func(ctx context.Context) (string, error) {
+					blocks, err := client.GetBlocksRecursive(ctx, pageID, maxDepth)
+					if err != nil {
+						return "", fmt.Errorf("get blocks for database entry %s: %w", pageID, err)
+					}
+					return formatPageContent(&page, blocks), nil
+				},
 			}
 
 			changes = append(changes, change)

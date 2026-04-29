@@ -901,6 +901,36 @@ func (o *SyncOrchestrator) processAddOrUpdate(
 	doc := change.Document
 	content := change.Content
 
+	// Lazy content resolution. When a connector populates LoadContent,
+	// the eager Content field is empty and the actual download happens
+	// here — concurrently across documents under the per-container worker
+	// pool. The pre-thunk listing in FetchChanges stays metadata-only and
+	// returns quickly, eliminating the head-of-line wait that previously
+	// delayed every doc behind the slowest connector listing.
+	if change.LoadContent != nil {
+		loadStart := time.Now()
+		loaded, err := change.LoadContent(ctx)
+		loadDuration := time.Since(loadStart)
+		if err != nil {
+			o.logger.Warn("connector load_content failed",
+				"phase", "load_content",
+				"source_id", source.ID,
+				"external_id", change.ExternalID,
+				"duration_ms", loadDuration.Milliseconds(),
+				"error", err,
+			)
+			return fmt.Errorf("load content: %w", err)
+		}
+		o.logger.Debug("connector load_content completed",
+			"phase", "load_content",
+			"source_id", source.ID,
+			"external_id", change.ExternalID,
+			"bytes", len(loaded),
+			"duration_ms", loadDuration.Milliseconds(),
+		)
+		content = loaded
+	}
+
 	if doc == nil {
 		return fmt.Errorf("document is nil for change type %s", change.Type)
 	}
