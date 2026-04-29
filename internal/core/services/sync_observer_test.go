@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
@@ -209,6 +210,11 @@ func TestSyncSource_ObserverHook_ReturnsNil(t *testing.T) {
 		t.Fatalf("expected Success=true, got error: %s", result.Error)
 	}
 
+	// Observer is invoked asynchronously; drain before asserting.
+	if err := orchestrator.WaitForObservers(ctx); err != nil {
+		t.Fatalf("WaitForObservers: %v", err)
+	}
+
 	if got := spy.CallCount(); got != 1 {
 		t.Fatalf("expected observer to be called exactly once, got %d", got)
 	}
@@ -293,6 +299,11 @@ func TestSyncSource_ObserverHook_ReturnsError_IngestStillSucceeds(t *testing.T) 
 		t.Errorf("expected title 'Err Doc', got '%s'", saved.Title)
 	}
 
+	// Observer is invoked asynchronously; drain before asserting.
+	if err := orchestrator.WaitForObservers(ctx); err != nil {
+		t.Fatalf("WaitForObservers: %v", err)
+	}
+
 	// Observer was invoked.
 	if got := spy.CallCount(); got != 1 {
 		t.Errorf("expected observer to be called once, got %d", got)
@@ -354,6 +365,11 @@ func TestSyncSource_ObserverHook_CalledOncePerSave(t *testing.T) {
 	}
 	if !result.Success {
 		t.Fatalf("expected Success=true, got error: %s", result.Error)
+	}
+
+	// Observer is invoked asynchronously; drain before asserting.
+	if err := orchestrator.WaitForObservers(ctx); err != nil {
+		t.Fatalf("WaitForObservers: %v", err)
 	}
 
 	if got := spy.CallCount(); got != 1 {
@@ -619,5 +635,204 @@ func TestSyncSource_DeleteObserverHook_ErrorIgnored(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "document delete observer failed") {
 		t.Errorf("expected warning log on observer error, got: %s", buf.String())
+	}
+}
+
+// blockingIngestObserver releases on the supplied channel and never returns
+// until the test signals it. Used to assert async dispatch — the sync
+// returns before the observer completes.
+type blockingIngestObserver struct {
+	mu       sync.Mutex
+	called   int
+	release  <-chan struct{}
+	observed bool
+}
+
+func (b *blockingIngestObserver) OnDocumentIngested(ctx context.Context, _ *domain.Source, _ *domain.Document) error {
+	b.mu.Lock()
+	b.called++
+	b.mu.Unlock()
+	select {
+	case <-b.release:
+		b.mu.Lock()
+		b.observed = true
+		b.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *blockingIngestObserver) Called() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.called
+}
+
+func (b *blockingIngestObserver) Observed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.observed
+}
+
+// TestSyncSource_AsyncObserver_SyncReturnsBeforeObserverCompletes verifies
+// that the sync path returns without waiting for the observer to finish.
+// The observer holds its goroutine until released; SyncSource must not
+// block on it. WaitForObservers then drains.
+func TestSyncSource_AsyncObserver_SyncReturnsBeforeObserverCompletes(t *testing.T) {
+	release := make(chan struct{})
+	obs := &blockingIngestObserver{release: release}
+
+	orchestrator, sourceStore, _, _, connectorFactory :=
+		createTestSyncOrchestratorWithObserver(t, obs, nil)
+	ctx := context.Background()
+
+	_ = sourceStore.Save(ctx, &domain.Source{
+		ID: "src-async", Name: "Async", ProviderType: domain.ProviderTypeGitHub, Enabled: true,
+	})
+
+	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
+		if cursor == "" {
+			return []*domain.Change{
+				{
+					ExternalID: "ext-async",
+					Type:       domain.ChangeTypeAdded,
+					Document:   &domain.Document{ExternalID: "ext-async", Title: "Async Doc"},
+					Content:    "content",
+				},
+			}, "", nil
+		}
+		return nil, "", nil
+	}
+
+	result, err := orchestrator.SyncSource(ctx, "src-async")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected Success=true, got %s", result.Error)
+	}
+
+	// Observer was dispatched but is still parked on `release`; it must NOT
+	// have completed before SyncSource returned.
+	if obs.Observed() {
+		t.Fatal("observer completed before sync returned — dispatch is not async")
+	}
+
+	// Release the observer and drain.
+	close(release)
+	if err := orchestrator.WaitForObservers(ctx); err != nil {
+		t.Fatalf("WaitForObservers: %v", err)
+	}
+
+	if got := obs.Called(); got != 1 {
+		t.Errorf("expected 1 observer call, got %d", got)
+	}
+	if !obs.Observed() {
+		t.Error("expected observer to record completion after release")
+	}
+}
+
+// hangingIngestObserver never completes; it just blocks on ctx.Done. Used to
+// verify the per-call timeout in dispatchIngestObserver fires.
+type hangingIngestObserver struct{}
+
+func (hangingIngestObserver) OnDocumentIngested(ctx context.Context, _ *domain.Source, _ *domain.Document) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// TestSyncSource_AsyncObserver_TimeoutFiresContextDone verifies that
+// observers honouring ctx.Done are cancelled by the per-call timeout.
+// We configure a tiny timeout, dispatch a hanging observer, and assert
+// WaitForObservers returns once the timeout fires (without external help).
+func TestSyncSource_AsyncObserver_TimeoutFiresContextDone(t *testing.T) {
+	orchestrator, sourceStore, _, _, connectorFactory :=
+		createTestSyncOrchestratorWithObserver(t, hangingIngestObserver{}, nil)
+	// Tighten the timeout so the test doesn't wait 30s.
+	orchestrator.observerTimeout = 50 * time.Millisecond
+
+	ctx := context.Background()
+	_ = sourceStore.Save(ctx, &domain.Source{
+		ID: "src-timeout", Name: "Timeout", ProviderType: domain.ProviderTypeGitHub, Enabled: true,
+	})
+
+	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
+		if cursor == "" {
+			return []*domain.Change{
+				{
+					ExternalID: "ext-timeout",
+					Type:       domain.ChangeTypeAdded,
+					Document:   &domain.Document{ExternalID: "ext-timeout", Title: "Timeout Doc"},
+					Content:    "content",
+				},
+			}, "", nil
+		}
+		return nil, "", nil
+	}
+
+	result, err := orchestrator.SyncSource(ctx, "src-timeout")
+	if err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected Success=true, got %s", result.Error)
+	}
+
+	// WaitForObservers should drain within the per-call timeout window.
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer drainCancel()
+	start := time.Now()
+	if err := orchestrator.WaitForObservers(drainCtx); err != nil {
+		t.Fatalf("WaitForObservers: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("WaitForObservers took %v — observer timeout not honoured", elapsed)
+	}
+}
+
+// TestWaitForObservers_CtxCancel verifies that when a caller passes a
+// cancelled context, WaitForObservers returns ctx.Err immediately
+// without waiting for observers to finish.
+func TestWaitForObservers_CtxCancel(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+
+	obs := &blockingIngestObserver{release: release}
+	orchestrator, sourceStore, _, _, connectorFactory :=
+		createTestSyncOrchestratorWithObserver(t, obs, nil)
+	ctx := context.Background()
+
+	_ = sourceStore.Save(ctx, &domain.Source{
+		ID: "src-cancel", Name: "Cancel", ProviderType: domain.ProviderTypeGitHub, Enabled: true,
+	})
+
+	connectorFactory.connector.FetchChangesFn = func(ctx context.Context, source *domain.Source, cursor string) ([]*domain.Change, string, error) {
+		if cursor == "" {
+			return []*domain.Change{
+				{
+					ExternalID: "ext-cancel",
+					Type:       domain.ChangeTypeAdded,
+					Document:   &domain.Document{ExternalID: "ext-cancel", Title: "Cancel Doc"},
+					Content:    "content",
+				},
+			}, "", nil
+		}
+		return nil, "", nil
+	}
+
+	if _, err := orchestrator.SyncSource(ctx, "src-cancel"); err != nil {
+		t.Fatalf("SyncSource: %v", err)
+	}
+
+	// Already-cancelled context. WaitForObservers must return immediately
+	// with ctx.Err — observer goroutine is still parked on `release`.
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := orchestrator.WaitForObservers(cancelCtx); err == nil {
+		t.Error("expected context error from WaitForObservers, got nil")
+	} else if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }

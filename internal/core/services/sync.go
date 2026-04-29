@@ -22,6 +22,21 @@ import (
 // embedder/connector RPM headroom and observed wall-time gain on large syncs.
 const defaultDocConcurrency = 4
 
+// defaultObserverTimeout bounds each individual OnDocumentIngested
+// invocation. A stuck observer cannot indefinitely block the bounded
+// goroutine pool — once the timeout fires the dispatched goroutine
+// completes and releases its slot. 30s is generous enough for typical
+// network observers (identity lookups, audit writes) without parking
+// goroutines forever on a hung downstream.
+const defaultObserverTimeout = 30 * time.Second
+
+// defaultObserverQueueDepth caps in-flight observer goroutines per
+// orchestrator. When the queue is full, the dispatch path blocks
+// briefly on the semaphore — this back-pressure protects the runtime
+// from unbounded goroutine growth if the observer is slower than
+// ingestion. 32 is loose enough that healthy observers never block.
+const defaultObserverQueueDepth = 32
+
 // SyncOrchestrator coordinates the document sync pipeline.
 // It implements the 7-step sync flow:
 //  1. Get source config
@@ -53,6 +68,9 @@ type SyncOrchestrator struct {
 	lockTTL                time.Duration                 // TTL for sync locks; ignored by Postgres advisory locks.
 	concurrency            int                           // Per-container doc fan-out. 0 means default.
 	statsMu                sync.Mutex                    // Guards *domain.SyncStats mutation under doc-level fan-out.
+	observerTimeout        time.Duration                 // Per-call timeout for OnDocumentIngested.
+	observerSem            chan struct{}                 // Bounded semaphore for in-flight observer goroutines.
+	observerWG             sync.WaitGroup                // Tracks in-flight observer goroutines for WaitForObservers.
 }
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
@@ -77,6 +95,8 @@ type SyncOrchestratorConfig struct {
 	Lock                   driven.DistributedLock        // Optional. When set, SyncSource/SyncContainer acquire "sync:source:<id>" before running so concurrent invocations no-op (Skipped=true) instead of racing.
 	LockTTL                time.Duration                 // Optional. Defaults to 1h. Ignored by PG advisory locks (which release on connection close).
 	Concurrency            int                           // Optional. Per-container doc-level worker count. Defaults to 4 when zero.
+	OnDocumentIngestedTimeout time.Duration             // Optional. Per-call timeout for the async DocumentIngestObserver. Defaults to 30s when zero.
+	ObserverQueueDepth     int                           // Optional. Bounded goroutine pool depth for the async DocumentIngestObserver. Defaults to 32 when zero.
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
@@ -101,6 +121,16 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		concurrency = defaultDocConcurrency
 	}
 
+	observerTimeout := cfg.OnDocumentIngestedTimeout
+	if observerTimeout <= 0 {
+		observerTimeout = defaultObserverTimeout
+	}
+
+	queueDepth := cfg.ObserverQueueDepth
+	if queueDepth <= 0 {
+		queueDepth = defaultObserverQueueDepth
+	}
+
 	return &SyncOrchestrator{
 		sourceStore:            cfg.SourceStore,
 		documentStore:          cfg.DocumentStore,
@@ -122,6 +152,32 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		lock:                   cfg.Lock,
 		lockTTL:                lockTTL,
 		concurrency:            concurrency,
+		observerTimeout:        observerTimeout,
+		observerSem:            make(chan struct{}, queueDepth),
+	}
+}
+
+// WaitForObservers blocks until every dispatched DocumentIngestObserver
+// goroutine has returned, or until ctx is cancelled. Useful for tests
+// that need to assert on observer side-effects after a sync completes,
+// and for graceful shutdown paths that want to drain in-flight callbacks
+// before tearing down dependencies (database connections, etc.).
+//
+// Returns nil on clean drain, ctx.Err() on cancel/timeout. Observer
+// errors are still logged-and-swallowed by the dispatch goroutine; this
+// method only reports caller-side cancellation.
+func (o *SyncOrchestrator) WaitForObservers(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		o.observerWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -141,6 +197,51 @@ func (o *SyncOrchestrator) readStatsErrors(stats *domain.SyncStats) int {
 	o.statsMu.Lock()
 	defer o.statsMu.Unlock()
 	return stats.Errors
+}
+
+// dispatchIngestObserver fires the configured DocumentIngestObserver in
+// a bounded goroutine pool. The dispatch path:
+//
+//   - acquires observerSem (back-pressure if the queue is full),
+//   - increments observerWG so WaitForObservers can drain,
+//   - derives a fresh context (detached from the sync request) bounded
+//     by observerTimeout, so a stuck observer cannot park its goroutine
+//     indefinitely,
+//   - logs phase=ingest_observer with duration on completion or failure.
+//
+// observer.OnDocumentIngested is now invoked from N concurrent goroutines
+// (one per in-flight document), so observer implementations must be
+// goroutine-safe — see the port godoc.
+func (o *SyncOrchestrator) dispatchIngestObserver(source *domain.Source, doc *domain.Document) {
+	o.observerSem <- struct{}{}
+	o.observerWG.Add(1)
+	go func() {
+		defer o.observerWG.Done()
+		defer func() { <-o.observerSem }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), o.observerTimeout)
+		defer cancel()
+
+		obsStart := time.Now()
+		err := o.documentIngestObserver.OnDocumentIngested(ctx, source, doc)
+		obsDuration := time.Since(obsStart)
+		if err != nil {
+			o.logger.Warn("document ingest observer failed",
+				"phase", "ingest_observer",
+				"document_id", doc.ID,
+				"source_id", source.ID,
+				"duration_ms", obsDuration.Milliseconds(),
+				"error", err,
+			)
+			return
+		}
+		o.logger.Debug("document ingest observer completed",
+			"phase", "ingest_observer",
+			"document_id", doc.ID,
+			"source_id", source.ID,
+			"duration_ms", obsDuration.Milliseconds(),
+		)
+	}()
 }
 
 // acquireSourceLock takes the per-source advisory lock if a lock backend is
@@ -1036,28 +1137,12 @@ func (o *SyncOrchestrator) processWithPipeline(
 		return fmt.Errorf("failed to save document: %w", err)
 	}
 
-	// Observer fires only after successful persistence. Failures are logged and ignored —
-	// observer health must not affect ingest correctness.
+	// Observer fires only after successful persistence. The call dispatches
+	// onto a bounded goroutine pool and returns immediately so the per-doc
+	// processing path doesn't block on observer latency. Failures are logged
+	// and ignored — observer health must not affect ingest correctness.
 	if o.documentIngestObserver != nil {
-		obsStart := time.Now()
-		err := o.documentIngestObserver.OnDocumentIngested(ctx, source, doc)
-		obsDuration := time.Since(obsStart)
-		if err != nil {
-			o.logger.Warn("document ingest observer failed",
-				"phase", "ingest_observer",
-				"document_id", doc.ID,
-				"source_id", source.ID,
-				"duration_ms", obsDuration.Milliseconds(),
-				"error", err,
-			)
-		} else {
-			o.logger.Debug("document ingest observer completed",
-				"phase", "ingest_observer",
-				"document_id", doc.ID,
-				"source_id", source.ID,
-				"duration_ms", obsDuration.Milliseconds(),
-			)
-		}
+		o.dispatchIngestObserver(source, doc)
 	}
 
 	// Update stats
