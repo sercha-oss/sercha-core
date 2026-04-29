@@ -343,14 +343,31 @@ func (s *MultiRetrieverStage) mergeWithRRF(results [][]*pipeline.Candidate, quer
 		weights[i] = 0.8 // Variants
 	}
 
-	// Group candidates by DocumentID for deduplication
+	// Group candidates by (DocumentID, Source) for deduplication.
+	//
+	// The previous key was DocumentID alone, which collapsed BM25 and
+	// vector hits for the same doc into a single candidate whose Source
+	// happened to be whichever retriever appended first (always BM25 in
+	// runSearch). The downstream RankerStage then re-buckets by Source
+	// to compute multi-source RRF — so collapsing here meant docs found
+	// in BOTH retrievers only contributed to one bucket. The ranker's
+	// theoretical-max formula caps such single-source matches at 50%,
+	// which is the cap pattern we kept seeing in production traces.
+	//
+	// Keying on (DocumentID, Source) preserves both retriever signals
+	// up to the ranker, which is the stage semantically aware of source
+	// fusion.
+	type rrfKey struct {
+		docID  string
+		source string
+	}
 	type rrfEntry struct {
 		candidate *pipeline.Candidate
 		score     float64
 		variants  []int // Which query variants found this doc
 	}
 
-	docScores := make(map[string]*rrfEntry)
+	docScores := make(map[rrfKey]*rrfEntry)
 
 	for variantIdx, variantCandidates := range results {
 		if variantCandidates == nil {
@@ -358,8 +375,7 @@ func (s *MultiRetrieverStage) mergeWithRRF(results [][]*pipeline.Candidate, quer
 		}
 
 		for rank, candidate := range variantCandidates {
-			// Use DocumentID as the deduplication key
-			key := candidate.DocumentID
+			key := rrfKey{docID: candidate.DocumentID, source: candidate.Source}
 
 			entry, exists := docScores[key]
 			if !exists {
