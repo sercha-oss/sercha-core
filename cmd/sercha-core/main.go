@@ -507,7 +507,13 @@ func main() {
 
 	// Services (core business logic)
 	authService := services.NewAuthService(userStore, sessionStore, authAdapter)
-	userService := services.NewUserService(userStore, sessionStore, authAdapter, teamID)
+	userService := services.NewUserService(services.UserServiceConfig{
+		UserStore:    userStore,
+		SessionStore: sessionStore,
+		AuthAdapter:  authAdapter,
+		TeamID:       teamID,
+		Logger:       slog.Default(),
+	})
 	sourceService := services.NewSourceService(services.SourceServiceConfig{
 		SourceStore:   sourceStore,
 		DocumentStore: documentStore,

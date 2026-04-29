@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -15,24 +16,40 @@ var _ driving.UserService = (*userService)(nil)
 
 // userService implements the UserService interface
 type userService struct {
-	userStore    driven.UserStore
-	sessionStore driven.SessionStore
-	authAdapter  driven.AuthAdapter
-	teamID       string // Team context for this service instance
+	userStore          driven.UserStore
+	sessionStore       driven.SessionStore
+	authAdapter        driven.AuthAdapter
+	teamID             string // Team context for this service instance
+	logger             *slog.Logger
+	userCreateObserver driven.UserCreateObserver // Optional; nil means no observer.
+	userDeleteObserver driven.UserDeleteObserver // Optional; nil means no observer.
 }
 
-// NewUserService creates a new UserService
-func NewUserService(
-	userStore driven.UserStore,
-	sessionStore driven.SessionStore,
-	authAdapter driven.AuthAdapter,
-	teamID string,
-) driving.UserService {
+// UserServiceConfig holds dependencies for UserService.
+type UserServiceConfig struct {
+	UserStore          driven.UserStore
+	SessionStore       driven.SessionStore
+	AuthAdapter        driven.AuthAdapter
+	TeamID             string
+	Logger             *slog.Logger
+	UserCreateObserver driven.UserCreateObserver // Optional; nil means no observer.
+	UserDeleteObserver driven.UserDeleteObserver // Optional; nil means no observer.
+}
+
+// NewUserService creates a new UserService.
+func NewUserService(cfg UserServiceConfig) driving.UserService {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &userService{
-		userStore:    userStore,
-		sessionStore: sessionStore,
-		authAdapter:  authAdapter,
-		teamID:       teamID,
+		userStore:          cfg.UserStore,
+		sessionStore:       cfg.SessionStore,
+		authAdapter:        cfg.AuthAdapter,
+		teamID:             cfg.TeamID,
+		logger:             logger,
+		userCreateObserver: cfg.UserCreateObserver,
+		userDeleteObserver: cfg.UserDeleteObserver,
 	}
 }
 
@@ -103,6 +120,18 @@ func (s *userService) Create(ctx context.Context, req driving.CreateUserRequest)
 
 	if err := s.userStore.Save(ctx, user); err != nil {
 		return nil, err
+	}
+
+	// Fire observer after the underlying save succeeds. Failures are
+	// logged and ignored — observer health must not affect create
+	// correctness, mirroring the ingest/delete observer posture.
+	if s.userCreateObserver != nil {
+		if err := s.userCreateObserver.OnUserCreated(ctx, user); err != nil {
+			s.logger.Warn("user create observer failed",
+				"user_id", user.ID,
+				"error", err,
+			)
+		}
 	}
 
 	return user, nil
@@ -176,6 +205,8 @@ func (s *userService) Update(ctx context.Context, id string, req driving.UpdateU
 
 // Delete deletes a user (admin only)
 func (s *userService) Delete(ctx context.Context, id string) error {
+	// Capture by value so observers can read user metadata after
+	// userStore.Delete below.
 	user, err := s.Get(ctx, id)
 	if err != nil {
 		return err
@@ -184,7 +215,23 @@ func (s *userService) Delete(ctx context.Context, id string) error {
 	// Invalidate all sessions first
 	_ = s.sessionStore.DeleteByUser(ctx, user.ID)
 
-	return s.userStore.Delete(ctx, id)
+	if err := s.userStore.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	// Fire observer after the underlying delete succeeds. Failures are
+	// logged and ignored — observer health must not affect deletion
+	// correctness, mirroring the ingest/delete observer posture.
+	if s.userDeleteObserver != nil {
+		if err := s.userDeleteObserver.OnUserDeleted(ctx, user); err != nil {
+			s.logger.Warn("user delete observer failed",
+				"user_id", user.ID,
+				"error", err,
+			)
+		}
+	}
+
+	return nil
 }
 
 // SetPassword sets a new password for a user (admin only)
