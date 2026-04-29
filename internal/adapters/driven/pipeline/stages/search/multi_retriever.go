@@ -2,7 +2,9 @@ package search
 
 import (
 	"context"
+	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -164,6 +166,22 @@ func (s *MultiRetrieverStage) Process(ctx context.Context, input any) (any, erro
 	// Merge results using weighted RRF
 	merged := s.mergeWithRRF(allResults, queries)
 
+	// Per-variant counts plus the post-merge top-3 — useful for spotting
+	// "variant 0 returned 20 docs, variants 1-2 returned 0" patterns or
+	// "merge stripped 80% of unique docs because every variant returned
+	// the same set".
+	variantCounts := make([]int, len(allResults))
+	for i, r := range allResults {
+		variantCounts[i] = len(r)
+	}
+	slog.Info("search.merge_variants completed",
+		"phase", "merge_variants",
+		"variant_count", len(queries),
+		"variant_candidate_counts", variantCounts,
+		"merged_count", len(merged),
+		"top3", topNSummary(merged, 3),
+	)
+
 	return merged, nil
 }
 
@@ -196,21 +214,59 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 
 	bm25Results, _, err := s.searchEngine.SearchDocuments(ctx, queryStr, opts)
 	if err != nil {
+		slog.Warn("search.bm25 failed",
+			"phase", "retrieve_bm25",
+			"query", queryStr,
+			"phrases", q.Phrases,
+			"error", err,
+		)
 		return nil, err
 	}
 
-	candidates = append(candidates, convertDocResultsToCandidates(bm25Results, "bm25")...)
+	bm25Cands := convertDocResultsToCandidates(bm25Results, "bm25")
+	slog.Info("search.bm25 returned candidates",
+		"phase", "retrieve_bm25",
+		"query", queryStr,
+		"phrase_count", len(q.Phrases),
+		"candidate_count", len(bm25Cands),
+		"top3", topNSummary(bm25Cands, 3),
+	)
+	candidates = append(candidates, bm25Cands...)
 
 	// Vector search (optional - only if both vectorIndex and embedder are available
 	// and the admin pref VectorSearchEnabled hasn't disabled it via stage config)
-	if !s.disableVector && s.vectorIndex != nil && s.embedder != nil {
+	switch {
+	case s.disableVector:
+		slog.Info("search.vector skipped",
+			"phase", "retrieve_vector",
+			"reason", "disable_vector_set",
+		)
+	case s.vectorIndex == nil:
+		slog.Info("search.vector skipped",
+			"phase", "retrieve_vector",
+			"reason", "vector_index_unavailable",
+		)
+	case s.embedder == nil:
+		slog.Info("search.vector skipped",
+			"phase", "retrieve_vector",
+			"reason", "embedder_unavailable",
+		)
+	default:
 		queryEmbedding, err := s.embedder.EmbedQuery(ctx, q.Original)
 		if err != nil {
+			slog.Warn("search.vector embed_query failed",
+				"phase", "retrieve_vector",
+				"error", err,
+			)
 			return candidates, nil
 		}
 
 		vectorResults, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, q.SearchFilters.Sources, q.SearchFilters.DocumentIDFilter)
 		if err != nil {
+			slog.Warn("search.vector lookup failed",
+				"phase", "retrieve_vector",
+				"error", err,
+			)
 			return candidates, nil
 		}
 
@@ -222,10 +278,46 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 			}
 		}
 
-		candidates = append(candidates, convertVectorResultsToCandidates(filteredResults, "vector")...)
+		vectorCands := convertVectorResultsToCandidates(filteredResults, "vector")
+		slog.Info("search.vector returned candidates",
+			"phase", "retrieve_vector",
+			"raw_count", len(vectorResults),
+			"after_threshold_count", len(filteredResults),
+			"distance_threshold", s.vectorDistanceThreshold,
+			"top3", topNSummary(vectorCands, 3),
+		)
+		candidates = append(candidates, vectorCands...)
 	}
 
 	return candidates, nil
+}
+
+// topNSummary returns up to n compact summaries (DocumentID + score) for
+// quick log-eyeball diagnostics. Returned as a slice of strings so it
+// renders nicely in slog text/JSON output.
+func topNSummary(cands []*pipeline.Candidate, n int) []string {
+	if len(cands) < n {
+		n = len(cands)
+	}
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		c := cands[i]
+		out = append(out, fmtSummary(c))
+	}
+	return out
+}
+
+// fmtSummary builds a single-candidate summary line.
+func fmtSummary(c *pipeline.Candidate) string {
+	if c == nil {
+		return "<nil>"
+	}
+	return c.DocumentID + "@" + formatScore(c.Score)
+}
+
+// formatScore truncates a score to 4 significant digits for log readability.
+func formatScore(f float64) string {
+	return strconv.FormatFloat(f, 'g', 4, 64)
 }
 
 // mergeWithRRF merges results from multiple query variants using weighted Reciprocal Rank Fusion.
