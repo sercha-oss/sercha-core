@@ -31,6 +31,13 @@ func (s *SearchEngine) IndexDocument(ctx context.Context, doc *domain.DocumentCo
 		"path":        doc.Path,
 		"mime_type":   doc.MimeType,
 	}
+	// metadata is connector-supplied (author, labels, parent path, etc.).
+	// Indexing it under the flattened mapping makes every value searchable
+	// without per-key declarations. omitempty: a nil/empty map renders as
+	// {} which OpenSearch accepts but inflates the inverted index.
+	if len(doc.Metadata) > 0 {
+		body["metadata"] = doc.Metadata
+	}
 
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
@@ -59,18 +66,47 @@ func (s *SearchEngine) IndexDocument(ctx context.Context, doc *domain.DocumentCo
 }
 
 // SearchDocuments performs a BM25 text search returning document-level results.
+//
+// Field weighting:
+//
+//	title^3            primary signal — the document's name
+//	path.basename^3    filename-only signal (e.g. `auth.go`); same weight as
+//	                   title since for code/file content the basename is
+//	                   effectively the title
+//	path.text^2        full-path tokens (`docs/k8s/deploy` matches a query
+//	                   for "deploy" anywhere in the tree)
+//	content            body text, default weight
+//	metadata^1.5       connector-supplied attributes (author, labels, etc.)
+//
+// minimum_should_match: 75% requires the bulk of a multi-term query to
+// match. For 1-2 word queries the percent rounds down to "all required";
+// for 4+ word queries one term may be missing. Tightens precision on
+// natural-language queries without hurting recall on short ones.
+//
+// Exact-title dominance is layered on top via a `should` clause in
+// buildBoolEnvelope — a `term` query on title.raw with high boost so
+// "Kubernetes Setup" exact-title-matches dominate fuzzy "kubernetes"
+// matches across content.
 func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts domain.SearchOptions) ([]driven.DocumentResult, int, error) {
 	// Bool.must is a logical AND across must clauses, so the loose match plus
 	// each match_phrase clause all need to be satisfied. That's the right
 	// semantics for quoted phrases — `merge sort "stable on equal keys"`
 	// should require the phrase to appear, not just contribute score.
+	matchFields := []string{
+		"title^3",
+		"path.basename^3",
+		"path.text^2",
+		"content",
+		"metadata^1.5",
+	}
 	mustClauses := []any{
 		map[string]any{
 			"multi_match": map[string]any{
-				"query":     query,
-				"fields":    []string{"title^3", "content"},
-				"type":      "most_fields",
-				"fuzziness": "AUTO", // 0 edits ≤2 chars, 1 edit 3-5, 2 edits 6+
+				"query":                query,
+				"fields":               matchFields,
+				"type":                 "most_fields",
+				"fuzziness":            "AUTO", // 0 edits ≤2 chars, 1 edit 3-5, 2 edits 6+
+				"minimum_should_match": "75%",
 			},
 		},
 	}
@@ -81,13 +117,13 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 		mustClauses = append(mustClauses, map[string]any{
 			"multi_match": map[string]any{
 				"query":  phrase,
-				"fields": []string{"title^3", "content"},
+				"fields": matchFields,
 				"type":   "phrase",
 			},
 		})
 	}
 
-	searchQuery := s.buildBoolEnvelope(mustClauses, opts)
+	searchQuery := s.buildBoolEnvelope(mustClauses, opts, query)
 	return s.executeSearch(ctx, searchQuery)
 }
 
@@ -112,31 +148,57 @@ func (s *SearchEngine) SearchByQueryDSL(ctx context.Context, queryBody json.RawM
 		return nil, 0, fmt.Errorf("queryBody is empty")
 	}
 	mustClauses := []any{json.RawMessage(queryBody)}
-	searchQuery := s.buildBoolEnvelope(mustClauses, opts)
+	// SearchByQueryDSL passes the caller's query verbatim — there is no
+	// natural-language string to derive an exact-title boost from, so
+	// pass an empty rawQuery to skip that should clause.
+	searchQuery := s.buildBoolEnvelope(mustClauses, opts, "")
 	return s.executeSearch(ctx, searchQuery)
 }
 
 // buildBoolEnvelope wraps a slice of must clauses in the standard bool
-// query envelope: must + optional should (boost terms) + optional filter
-// (source/document filters), plus pagination and highlights. Shared by
-// SearchDocuments and SearchByQueryDSL so they apply filters and
-// highlights identically.
-func (s *SearchEngine) buildBoolEnvelope(mustClauses []any, opts domain.SearchOptions) map[string]any {
+// query envelope: must + optional should (boost terms, exact-title boost)
+// + optional filter (source/document filters), plus pagination and
+// highlights. Shared by SearchDocuments and SearchByQueryDSL so they
+// apply filters and highlights identically.
+//
+// rawQuery is the user's original query string used to build the
+// exact-title-match should clause. SearchByQueryDSL passes "" because
+// the caller's query is opaque DSL.
+func (s *SearchEngine) buildBoolEnvelope(mustClauses []any, opts domain.SearchOptions, rawQuery string) map[string]any {
 	boolQuery := map[string]any{
 		"must": mustClauses,
 	}
 
+	var shouldClauses []any
+
+	// Exact-title boost. A `term` query against the lowercase-normalised
+	// title.raw subfield dominates fuzzy matches when the entire query
+	// IS the title. Skipped for empty / whitespace-only queries (no
+	// signal) and for SearchByQueryDSL (opaque caller query).
+	if trimmed := strings.TrimSpace(rawQuery); trimmed != "" {
+		shouldClauses = append(shouldClauses, map[string]any{
+			"term": map[string]any{
+				"title.raw": map[string]any{
+					"value": strings.ToLower(trimmed),
+					"boost": 10.0,
+				},
+			},
+		})
+	}
+
 	if len(opts.BoostTerms) > 0 {
-		shouldClauses := []any{}
 		for term, boost := range opts.BoostTerms {
 			shouldClauses = append(shouldClauses, map[string]any{
 				"multi_match": map[string]any{
 					"query":  term,
-					"fields": []string{"title", "content"},
+					"fields": []string{"title", "content", "path.text", "path.basename", "metadata"},
 					"boost":  boost,
 				},
 			})
 		}
+	}
+
+	if len(shouldClauses) > 0 {
 		boolQuery["should"] = shouldClauses
 	}
 
@@ -355,7 +417,59 @@ func (s *SearchEngine) ensureIndex(ctx context.Context) error {
 	// future sort-by-title support. _id-based dedup is already covered by
 	// document_id; .raw is for cases where two distinct documents share a
 	// title (e.g. a Notion duplicate page).
+	// Custom analyzers / normalizers:
+	//
+	//   path_analyzer       Tokenises `docs/k8s/deploy.md` on `/`, `-`, `_`, `.`
+	//                       and lowercases. Lets a query "deploy" hit a path
+	//                       containing "/deploy.md" without forcing the user
+	//                       to know the full directory.
+	//   basename_analyzer   Strips the directory prefix via a pattern_replace
+	//                       char filter, then tokenises the remainder. Used
+	//                       on the path.basename subfield so a query "auth"
+	//                       lands on `internal/auth/handlers.go` regardless
+	//                       of where in the tree it sits.
+	//   lowercase_keyword   Normaliser on title.raw so `term` queries against
+	//                       it are case-insensitive (the exact-title boost
+	//                       below relies on this).
+	settings := map[string]any{
+		"analysis": map[string]any{
+			"char_filter": map[string]any{
+				"strip_dir": map[string]any{
+					"type":        "pattern_replace",
+					"pattern":     ".*/",
+					"replacement": "",
+				},
+			},
+			"tokenizer": map[string]any{
+				"path_punct": map[string]any{
+					"type":    "pattern",
+					"pattern": "[/_\\-.]+",
+				},
+			},
+			"analyzer": map[string]any{
+				"path_analyzer": map[string]any{
+					"type":      "custom",
+					"tokenizer": "path_punct",
+					"filter":    []string{"lowercase"},
+				},
+				"basename_analyzer": map[string]any{
+					"type":        "custom",
+					"char_filter": []string{"strip_dir"},
+					"tokenizer":   "path_punct",
+					"filter":      []string{"lowercase"},
+				},
+			},
+			"normalizer": map[string]any{
+				"lowercase_keyword": map[string]any{
+					"type":   "custom",
+					"filter": []string{"lowercase"},
+				},
+			},
+		},
+	}
+
 	mapping := map[string]any{
+		"settings": settings,
 		"mappings": map[string]any{
 			"properties": map[string]any{
 				"document_id": map[string]any{
@@ -368,8 +482,12 @@ func (s *SearchEngine) ensureIndex(ctx context.Context) error {
 					"type":     "text",
 					"analyzer": "english",
 					"fields": map[string]any{
+						// keyword subfield, lowercased so case-insensitive
+						// `term` queries dominate exact-title hits without
+						// requiring callers to lowercase upstream.
 						"raw": map[string]any{
-							"type": "keyword",
+							"type":       "keyword",
+							"normalizer": "lowercase_keyword",
 						},
 					},
 				},
@@ -377,8 +495,33 @@ func (s *SearchEngine) ensureIndex(ctx context.Context) error {
 					"type":     "text",
 					"analyzer": "english",
 				},
+				// Multi-field on path:
+				//   path           keyword (filtering, sort, exact match)
+				//   path.text      analyzed (full-text against path tokens)
+				//   path.basename  filename-only (highest-signal subfield;
+				//                  matches `auth.go` regardless of directory)
 				"path": map[string]any{
 					"type": "keyword",
+					"fields": map[string]any{
+						"text": map[string]any{
+							"type":     "text",
+							"analyzer": "path_analyzer",
+						},
+						"basename": map[string]any{
+							"type":     "text",
+							"analyzer": "basename_analyzer",
+						},
+					},
+				},
+				// Connector-supplied metadata is heterogeneous (author,
+				// labels, repo name, parent path, etc.). flattened indexes
+				// every value under a single inverted index so all metadata
+				// is searchable without per-key mapping. Scoring is coarser
+				// than per-field analysis, but the alternative — leaving
+				// metadata out of search entirely as it was before — is
+				// strictly worse.
+				"metadata": map[string]any{
+					"type": "flattened",
 				},
 				"mime_type": map[string]any{
 					"type": "keyword",

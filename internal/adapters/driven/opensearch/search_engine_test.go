@@ -1076,25 +1076,27 @@ func TestSearchEngine_SearchDocuments_WithBoostTerms(t *testing.T) {
 							t.Error("Expected must clause in bool query")
 						}
 
-						// Verify should clauses for boost terms
+						// Verify should clauses: 1 exact-title term + N boost-term multi_match.
 						shouldClauses, ok := boolQuery["should"].([]any)
 						if !ok {
-							t.Error("Expected should clauses for boost terms")
+							t.Error("Expected should clauses (exact-title boost + boost terms)")
 						}
-						if len(shouldClauses) != 2 {
-							t.Errorf("Expected 2 should clauses, got %d", len(shouldClauses))
+						// 1 exact-title term + 2 boost terms = 3
+						if len(shouldClauses) != 3 {
+							t.Errorf("Expected 3 should clauses (1 exact-title + 2 boost terms), got %d", len(shouldClauses))
 						}
 
-						// Verify boost term structure
+						// Filter to the boost-term multi_match clauses and verify their structure.
+						boostMatches := 0
 						for _, clause := range shouldClauses {
 							clauseMap := clause.(map[string]any)
-							multiMatch, ok := clauseMap["multi_match"].(map[string]any)
-							if !ok {
-								t.Error("Expected multi_match in should clause")
+							multiMatch, isMultiMatch := clauseMap["multi_match"].(map[string]any)
+							if !isMultiMatch {
+								// Skip the exact-title term clause.
 								continue
 							}
+							boostMatches++
 
-							// Check required fields
 							if _, ok := multiMatch["query"]; !ok {
 								t.Error("Expected query in multi_match")
 							}
@@ -1103,9 +1105,14 @@ func TestSearchEngine_SearchDocuments_WithBoostTerms(t *testing.T) {
 							}
 
 							fields, ok := multiMatch["fields"].([]any)
-							if !ok || len(fields) != 2 {
-								t.Error("Expected fields [title, content] in multi_match")
+							// Boost-term should clause now searches across
+							// title, content, path.text, path.basename, metadata.
+							if !ok || len(fields) != 5 {
+								t.Errorf("Expected 5 fields in boost-term multi_match, got %v", fields)
 							}
+						}
+						if boostMatches != 2 {
+							t.Errorf("Expected 2 boost-term multi_match clauses, got %d", boostMatches)
 						}
 
 						w.WriteHeader(http.StatusOK)
@@ -1152,9 +1159,13 @@ func TestSearchEngine_SearchDocuments_WithBoostTerms(t *testing.T) {
 						query := reqBody["query"].(map[string]any)
 						boolQuery := query["bool"].(map[string]any)
 
-						// Verify NO should clauses when boost terms not specified
-						if _, ok := boolQuery["should"]; ok {
-							t.Error("Should not have should clauses when BoostTerms is empty")
+						// Even without boost terms there is one should clause:
+						// the exact-title `term` boost on title.raw.
+						shouldClauses, ok := boolQuery["should"].([]any)
+						if !ok || len(shouldClauses) != 1 {
+							t.Errorf("Expected 1 should clause (exact-title boost), got %d", len(shouldClauses))
+						} else if _, isTerm := shouldClauses[0].(map[string]any)["term"]; !isTerm {
+							t.Errorf("Expected exact-title `term` should clause, got %v", shouldClauses[0])
 						}
 
 						w.WriteHeader(http.StatusOK)
@@ -1204,19 +1215,28 @@ func TestSearchEngine_SearchDocuments_WithBoostTerms(t *testing.T) {
 						query := reqBody["query"].(map[string]any)
 						boolQuery := query["bool"].(map[string]any)
 
+						// Should clauses: 1 exact-title term + 1 boost-term multi_match.
 						shouldClauses, ok := boolQuery["should"].([]any)
-						if !ok || len(shouldClauses) != 1 {
-							t.Errorf("Expected 1 should clause, got %d", len(shouldClauses))
+						if !ok || len(shouldClauses) != 2 {
+							t.Errorf("Expected 2 should clauses (exact-title + 1 boost), got %d", len(shouldClauses))
 						}
 
-						// Verify boost value
-						clause := shouldClauses[0].(map[string]any)
-						multiMatch := clause["multi_match"].(map[string]any)
-						if multiMatch["query"] != "production" {
-							t.Errorf("Expected query 'production', got %v", multiMatch["query"])
+						// Locate the boost-term multi_match clause and verify its value.
+						var boostMM map[string]any
+						for _, c := range shouldClauses {
+							if mm, isMM := c.(map[string]any)["multi_match"].(map[string]any); isMM {
+								boostMM = mm
+								break
+							}
 						}
-						if multiMatch["boost"].(float64) != 3.0 {
-							t.Errorf("Expected boost 3.0, got %v", multiMatch["boost"])
+						if boostMM == nil {
+							t.Fatal("expected a multi_match boost-term clause among shoulds")
+						}
+						if boostMM["query"] != "production" {
+							t.Errorf("Expected query 'production', got %v", boostMM["query"])
+						}
+						if boostMM["boost"].(float64) != 3.0 {
+							t.Errorf("Expected boost 3.0, got %v", boostMM["boost"])
 						}
 
 						w.WriteHeader(http.StatusOK)
@@ -1335,27 +1355,29 @@ func TestSearchEngine_BoostTermsQueryStructure(t *testing.T) {
 				boolQuery := query["bool"].(map[string]any)
 				shouldClauses := boolQuery["should"].([]any)
 
-				if len(shouldClauses) != 3 {
-					t.Errorf("Expected 3 should clauses, got %d", len(shouldClauses))
+				// 1 exact-title term + 3 boost terms = 4
+				if len(shouldClauses) != 4 {
+					t.Errorf("Expected 4 should clauses (1 exact-title + 3 boost terms), got %d", len(shouldClauses))
 				}
 
-				// Verify each should clause has correct structure
+				// Filter to boost-term multi_match clauses (skip exact-title term).
 				foundTerms := make(map[string]float64)
 				for _, clause := range shouldClauses {
 					clauseMap := clause.(map[string]any)
-					multiMatch := clauseMap["multi_match"].(map[string]any)
+					multiMatch, isMM := clauseMap["multi_match"].(map[string]any)
+					if !isMM {
+						continue // exact-title `term` clause
+					}
 
 					term := multiMatch["query"].(string)
 					boost := multiMatch["boost"].(float64)
 					foundTerms[term] = boost
 
-					// Verify fields
+					// Boost-term should clause searches title, content, path.text,
+					// path.basename, metadata — five fields.
 					fields := multiMatch["fields"].([]any)
-					if len(fields) != 2 {
-						t.Errorf("Expected 2 fields, got %d", len(fields))
-					}
-					if fields[0] != "title" || fields[1] != "content" {
-						t.Errorf("Expected fields [title, content], got %v", fields)
+					if len(fields) != 5 {
+						t.Errorf("Expected 5 fields, got %d (%v)", len(fields), fields)
 					}
 				}
 
@@ -1386,7 +1408,10 @@ func TestSearchEngine_BoostTermsQueryStructure(t *testing.T) {
 
 				for _, clause := range shouldClauses {
 					clauseMap := clause.(map[string]any)
-					multiMatch := clauseMap["multi_match"].(map[string]any)
+					multiMatch, isMM := clauseMap["multi_match"].(map[string]any)
+					if !isMM {
+						continue // exact-title `term` clause
+					}
 					term := multiMatch["query"].(string)
 					boost := multiMatch["boost"].(float64)
 
@@ -1494,9 +1519,19 @@ func TestSearchEngine_SearchDocuments_QueryStructure(t *testing.T) {
 				if phrase["type"] != "phrase" {
 					t.Errorf("phrase clause type = %v, want phrase", phrase["type"])
 				}
+				// Phrase clauses share the same field set as the loose
+				// fuzzy match: title^3, path.basename^3, path.text^2,
+				// content, metadata^1.5.
 				fields := phrase["fields"].([]any)
-				if len(fields) != 2 || fields[0] != "title^3" || fields[1] != "content" {
-					t.Errorf("phrase fields = %v, want [title^3, content]", fields)
+				wantFields := []any{"title^3", "path.basename^3", "path.text^2", "content", "metadata^1.5"}
+				if len(fields) != len(wantFields) {
+					t.Errorf("phrase fields len = %d, want %d (%v)", len(fields), len(wantFields), fields)
+				}
+				for i, w := range wantFields {
+					if i >= len(fields) || fields[i] != w {
+						t.Errorf("phrase fields = %v, want %v", fields, wantFields)
+						break
+					}
 				}
 			},
 		},
@@ -1639,10 +1674,180 @@ func TestSearchEngine_EnsureIndex_Mapping(t *testing.T) {
 	if rawField["type"] != "keyword" {
 		t.Errorf("title.raw type = %v, want keyword", rawField["type"])
 	}
+	// title.raw is normalized for case-insensitive exact-title boost.
+	if rawField["normalizer"] != "lowercase_keyword" {
+		t.Errorf("title.raw normalizer = %v, want lowercase_keyword", rawField["normalizer"])
+	}
 
 	content := props["content"].(map[string]any)
 	if content["analyzer"] != "english" {
 		t.Errorf("content analyzer = %v, want english", content["analyzer"])
+	}
+
+	// path is multi-field: keyword + analyzed text + basename.
+	path := props["path"].(map[string]any)
+	if path["type"] != "keyword" {
+		t.Errorf("path type = %v, want keyword", path["type"])
+	}
+	pathFields, ok := path["fields"].(map[string]any)
+	if !ok {
+		t.Fatal("path.fields missing — path.text/path.basename subfields not configured")
+	}
+	if pt, ok := pathFields["text"].(map[string]any); !ok || pt["analyzer"] != "path_analyzer" {
+		t.Errorf("path.text analyzer = %v, want path_analyzer", pt["analyzer"])
+	}
+	if pb, ok := pathFields["basename"].(map[string]any); !ok || pb["analyzer"] != "basename_analyzer" {
+		t.Errorf("path.basename analyzer = %v, want basename_analyzer", pb["analyzer"])
+	}
+
+	// metadata is flattened so connector-supplied attributes are searchable.
+	metadata, ok := props["metadata"].(map[string]any)
+	if !ok {
+		t.Fatal("metadata field missing from mapping")
+	}
+	if metadata["type"] != "flattened" {
+		t.Errorf("metadata type = %v, want flattened", metadata["type"])
+	}
+
+	// Custom analyzers/normalizer registered on the index settings.
+	settings, ok := capturedMapping["settings"].(map[string]any)
+	if !ok {
+		t.Fatal("index settings missing — analyzer/normalizer not registered")
+	}
+	analysis, ok := settings["analysis"].(map[string]any)
+	if !ok {
+		t.Fatal("settings.analysis missing")
+	}
+	if _, ok := analysis["analyzer"].(map[string]any)["path_analyzer"]; !ok {
+		t.Error("path_analyzer not registered in settings.analysis.analyzer")
+	}
+	if _, ok := analysis["analyzer"].(map[string]any)["basename_analyzer"]; !ok {
+		t.Error("basename_analyzer not registered in settings.analysis.analyzer")
+	}
+	if _, ok := analysis["normalizer"].(map[string]any)["lowercase_keyword"]; !ok {
+		t.Error("lowercase_keyword normalizer not registered in settings.analysis.normalizer")
+	}
+}
+
+// TestSearchEngine_IndexDocument_WritesMetadata verifies that connector-
+// supplied metadata is included in the OpenSearch document body so it
+// can be searched via the flattened mapping.
+func TestSearchEngine_IndexDocument_WritesMetadata(t *testing.T) {
+	var capturedDocBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "HEAD":
+			w.WriteHeader(http.StatusOK) // index already exists
+		case r.Method == "PUT" && strings.Contains(r.URL.Path, "_doc"):
+			if err := json.NewDecoder(r.Body).Decode(&capturedDocBody); err != nil {
+				t.Fatalf("decode doc body: %v", err)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": "created"})
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{
+		URL:       ts.URL,
+		IndexName: "sercha_chunks",
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	if err := engine.IndexDocument(context.Background(), &domain.DocumentContent{
+		DocumentID: "doc-md",
+		Title:      "Title",
+		Body:       "body",
+		Metadata: map[string]string{
+			"author": "alice",
+			"labels": "kubernetes,helm",
+		},
+	}); err != nil {
+		t.Fatalf("IndexDocument: %v", err)
+	}
+
+	if capturedDocBody == nil {
+		t.Fatal("IndexDocument never sent the doc PUT")
+	}
+	md, ok := capturedDocBody["metadata"].(map[string]any)
+	if !ok {
+		t.Fatal("metadata not present in indexed document body")
+	}
+	if md["author"] != "alice" {
+		t.Errorf("metadata.author = %v, want alice", md["author"])
+	}
+	if md["labels"] != "kubernetes,helm" {
+		t.Errorf("metadata.labels = %v, want kubernetes,helm", md["labels"])
+	}
+}
+
+// TestSearchEngine_SearchDocuments_ExactTitleBoost verifies that a `term`
+// query against title.raw is added as a should clause for exact-title
+// dominance, and that the raw query is lowercased to match the
+// lowercase_keyword normalizer applied to title.raw.
+func TestSearchEngine_SearchDocuments_ExactTitleBoost(t *testing.T) {
+	var capturedReq map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+			if err := json.NewDecoder(r.Body).Decode(&capturedReq); err != nil {
+				t.Fatalf("decode req: %v", err)
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hits": map[string]any{
+					"total": map[string]any{"value": 0},
+					"hits":  []map[string]any{},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{
+		URL:       ts.URL,
+		IndexName: "sercha_chunks",
+		Timeout:   5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	if _, _, err := engine.SearchDocuments(context.Background(), "Kubernetes Setup Guide", domain.SearchOptions{Limit: 10}); err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+
+	boolQuery := capturedReq["query"].(map[string]any)["bool"].(map[string]any)
+	shoulds, ok := boolQuery["should"].([]any)
+	if !ok || len(shoulds) != 1 {
+		t.Fatalf("expected 1 should clause (exact-title boost), got %v", shoulds)
+	}
+	term, ok := shoulds[0].(map[string]any)["term"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected `term` should clause, got %v", shoulds[0])
+	}
+	titleRaw, ok := term["title.raw"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected term on title.raw, got %v", term)
+	}
+	if titleRaw["value"] != "kubernetes setup guide" {
+		t.Errorf("title.raw value = %v, want lowercased query", titleRaw["value"])
+	}
+	if titleRaw["boost"].(float64) <= 1.0 {
+		t.Errorf("title.raw boost = %v, want >1.0 to dominate fuzzy match", titleRaw["boost"])
+	}
+
+	// Verify the multi_match must clause has minimum_should_match.
+	mustClauses := boolQuery["must"].([]any)
+	mm := mustClauses[0].(map[string]any)["multi_match"].(map[string]any)
+	if msm := mm["minimum_should_match"]; msm != "75%" {
+		t.Errorf("minimum_should_match = %v, want 75%%", msm)
 	}
 }
 
