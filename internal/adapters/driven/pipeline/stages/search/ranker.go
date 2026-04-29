@@ -17,10 +17,6 @@ const RankerStageID = "ranker"
 // With k=30, rank 1 vs 5 has ~12% difference vs ~6% with k=60.
 const DefaultRRFk = 30
 
-// MinVectorSimilarity is the minimum cosine similarity threshold for vector chunks.
-// Chunks below this threshold are filtered before document-level aggregation
-// to reduce noisy single-chunk false positives.
-const MinVectorSimilarity = 0.65
 
 // RankerFactory creates ranker stages.
 type RankerFactory struct {
@@ -116,22 +112,23 @@ func (s *RankerStage) Process(ctx context.Context, input any) (any, error) {
 		bySource[src] = append(bySource[src], c)
 	}
 
-	// For each source, aggregate to document-level (best candidate per document)
-	// and sort by score descending to establish rank order.
-	// Vector results apply a similarity threshold to filter noisy chunks.
+	// For each source, aggregate to document-level (best candidate per
+	// document) and sort by score descending to establish rank order.
+	//
+	// The previous code applied a SECOND vector-similarity filter here on
+	// top of the multi_retriever's distance threshold. That double-filter
+	// was a 50% ceiling source on dense corpora — the ranker ended up with
+	// 4-7 vector candidates vs ~95 BM25, which left the multi-source RRF
+	// math effectively single-source. Drop the secondary filter; rely on
+	// the upstream threshold + RRF rank-weighting.
 	docBySource := make(map[string][]*pipeline.Candidate) // source -> document-level candidates
 	for src, srcCandidates := range bySource {
-		if src == "vector" {
-			docBySource[src] = aggregateToDocLevelWithThreshold(srcCandidates, MinVectorSimilarity)
-		} else {
-			docBySource[src] = aggregateToDocLevel(srcCandidates)
-		}
+		docBySource[src] = aggregateToDocLevel(srcCandidates)
 	}
 
 	// Per-source post-aggregation counts. Distinguishing "vector returned
-	// nothing" from "vector returned chunks but all below MinVectorSimilarity"
-	// from "vector returned 20 unique docs after dedup" is the diagnostic
-	// we keep needing.
+	// nothing" from "vector returned 20 unique docs after dedup" is the
+	// diagnostic we keep needing.
 	sourceSummary := map[string]int{}
 	for src, docs := range docBySource {
 		sourceSummary[src] = len(docs)
@@ -145,7 +142,6 @@ func (s *RankerStage) Process(ctx context.Context, input any) (any, error) {
 		"source_count", len(docBySource),
 		"pre_aggregate_per_source", preAggSummary,
 		"post_aggregate_per_source", sourceSummary,
-		"min_vector_similarity", MinVectorSimilarity,
 	)
 
 	// Compute RRF scores: for each unique document, sum 1/(k + rank) across sources
@@ -296,39 +292,6 @@ func aggregateToDocLevel(candidates []*pipeline.Candidate) []*pipeline.Candidate
 		if !ok || c.Score > existing.Score {
 			bestByDoc[c.DocumentID] = c
 		}
-	}
-
-	result := make([]*pipeline.Candidate, 0, len(bestByDoc))
-	for _, c := range bestByDoc {
-		result = append(result, c)
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Score > result[j].Score
-	})
-
-	return result
-}
-
-// aggregateToDocLevelWithThreshold filters chunks below the threshold before
-// aggregating to document level. This reduces noisy single-chunk false positives
-// while preserving the max-based signal (a document is relevant if any part answers the query).
-// If no chunks pass the threshold, falls back to unfiltered aggregation.
-func aggregateToDocLevelWithThreshold(candidates []*pipeline.Candidate, minScore float64) []*pipeline.Candidate {
-	bestByDoc := make(map[string]*pipeline.Candidate)
-	for _, c := range candidates {
-		if c.Score < minScore {
-			continue
-		}
-		existing, ok := bestByDoc[c.DocumentID]
-		if !ok || c.Score > existing.Score {
-			bestByDoc[c.DocumentID] = c
-		}
-	}
-
-	// Fallback: if nothing passed threshold, use unfiltered max
-	if len(bestByDoc) == 0 {
-		return aggregateToDocLevel(candidates)
 	}
 
 	result := make([]*pipeline.Candidate, 0, len(bestByDoc))

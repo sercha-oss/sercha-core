@@ -15,10 +15,16 @@ import (
 )
 
 const (
-	MultiRetrieverStageID          = "multi-retriever"
-	DefaultTopK                    = 100
-	DefaultRRFK                    = 60
-	DefaultVectorDistanceThreshold = 0.55 // Only include vector results closer than this
+	MultiRetrieverStageID = "multi-retriever"
+	DefaultTopK           = 100
+	DefaultRRFK           = 60
+	// DefaultVectorDistanceThreshold is a loose safety floor only — a
+	// distance ≤ 0.7 corresponds to cosine similarity ≥ 0.3, which keeps
+	// genuinely off-topic chunks out while letting RRF rank-weighting
+	// handle relevance ordering. Tightening this further (the previous
+	// 0.55 value) routinely dropped 96+ of 100 candidates on dense
+	// corpora, starving the ranker of vector signal entirely.
+	DefaultVectorDistanceThreshold = 0.7
 )
 
 // MultiRetrieverFactory creates multi-query retriever stages.
