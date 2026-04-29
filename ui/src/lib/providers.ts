@@ -27,8 +27,12 @@ export const PROVIDER_ICONS: Record<string, string> = {
   jira: "/logos/atlassian/jira.svg",
   trello: "/logos/atlassian/trello-icon.png",
   asana: "/logos/asana/asana-icon.svg",
+  linear: "/logos/linear/linear_icon.svg",
   figma: "/logos/figma/figma_icon.svg",
+  miro: "/logos/miro/miro-icon.svg",
+  slack: "/logos/slack/slack_icon.webp",
   onedrive: "/logos/microsoft/microsoft_onedrive_icon.png",
+  sharepoint: "/logos/microsoft/microsoft_sharepoint.png",
 };
 
 export const PROVIDER_HELP_URLS: Record<string, string> = {

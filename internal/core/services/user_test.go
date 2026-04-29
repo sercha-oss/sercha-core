@@ -2,10 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
+	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven/mocks"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
 )
@@ -14,7 +17,92 @@ func newTestUserService() (*mocks.MockUserStore, *mocks.MockSessionStore, *userS
 	userStore := mocks.NewMockUserStore()
 	sessionStore := mocks.NewMockSessionStore()
 	authAdapter := mocks.NewMockAuthAdapter()
-	svc := NewUserService(userStore, sessionStore, authAdapter, "team-123").(*userService)
+	svc := NewUserService(UserServiceConfig{
+		UserStore:    userStore,
+		SessionStore: sessionStore,
+		AuthAdapter:  authAdapter,
+		TeamID:       "team-123",
+	}).(*userService)
+	return userStore, sessionStore, svc
+}
+
+// spyUserCreateObserver records OnUserCreated calls and can return a
+// configured error to verify observer failures don't break Create.
+type spyUserCreateObserver struct {
+	mu        sync.Mutex
+	calls     []*domain.User
+	returnErr error
+}
+
+func (s *spyUserCreateObserver) OnUserCreated(_ context.Context, user *domain.User) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, user)
+	return s.returnErr
+}
+
+func (s *spyUserCreateObserver) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.calls)
+}
+
+func (s *spyUserCreateObserver) lastCall() *domain.User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.calls) == 0 {
+		return nil
+	}
+	return s.calls[len(s.calls)-1]
+}
+
+// spyUserDeleteObserver records OnUserDeleted calls and can return a
+// configured error to verify observer failures don't break Delete.
+type spyUserDeleteObserver struct {
+	mu        sync.Mutex
+	calls     []*domain.User
+	returnErr error
+}
+
+func (s *spyUserDeleteObserver) OnUserDeleted(_ context.Context, user *domain.User) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, user)
+	return s.returnErr
+}
+
+func (s *spyUserDeleteObserver) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.calls)
+}
+
+func (s *spyUserDeleteObserver) lastCall() *domain.User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.calls) == 0 {
+		return nil
+	}
+	return s.calls[len(s.calls)-1]
+}
+
+// newTestUserServiceWithObservers builds a userService with the given
+// optional observers. Either observer may be nil.
+func newTestUserServiceWithObservers(
+	createObs driven.UserCreateObserver,
+	deleteObs driven.UserDeleteObserver,
+) (*mocks.MockUserStore, *mocks.MockSessionStore, *userService) {
+	userStore := mocks.NewMockUserStore()
+	sessionStore := mocks.NewMockSessionStore()
+	authAdapter := mocks.NewMockAuthAdapter()
+	svc := NewUserService(UserServiceConfig{
+		UserStore:          userStore,
+		SessionStore:       sessionStore,
+		AuthAdapter:        authAdapter,
+		TeamID:             "team-123",
+		UserCreateObserver: createObs,
+		UserDeleteObserver: deleteObs,
+	}).(*userService)
 	return userStore, sessionStore, svc
 }
 
@@ -389,5 +477,139 @@ func TestUserService_SetPassword(t *testing.T) {
 	err = svc.SetPassword(context.Background(), "user-123", "")
 	if err != domain.ErrInvalidInput {
 		t.Errorf("expected ErrInvalidInput for empty password, got %v", err)
+	}
+}
+
+func TestUserService_Create_FiresObserver(t *testing.T) {
+	createObs := &spyUserCreateObserver{}
+	_, _, svc := newTestUserServiceWithObservers(createObs, nil)
+
+	user, err := svc.Create(context.Background(), driving.CreateUserRequest{
+		Email:    "obs@example.com",
+		Password: "password123",
+		Name:     "Obs User",
+		Role:     domain.RoleMember,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got, want := createObs.callCount(), 1; got != want {
+		t.Fatalf("expected %d observer calls, got %d", want, got)
+	}
+	last := createObs.lastCall()
+	if last == nil || last.ID != user.ID {
+		t.Errorf("expected observer to receive created user (id=%s), got %+v", user.ID, last)
+	}
+}
+
+func TestUserService_Create_NilObserver(t *testing.T) {
+	_, _, svc := newTestUserServiceWithObservers(nil, nil)
+
+	user, err := svc.Create(context.Background(), driving.CreateUserRequest{
+		Email:    "noobs@example.com",
+		Password: "password123",
+		Name:     "Noobs User",
+		Role:     domain.RoleMember,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user == nil {
+		t.Fatal("expected user to be returned")
+	}
+}
+
+func TestUserService_Create_ObserverErrorIgnored(t *testing.T) {
+	createObs := &spyUserCreateObserver{returnErr: errors.New("observer boom")}
+	_, _, svc := newTestUserServiceWithObservers(createObs, nil)
+
+	user, err := svc.Create(context.Background(), driving.CreateUserRequest{
+		Email:    "boom@example.com",
+		Password: "password123",
+		Name:     "Boom User",
+		Role:     domain.RoleMember,
+	})
+	if err != nil {
+		t.Fatalf("expected create to succeed despite observer error, got %v", err)
+	}
+	if user == nil {
+		t.Fatal("expected user to be returned")
+	}
+	if got := createObs.callCount(); got != 1 {
+		t.Errorf("expected observer to fire once, got %d", got)
+	}
+}
+
+func TestUserService_Delete_FiresObserver(t *testing.T) {
+	deleteObs := &spyUserDeleteObserver{}
+	userStore, _, svc := newTestUserServiceWithObservers(nil, deleteObs)
+
+	user := &domain.User{
+		ID:     "user-del-1",
+		Email:  "del@example.com",
+		Name:   "Del User",
+		Role:   domain.RoleMember,
+		TeamID: "team-123",
+		Active: true,
+	}
+	_ = userStore.Save(context.Background(), user)
+
+	if err := svc.Delete(context.Background(), user.ID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got, want := deleteObs.callCount(), 1; got != want {
+		t.Fatalf("expected %d observer calls, got %d", want, got)
+	}
+	last := deleteObs.lastCall()
+	if last == nil || last.ID != user.ID {
+		t.Errorf("expected observer to receive deleted user (id=%s), got %+v", user.ID, last)
+	}
+}
+
+func TestUserService_Delete_NilObserver(t *testing.T) {
+	userStore, _, svc := newTestUserServiceWithObservers(nil, nil)
+
+	user := &domain.User{
+		ID:     "user-del-2",
+		Email:  "del2@example.com",
+		Name:   "Del User",
+		Role:   domain.RoleMember,
+		TeamID: "team-123",
+		Active: true,
+	}
+	_ = userStore.Save(context.Background(), user)
+
+	if err := svc.Delete(context.Background(), user.ID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := svc.Get(context.Background(), user.ID); err != domain.ErrNotFound {
+		t.Errorf("expected ErrNotFound after deletion, got %v", err)
+	}
+}
+
+func TestUserService_Delete_ObserverErrorIgnored(t *testing.T) {
+	deleteObs := &spyUserDeleteObserver{returnErr: errors.New("observer boom")}
+	userStore, _, svc := newTestUserServiceWithObservers(nil, deleteObs)
+
+	user := &domain.User{
+		ID:     "user-del-3",
+		Email:  "del3@example.com",
+		Name:   "Del User",
+		Role:   domain.RoleMember,
+		TeamID: "team-123",
+		Active: true,
+	}
+	_ = userStore.Save(context.Background(), user)
+
+	if err := svc.Delete(context.Background(), user.ID); err != nil {
+		t.Fatalf("expected delete to succeed despite observer error, got %v", err)
+	}
+	if got := deleteObs.callCount(); got != 1 {
+		t.Errorf("expected observer to fire once, got %d", got)
+	}
+	if _, err := svc.Get(context.Background(), user.ID); err != domain.ErrNotFound {
+		t.Errorf("expected ErrNotFound after deletion, got %v", err)
 	}
 }
