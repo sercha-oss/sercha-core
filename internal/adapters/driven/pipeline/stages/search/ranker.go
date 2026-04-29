@@ -137,7 +137,7 @@ func (s *RankerStage) Process(ctx context.Context, input any) (any, error) {
 	for src, cs := range bySource {
 		preAggSummary[src] = len(cs)
 	}
-	slog.Info("ranker.aggregated by source",
+	slog.Debug("ranker.aggregated by source",
 		"phase", "rank_aggregate",
 		"source_count", len(docBySource),
 		"pre_aggregate_per_source", preAggSummary,
@@ -252,7 +252,7 @@ func (s *RankerStage) Process(ctx context.Context, input any) (any, error) {
 		}
 		top5 = append(top5, c.DocumentID+"@"+formatScore(c.Score)+" "+srcsString(srcs))
 	}
-	slog.Info("ranker.final ranking",
+	slog.Debug("ranker.final ranking",
 		"phase", "rank_final",
 		"normalisation_path", normalisationPath(numSources),
 		"rrf_k", s.rrfK,

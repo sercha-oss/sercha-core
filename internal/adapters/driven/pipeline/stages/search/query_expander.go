@@ -107,7 +107,7 @@ func (s *QueryExpanderStage) Process(ctx context.Context, input any) (any, error
 	//   - Quoted phrase queries are explicit "find this exact text" intent.
 	//     Paraphrasing them defeats the purpose.
 	if s.shouldSkipExpansion(parsed) {
-		slog.Info("search.query_expander skipped",
+		slog.Debug("search.query_expander skipped",
 			"phase", "expand_query",
 			"reason", s.skipReason(parsed),
 			"term_count", len(parsed.Terms),

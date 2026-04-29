@@ -180,7 +180,7 @@ func (s *MultiRetrieverStage) Process(ctx context.Context, input any) (any, erro
 	for i, r := range allResults {
 		variantCounts[i] = len(r)
 	}
-	slog.Info("search.merge_variants completed",
+	slog.Debug("search.merge_variants completed",
 		"phase", "merge_variants",
 		"variant_count", len(queries),
 		"variant_candidate_counts", variantCounts,
@@ -241,7 +241,7 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 	}
 
 	bm25Cands := convertDocResultsToCandidates(bm25Results, "bm25")
-	slog.Info("search.bm25 returned candidates",
+	slog.Debug("search.bm25 returned candidates",
 		"phase", "retrieve_bm25",
 		"query", queryStr,
 		"phrase_count", len(q.Phrases),
@@ -254,17 +254,17 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 	// and the admin pref VectorSearchEnabled hasn't disabled it via stage config)
 	switch {
 	case s.disableVector:
-		slog.Info("search.vector skipped",
+		slog.Debug("search.vector skipped",
 			"phase", "retrieve_vector",
 			"reason", "disable_vector_set",
 		)
 	case s.vectorIndex == nil:
-		slog.Info("search.vector skipped",
+		slog.Debug("search.vector skipped",
 			"phase", "retrieve_vector",
 			"reason", "vector_index_unavailable",
 		)
 	case s.embedder == nil:
-		slog.Info("search.vector skipped",
+		slog.Debug("search.vector skipped",
 			"phase", "retrieve_vector",
 			"reason", "embedder_unavailable",
 		)
@@ -306,7 +306,7 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 		// same unit of retrieval.
 		vectorCands := bestChunkPerDoc(vectorChunkCands)
 
-		slog.Info("search.vector returned candidates",
+		slog.Debug("search.vector returned candidates",
 			"phase", "retrieve_vector",
 			"raw_count", len(vectorResults),
 			"after_threshold_count", len(filteredResults),
