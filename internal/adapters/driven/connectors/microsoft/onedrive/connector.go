@@ -161,23 +161,29 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 				}
 			}
 
-			// Fetch file content
-			content, err := c.client.GetDriveItemContent(ctx, item.ID)
-			if err != nil {
-				slog.Warn("onedrive: content fetch failed; skipping",
-					"item_id", item.ID,
-					"name", item.Name,
-					"error", err,
-				)
-				continue
-			}
-
+			// Defer content download to processing time. FetchChanges stays
+			// metadata-only so the orchestrator can begin per-doc work as
+			// soon as the listing returns; the per-container worker pool
+			// then parallelises GetDriveItemContent across documents.
+			//
+			// Capture itemID + client by value into the closure. ctx passed
+			// to the thunk is the orchestrator's per-doc context, not the
+			// listing context.
 			doc := c.driveItemToDocument(&item)
+			itemID := item.ID
+			itemName := item.Name
+			client := c.client
 			change := &domain.Change{
 				Type:       domain.ChangeTypeModified,
-				ExternalID: fmt.Sprintf("file-%s", item.ID),
+				ExternalID: fmt.Sprintf("file-%s", itemID),
 				Document:   doc,
-				Content:    string(content),
+				LoadContent: func(ctx context.Context) (string, error) {
+					content, err := client.GetDriveItemContent(ctx, itemID)
+					if err != nil {
+						return "", fmt.Errorf("onedrive: content fetch failed (item %s, name %q): %w", itemID, itemName, err)
+					}
+					return string(content), nil
+				},
 			}
 
 			changes = append(changes, change)

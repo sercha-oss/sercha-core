@@ -129,12 +129,6 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 			changeType = domain.ChangeTypeModified
 		}
 
-		// Read content
-		content, err := c.readFileContent(path)
-		if err != nil {
-			return nil // Skip unreadable files
-		}
-
 		// Generate external ID from path hash
 		relPath, _ := filepath.Rel(c.rootPath, path)
 		externalID := c.generateExternalID(relPath)
@@ -142,11 +136,17 @@ func (c *Connector) FetchChanges(ctx context.Context, source *domain.Source, cur
 		// Create document
 		doc := c.fileToDocument(path, relPath, info)
 
+		// Defer the actual file read into LoadContent. For local FS this
+		// gain is small, but the contract is uniform across connectors so
+		// the orchestrator's lazy-content path is exercised consistently.
+		filePath := path
 		changes = append(changes, &domain.Change{
 			Type:       changeType,
 			ExternalID: externalID,
 			Document:   doc,
-			Content:    content,
+			LoadContent: func(_ context.Context) (string, error) {
+				return c.readFileContent(filePath)
+			},
 		})
 
 		return nil

@@ -128,7 +128,6 @@ func TestRankerStage_MultiSource_RRF(t *testing.T) {
 	// Document "d2" appears only in bm25 (rank 2)
 	// Document "d3" appears only in vector (rank 1)
 	// Document "d4" appears in both (rank 3 in bm25, rank 3 in vector)
-	// Note: Vector scores must be >= MinVectorSimilarity (0.65) to pass threshold
 	candidates := []*pipeline.Candidate{
 		{DocumentID: "d1", ChunkID: "", Score: 0.9, Source: "bm25", Content: "doc 1"},
 		{DocumentID: "d2", ChunkID: "", Score: 0.7, Source: "bm25", Content: "doc 2"},

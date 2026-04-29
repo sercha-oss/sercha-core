@@ -17,6 +17,12 @@ type DocumentStore interface {
 	// Get retrieves a document by ID
 	Get(ctx context.Context, id string) (*domain.Document, error)
 
+	// GetByIDs retrieves multiple documents by ID in a single round trip.
+	// The returned map is keyed by document ID; missing IDs simply don't
+	// appear (this is not an error). Used by the search service to avoid
+	// N database queries when materialising ranked search results.
+	GetByIDs(ctx context.Context, ids []string) (map[string]*domain.Document, error)
+
 	// GetByExternalID retrieves a document by source and external ID
 	GetByExternalID(ctx context.Context, sourceID, externalID string) (*domain.Document, error)
 

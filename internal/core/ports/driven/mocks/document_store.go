@@ -64,6 +64,18 @@ func (m *MockDocumentStore) Get(ctx context.Context, id string) (*domain.Documen
 	return doc, nil
 }
 
+func (m *MockDocumentStore) GetByIDs(ctx context.Context, ids []string) (map[string]*domain.Document, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]*domain.Document, len(ids))
+	for _, id := range ids {
+		if doc, ok := m.documents[id]; ok {
+			out[id] = doc
+		}
+	}
+	return out, nil
+}
+
 func (m *MockDocumentStore) GetByExternalID(ctx context.Context, sourceID, externalID string) (*domain.Document, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

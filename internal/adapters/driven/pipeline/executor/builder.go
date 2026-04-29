@@ -3,6 +3,8 @@ package executor
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
@@ -11,12 +13,26 @@ import (
 // PipelineBuilder constructs executable pipelines from definitions.
 type PipelineBuilder struct {
 	stageRegistry pipelineport.StageRegistry
+	logger        *slog.Logger
 }
 
 // NewPipelineBuilder creates a new pipeline builder.
 func NewPipelineBuilder(stageRegistry pipelineport.StageRegistry) *PipelineBuilder {
 	return &PipelineBuilder{
 		stageRegistry: stageRegistry,
+		logger:        slog.Default(),
+	}
+}
+
+// WithLogger returns a copy of the builder with the given logger. Used for
+// per-stage timing instrumentation in built pipelines.
+func (b *PipelineBuilder) WithLogger(logger *slog.Logger) *PipelineBuilder {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &PipelineBuilder{
+		stageRegistry: b.stageRegistry,
+		logger:        logger,
 	}
 }
 
@@ -64,6 +80,7 @@ func (b *PipelineBuilder) Build(def pipeline.PipelineDefinition, capabilities *p
 	return &executablePipeline{
 		definition: def,
 		stages:     stages,
+		logger:     b.logger,
 	}, nil
 }
 
@@ -114,6 +131,7 @@ func (b *PipelineBuilder) Validate(def pipeline.PipelineDefinition) error {
 type executablePipeline struct {
 	definition pipeline.PipelineDefinition
 	stages     []pipelineport.Stage
+	logger     *slog.Logger
 }
 
 // Definition returns the pipeline definition.
@@ -129,13 +147,34 @@ func (p *executablePipeline) Stages() []pipelineport.Stage {
 // Run executes the pipeline with input.
 func (p *executablePipeline) Run(ctx context.Context, input any) (any, error) {
 	current := input
+	logger := p.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 
 	for i, stage := range p.stages {
+		desc := stage.Descriptor()
+		start := time.Now()
 		output, err := stage.Process(ctx, current)
+		duration := time.Since(start)
 		if err != nil {
-			desc := stage.Descriptor()
+			logger.Warn("pipeline stage failed",
+				"phase", "stage",
+				"pipeline_id", p.definition.ID,
+				"stage_id", desc.ID,
+				"stage_index", i,
+				"duration_ms", duration.Milliseconds(),
+				"error", err,
+			)
 			return nil, fmt.Errorf("stage %d (%s) failed: %w", i, desc.ID, err)
 		}
+		logger.Debug("pipeline stage completed",
+			"phase", "stage",
+			"pipeline_id", p.definition.ID,
+			"stage_id", desc.ID,
+			"stage_index", i,
+			"duration_ms", duration.Milliseconds(),
+		)
 		current = output
 	}
 

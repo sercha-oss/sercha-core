@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/lib/pq"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
@@ -120,6 +121,35 @@ func (s *DocumentStore) Get(ctx context.Context, id string) (*domain.Document, e
 	`
 
 	return s.scanDocument(s.db.QueryRowContext(ctx, query, id))
+}
+
+// GetByIDs fetches multiple documents in a single round trip. Missing IDs
+// simply don't appear in the returned map. Avoids the N-query pattern
+// previously used by services/search.go to materialise ranked results.
+func (s *DocumentStore) GetByIDs(ctx context.Context, ids []string) (map[string]*domain.Document, error) {
+	if len(ids) == 0 {
+		return map[string]*domain.Document{}, nil
+	}
+	query := `
+		SELECT id, source_id, external_id, path, title, mime_type, metadata, created_at, updated_at, indexed_at
+		FROM documents
+		WHERE id = ANY($1)
+	`
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	docs, err := s.scanDocuments(rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*domain.Document, len(docs))
+	for _, d := range docs {
+		out[d.ID] = d
+	}
+	return out, nil
 }
 
 // GetByExternalID retrieves a document by source and external ID

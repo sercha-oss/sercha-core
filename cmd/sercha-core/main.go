@@ -631,6 +631,19 @@ func main() {
 		Lock:             distributedLock,
 	})
 
+	// Drain in-flight DocumentIngestObserver goroutines on shutdown.
+	// Bounded by a 5s ceiling — observer dispatch already enforces a
+	// per-call timeout, but if all 32 slots are saturated and every
+	// observer hits its 30s timeout we don't want shutdown to wait for
+	// every one of them.
+	defer func() {
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer drainCancel()
+		if err := syncOrchestrator.WaitForObservers(drainCtx); err != nil {
+			log.Printf("observer drain on shutdown: %v", err)
+		}
+	}()
+
 	// Create scheduler for worker mode (if enabled)
 	schedulerEnabled := getEnvBool("SCHEDULER_ENABLED", true)
 	schedulerLockRequired := getEnvBool("SCHEDULER_LOCK_REQUIRED", true)

@@ -2,7 +2,9 @@ package search
 
 import (
 	"context"
+	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -13,10 +15,16 @@ import (
 )
 
 const (
-	MultiRetrieverStageID          = "multi-retriever"
-	DefaultTopK                    = 100
-	DefaultRRFK                    = 60
-	DefaultVectorDistanceThreshold = 0.55 // Only include vector results closer than this
+	MultiRetrieverStageID = "multi-retriever"
+	DefaultTopK           = 100
+	DefaultRRFK           = 60
+	// DefaultVectorDistanceThreshold is a loose safety floor only — a
+	// distance ≤ 0.7 corresponds to cosine similarity ≥ 0.3, which keeps
+	// genuinely off-topic chunks out while letting RRF rank-weighting
+	// handle relevance ordering. Tightening this further (the previous
+	// 0.55 value) routinely dropped 96+ of 100 candidates on dense
+	// corpora, starving the ranker of vector signal entirely.
+	DefaultVectorDistanceThreshold = 0.7
 )
 
 // MultiRetrieverFactory creates multi-query retriever stages.
@@ -164,6 +172,22 @@ func (s *MultiRetrieverStage) Process(ctx context.Context, input any) (any, erro
 	// Merge results using weighted RRF
 	merged := s.mergeWithRRF(allResults, queries)
 
+	// Per-variant counts plus the post-merge top-3 — useful for spotting
+	// "variant 0 returned 20 docs, variants 1-2 returned 0" patterns or
+	// "merge stripped 80% of unique docs because every variant returned
+	// the same set".
+	variantCounts := make([]int, len(allResults))
+	for i, r := range allResults {
+		variantCounts[i] = len(r)
+	}
+	slog.Debug("search.merge_variants completed",
+		"phase", "merge_variants",
+		"variant_count", len(queries),
+		"variant_candidate_counts", variantCounts,
+		"merged_count", len(merged),
+		"top3", topNSummary(merged, 3),
+	)
+
 	return merged, nil
 }
 
@@ -176,8 +200,19 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 	// q.Original would leak the literal `"` characters into the analyser,
 	// which strips them as punctuation and silently degrades the phrase to
 	// two unrelated tokens.
+	//
+	// When the user submits only a quoted phrase the parser leaves Terms
+	// empty. The OpenSearch adapter's must clause is a multi_match against
+	// queryStr, and an empty queryStr makes the must clause match nothing —
+	// the phrase clauses alone in opts.Phrases aren't enough because they
+	// also live in must. Fall back to joined phrase content so the must
+	// clause has tokens to score on; the match_phrase clauses still apply
+	// the strict-contiguity check on top.
 	queryStr := strings.Join(q.Terms, " ")
-	if queryStr == "" && len(q.Phrases) == 0 {
+	if queryStr == "" {
+		queryStr = strings.Join(q.Phrases, " ")
+	}
+	if queryStr == "" {
 		queryStr = q.Original
 	}
 
@@ -196,21 +231,59 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 
 	bm25Results, _, err := s.searchEngine.SearchDocuments(ctx, queryStr, opts)
 	if err != nil {
+		slog.Warn("search.bm25 failed",
+			"phase", "retrieve_bm25",
+			"query", queryStr,
+			"phrases", q.Phrases,
+			"error", err,
+		)
 		return nil, err
 	}
 
-	candidates = append(candidates, convertDocResultsToCandidates(bm25Results, "bm25")...)
+	bm25Cands := convertDocResultsToCandidates(bm25Results, "bm25")
+	slog.Debug("search.bm25 returned candidates",
+		"phase", "retrieve_bm25",
+		"query", queryStr,
+		"phrase_count", len(q.Phrases),
+		"candidate_count", len(bm25Cands),
+		"top3", topNSummary(bm25Cands, 3),
+	)
+	candidates = append(candidates, bm25Cands...)
 
 	// Vector search (optional - only if both vectorIndex and embedder are available
 	// and the admin pref VectorSearchEnabled hasn't disabled it via stage config)
-	if !s.disableVector && s.vectorIndex != nil && s.embedder != nil {
+	switch {
+	case s.disableVector:
+		slog.Debug("search.vector skipped",
+			"phase", "retrieve_vector",
+			"reason", "disable_vector_set",
+		)
+	case s.vectorIndex == nil:
+		slog.Debug("search.vector skipped",
+			"phase", "retrieve_vector",
+			"reason", "vector_index_unavailable",
+		)
+	case s.embedder == nil:
+		slog.Debug("search.vector skipped",
+			"phase", "retrieve_vector",
+			"reason", "embedder_unavailable",
+		)
+	default:
 		queryEmbedding, err := s.embedder.EmbedQuery(ctx, q.Original)
 		if err != nil {
+			slog.Warn("search.vector embed_query failed",
+				"phase", "retrieve_vector",
+				"error", err,
+			)
 			return candidates, nil
 		}
 
 		vectorResults, err := s.vectorIndex.SearchWithContent(ctx, queryEmbedding, s.topK, q.SearchFilters.Sources, q.SearchFilters.DocumentIDFilter)
 		if err != nil {
+			slog.Warn("search.vector lookup failed",
+				"phase", "retrieve_vector",
+				"error", err,
+			)
 			return candidates, nil
 		}
 
@@ -222,10 +295,97 @@ func (s *MultiRetrieverStage) runSearch(ctx context.Context, q *pipeline.ParsedQ
 			}
 		}
 
-		candidates = append(candidates, convertVectorResultsToCandidates(filteredResults, "vector")...)
+		vectorChunkCands := convertVectorResultsToCandidates(filteredResults, "vector")
+
+		// Aggregate chunk-level vector candidates to doc-level (best chunk
+		// per document). pgvector retrieves at chunk granularity, but
+		// downstream BM25 candidates are doc-level — leaving them at chunk
+		// granularity means the variant-merger and ranker double-count
+		// vector contributions for any doc that has multiple matching
+		// chunks. Aggregating here makes BM25 and vector compete at the
+		// same unit of retrieval.
+		vectorCands := bestChunkPerDoc(vectorChunkCands)
+
+		slog.Debug("search.vector returned candidates",
+			"phase", "retrieve_vector",
+			"raw_count", len(vectorResults),
+			"after_threshold_count", len(filteredResults),
+			"after_doc_aggregate_count", len(vectorCands),
+			"distance_threshold", s.vectorDistanceThreshold,
+			"top3", topNSummary(vectorCands, 3),
+		)
+		candidates = append(candidates, vectorCands...)
 	}
 
 	return candidates, nil
+}
+
+// topNSummary returns up to n compact summaries (DocumentID + score) for
+// quick log-eyeball diagnostics. Returned as a slice of strings so it
+// renders nicely in slog text/JSON output.
+func topNSummary(cands []*pipeline.Candidate, n int) []string {
+	if len(cands) < n {
+		n = len(cands)
+	}
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		c := cands[i]
+		out = append(out, fmtSummary(c))
+	}
+	return out
+}
+
+// fmtSummary builds a single-candidate summary line.
+func fmtSummary(c *pipeline.Candidate) string {
+	if c == nil {
+		return "<nil>"
+	}
+	return c.DocumentID + "@" + formatScore(c.Score)
+}
+
+// formatScore truncates a score to 4 significant digits for log readability.
+func formatScore(f float64) string {
+	return strconv.FormatFloat(f, 'g', 4, 64)
+}
+
+// bestChunkPerDoc collapses chunk-level vector candidates to one
+// candidate per DocumentID, keeping the highest-scoring chunk. The
+// returned slice preserves descending-score order, so downstream
+// rank-based fusions see the same ordering they did before
+// aggregation.
+//
+// Vector retrieval returns chunks because pgvector indexes chunk
+// embeddings; BM25 retrieves at document level. Aggregating here puts
+// both retrievers on the same footing for the variant-merger and the
+// final ranker — without it, a doc with five matching chunks
+// contributes five RRF terms while a doc with one matching chunk
+// contributes one, even though both are "this document was a good
+// match".
+func bestChunkPerDoc(chunks []*pipeline.Candidate) []*pipeline.Candidate {
+	if len(chunks) == 0 {
+		return chunks
+	}
+	bestByDoc := make(map[string]*pipeline.Candidate, len(chunks))
+	order := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		existing, ok := bestByDoc[c.DocumentID]
+		if !ok {
+			bestByDoc[c.DocumentID] = c
+			order = append(order, c.DocumentID)
+			continue
+		}
+		if c.Score > existing.Score {
+			bestByDoc[c.DocumentID] = c
+		}
+	}
+	out := make([]*pipeline.Candidate, 0, len(bestByDoc))
+	for _, id := range order {
+		out = append(out, bestByDoc[id])
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Score > out[j].Score
+	})
+	return out
 }
 
 // mergeWithRRF merges results from multiple query variants using weighted Reciprocal Rank Fusion.
@@ -240,23 +400,51 @@ func (s *MultiRetrieverStage) mergeWithRRF(results [][]*pipeline.Candidate, quer
 		weights[i] = 0.8 // Variants
 	}
 
-	// Group candidates by DocumentID for deduplication
+	// Group candidates by (DocumentID, Source) for deduplication.
+	//
+	// The previous key was DocumentID alone, which collapsed BM25 and
+	// vector hits for the same doc into a single candidate whose Source
+	// happened to be whichever retriever appended first (always BM25 in
+	// runSearch). The downstream RankerStage then re-buckets by Source
+	// to compute multi-source RRF — so collapsing here meant docs found
+	// in BOTH retrievers only contributed to one bucket. The ranker's
+	// theoretical-max formula caps such single-source matches at 50%,
+	// which is the cap pattern we kept seeing in production traces.
+	//
+	// Keying on (DocumentID, Source) preserves both retriever signals
+	// up to the ranker, which is the stage semantically aware of source
+	// fusion.
+	type rrfKey struct {
+		docID  string
+		source string
+	}
 	type rrfEntry struct {
 		candidate *pipeline.Candidate
 		score     float64
 		variants  []int // Which query variants found this doc
 	}
 
-	docScores := make(map[string]*rrfEntry)
+	docScores := make(map[rrfKey]*rrfEntry)
 
 	for variantIdx, variantCandidates := range results {
 		if variantCandidates == nil {
 			continue
 		}
 
-		for rank, candidate := range variantCandidates {
-			// Use DocumentID as the deduplication key
-			key := candidate.DocumentID
+		// Rank each source independently within this variant.
+		// runSearch returns BM25 results followed by vector results
+		// concatenated; using the position in the combined slice as
+		// the RRF rank starves the second source — its rank starts
+		// where the first source's count ends, putting every vector
+		// candidate at rank >= 100 even when it's the top match in
+		// its own retriever. Per-source rank assignment puts both
+		// retrievers on the same rank scale.
+		sourceRank := make(map[string]int)
+		for _, candidate := range variantCandidates {
+			rank := sourceRank[candidate.Source]
+			sourceRank[candidate.Source] = rank + 1
+
+			key := rrfKey{docID: candidate.DocumentID, source: candidate.Source}
 
 			entry, exists := docScores[key]
 			if !exists {

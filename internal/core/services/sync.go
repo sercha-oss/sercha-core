@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
@@ -13,6 +16,26 @@ import (
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
 	"github.com/sercha-oss/sercha-core/internal/runtime"
 )
+
+// defaultDocConcurrency is the per-container fan-out used when
+// SyncOrchestratorConfig.Concurrency is zero. Chosen as a balance between
+// embedder/connector RPM headroom and observed wall-time gain on large syncs.
+const defaultDocConcurrency = 4
+
+// defaultObserverTimeout bounds each individual OnDocumentIngested
+// invocation. A stuck observer cannot indefinitely block the bounded
+// goroutine pool — once the timeout fires the dispatched goroutine
+// completes and releases its slot. 30s is generous enough for typical
+// network observers (identity lookups, audit writes) without parking
+// goroutines forever on a hung downstream.
+const defaultObserverTimeout = 30 * time.Second
+
+// defaultObserverQueueDepth caps in-flight observer goroutines per
+// orchestrator. When the queue is full, the dispatch path blocks
+// briefly on the semaphore — this back-pressure protects the runtime
+// from unbounded goroutine growth if the observer is slower than
+// ingestion. 32 is loose enough that healthy observers never block.
+const defaultObserverQueueDepth = 32
 
 // SyncOrchestrator coordinates the document sync pipeline.
 // It implements the 7-step sync flow:
@@ -43,6 +66,11 @@ type SyncOrchestrator struct {
 	documentDeleteObserver driven.DocumentDeleteObserver // Optional; nil means no observer.
 	lock                   driven.DistributedLock        // Optional; nil means no per-source serialization (single-instance mode).
 	lockTTL                time.Duration                 // TTL for sync locks; ignored by Postgres advisory locks.
+	concurrency            int                           // Per-container doc fan-out. 0 means default.
+	statsMu                sync.Mutex                    // Guards *domain.SyncStats mutation under doc-level fan-out.
+	observerTimeout        time.Duration                 // Per-call timeout for OnDocumentIngested.
+	observerSem            chan struct{}                 // Bounded semaphore for in-flight observer goroutines.
+	observerWG             sync.WaitGroup                // Tracks in-flight observer goroutines for WaitForObservers.
 }
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
@@ -66,6 +94,9 @@ type SyncOrchestratorConfig struct {
 	DocumentDeleteObserver driven.DocumentDeleteObserver // Optional; nil means no observer.
 	Lock                   driven.DistributedLock        // Optional. When set, SyncSource/SyncContainer acquire "sync:source:<id>" before running so concurrent invocations no-op (Skipped=true) instead of racing.
 	LockTTL                time.Duration                 // Optional. Defaults to 1h. Ignored by PG advisory locks (which release on connection close).
+	Concurrency            int                           // Optional. Per-container doc-level worker count. Defaults to 4 when zero.
+	OnDocumentIngestedTimeout time.Duration             // Optional. Per-call timeout for the async DocumentIngestObserver. Defaults to 30s when zero.
+	ObserverQueueDepth     int                           // Optional. Bounded goroutine pool depth for the async DocumentIngestObserver. Defaults to 32 when zero.
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
@@ -83,6 +114,21 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 	lockTTL := cfg.LockTTL
 	if lockTTL == 0 {
 		lockTTL = time.Hour
+	}
+
+	concurrency := cfg.Concurrency
+	if concurrency <= 0 {
+		concurrency = defaultDocConcurrency
+	}
+
+	observerTimeout := cfg.OnDocumentIngestedTimeout
+	if observerTimeout <= 0 {
+		observerTimeout = defaultObserverTimeout
+	}
+
+	queueDepth := cfg.ObserverQueueDepth
+	if queueDepth <= 0 {
+		queueDepth = defaultObserverQueueDepth
 	}
 
 	return &SyncOrchestrator{
@@ -105,7 +151,97 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		documentDeleteObserver: cfg.DocumentDeleteObserver,
 		lock:                   cfg.Lock,
 		lockTTL:                lockTTL,
+		concurrency:            concurrency,
+		observerTimeout:        observerTimeout,
+		observerSem:            make(chan struct{}, queueDepth),
 	}
+}
+
+// WaitForObservers blocks until every dispatched DocumentIngestObserver
+// goroutine has returned, or until ctx is cancelled. Useful for tests
+// that need to assert on observer side-effects after a sync completes,
+// and for graceful shutdown paths that want to drain in-flight callbacks
+// before tearing down dependencies (database connections, etc.).
+//
+// Returns nil on clean drain, ctx.Err() on cancel/timeout. Observer
+// errors are still logged-and-swallowed by the dispatch goroutine; this
+// method only reports caller-side cancellation.
+func (o *SyncOrchestrator) WaitForObservers(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		o.observerWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// withStats serializes mutations to *domain.SyncStats so the doc-level
+// worker pool in syncContainer can call processChange concurrently. The
+// caller's fn runs under statsMu; keep it short and free of I/O.
+func (o *SyncOrchestrator) withStats(stats *domain.SyncStats, fn func(*domain.SyncStats)) {
+	o.statsMu.Lock()
+	defer o.statsMu.Unlock()
+	fn(stats)
+}
+
+// readStatsErrors returns stats.Errors under the stats mutex. Used to
+// snapshot the pre/post error count around the doc-level fan-out so the
+// cursor advance gate sees a consistent value.
+func (o *SyncOrchestrator) readStatsErrors(stats *domain.SyncStats) int {
+	o.statsMu.Lock()
+	defer o.statsMu.Unlock()
+	return stats.Errors
+}
+
+// dispatchIngestObserver fires the configured DocumentIngestObserver in
+// a bounded goroutine pool. The dispatch path:
+//
+//   - acquires observerSem (back-pressure if the queue is full),
+//   - increments observerWG so WaitForObservers can drain,
+//   - derives a fresh context (detached from the sync request) bounded
+//     by observerTimeout, so a stuck observer cannot park its goroutine
+//     indefinitely,
+//   - logs phase=ingest_observer with duration on completion or failure.
+//
+// observer.OnDocumentIngested is now invoked from N concurrent goroutines
+// (one per in-flight document), so observer implementations must be
+// goroutine-safe — see the port godoc.
+func (o *SyncOrchestrator) dispatchIngestObserver(source *domain.Source, doc *domain.Document) {
+	o.observerSem <- struct{}{}
+	o.observerWG.Add(1)
+	go func() {
+		defer o.observerWG.Done()
+		defer func() { <-o.observerSem }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), o.observerTimeout)
+		defer cancel()
+
+		obsStart := time.Now()
+		err := o.documentIngestObserver.OnDocumentIngested(ctx, source, doc)
+		obsDuration := time.Since(obsStart)
+		if err != nil {
+			o.logger.Warn("document ingest observer failed",
+				"phase", "ingest_observer",
+				"document_id", doc.ID,
+				"source_id", source.ID,
+				"duration_ms", obsDuration.Milliseconds(),
+				"error", err,
+			)
+			return
+		}
+		o.logger.Debug("document ingest observer completed",
+			"phase", "ingest_observer",
+			"document_id", doc.ID,
+			"source_id", source.ID,
+			"duration_ms", obsDuration.Milliseconds(),
+		)
+	}()
 }
 
 // acquireSourceLock takes the per-source advisory lock if a lock backend is
@@ -509,10 +645,26 @@ func (o *SyncOrchestrator) syncContainer(
 		default:
 		}
 
+		fetchStart := time.Now()
 		changes, nextCursor, err := connector.FetchChanges(ctx, source, cursor)
+		fetchDuration := time.Since(fetchStart)
 		if err != nil {
+			o.logger.Warn("connector fetch_changes failed",
+				"phase", "fetch_changes",
+				"source_id", source.ID,
+				"container_id", containerID,
+				"duration_ms", fetchDuration.Milliseconds(),
+				"error", err,
+			)
 			return stats, lastCursor, fmt.Errorf("failed to fetch changes: %w", err)
 		}
+		o.logger.Info("connector fetch_changes completed",
+			"phase", "fetch_changes",
+			"source_id", source.ID,
+			"container_id", containerID,
+			"changes", len(changes),
+			"duration_ms", fetchDuration.Milliseconds(),
+		)
 
 		if len(changes) == 0 {
 			break
@@ -556,31 +708,69 @@ func (o *SyncOrchestrator) syncContainer(
 		// Bulk delete old chunks/embeddings for all updates in one shot
 		o.cleanupOldChunksBatch(ctx, updateDocIDs)
 
-		// Process each document
-		errorsBefore := stats.Errors
+		// Process each document with bounded fan-out. Per-doc errors are
+		// counted via stats.Errors and must NOT short-circuit the errgroup —
+		// one bad doc cannot abort siblings. Cursor advance is gated by the
+		// post-batch error count comparison below.
+		//
+		// processedExternalIDs is updated synchronously before fan-out so it
+		// stays a single-writer map.
 		for _, change := range changes {
-			// Mark as processed before processing to avoid duplicates
 			processedExternalIDs[change.ExternalID] = true
+		}
 
-			if err := o.processChange(ctx, source, change, stats); err != nil {
-				o.logger.Warn("failed to process change",
-					"source_id", source.ID,
-					"container_id", containerID,
-					"external_id", change.ExternalID,
-					"error", err,
-				)
-				stats.Errors++
-			}
+		errorsBefore := o.readStatsErrors(stats)
+
+		g, gctx := errgroup.WithContext(ctx)
+		sem := make(chan struct{}, o.concurrency)
+		for _, change := range changes {
+			change := change
+			sem <- struct{}{}
+			g.Go(func() error {
+				defer func() { <-sem }()
+
+				procStart := time.Now()
+				err := o.processChange(gctx, source, change, stats)
+				procDuration := time.Since(procStart)
+				if err != nil {
+					o.logger.Warn("failed to process change",
+						"phase", "process_change",
+						"source_id", source.ID,
+						"container_id", containerID,
+						"external_id", change.ExternalID,
+						"duration_ms", procDuration.Milliseconds(),
+						"error", err,
+					)
+					o.withStats(stats, func(s *domain.SyncStats) { s.Errors++ })
+				} else {
+					o.logger.Debug("processed change",
+						"phase", "process_change",
+						"source_id", source.ID,
+						"container_id", containerID,
+						"external_id", change.ExternalID,
+						"change_type", string(change.Type),
+						"duration_ms", procDuration.Milliseconds(),
+					)
+				}
+				return nil // never short-circuit on per-doc error
+			})
+		}
+		// Wait returns the first non-nil error from g.Go. Since the goroutines
+		// always return nil, this is effectively a barrier; it propagates only
+		// the gctx cancellation if the parent ctx is cancelled.
+		if err := g.Wait(); err != nil {
+			return stats, lastCursor, err
 		}
 
 		// Only advance cursor if all documents in this batch succeeded
-		if stats.Errors == errorsBefore {
+		errorsAfter := o.readStatsErrors(stats)
+		if errorsAfter == errorsBefore {
 			lastCursor = nextCursor
 		} else {
 			o.logger.Warn("not advancing cursor due to failed documents",
 				"source_id", source.ID,
 				"container_id", containerID,
-				"failed_count", stats.Errors-errorsBefore,
+				"failed_count", errorsAfter-errorsBefore,
 			)
 		}
 
@@ -692,7 +882,7 @@ func (o *SyncOrchestrator) processDelete(
 		}
 	}
 
-	stats.DocumentsDeleted++
+	o.withStats(stats, func(s *domain.SyncStats) { s.DocumentsDeleted++ })
 	return nil
 }
 
@@ -771,7 +961,7 @@ func (o *SyncOrchestrator) reconcileDeletions(
 			if err := o.processChange(ctx, source, change, stats); err != nil {
 				o.logger.Warn("reconcile: processDelete failed",
 					"source_id", source.ID, "scope", scope, "external_id", extID, "error", err)
-				stats.Errors++
+				o.withStats(stats, func(s *domain.SyncStats) { s.Errors++ })
 			}
 		}
 	}
@@ -811,6 +1001,36 @@ func (o *SyncOrchestrator) processAddOrUpdate(
 ) error {
 	doc := change.Document
 	content := change.Content
+
+	// Lazy content resolution. When a connector populates LoadContent,
+	// the eager Content field is empty and the actual download happens
+	// here — concurrently across documents under the per-container worker
+	// pool. The pre-thunk listing in FetchChanges stays metadata-only and
+	// returns quickly, eliminating the head-of-line wait that previously
+	// delayed every doc behind the slowest connector listing.
+	if change.LoadContent != nil {
+		loadStart := time.Now()
+		loaded, err := change.LoadContent(ctx)
+		loadDuration := time.Since(loadStart)
+		if err != nil {
+			o.logger.Warn("connector load_content failed",
+				"phase", "load_content",
+				"source_id", source.ID,
+				"external_id", change.ExternalID,
+				"duration_ms", loadDuration.Milliseconds(),
+				"error", err,
+			)
+			return fmt.Errorf("load content: %w", err)
+		}
+		o.logger.Debug("connector load_content completed",
+			"phase", "load_content",
+			"source_id", source.ID,
+			"external_id", change.ExternalID,
+			"bytes", len(loaded),
+			"duration_ms", loadDuration.Milliseconds(),
+		)
+		content = loaded
+	}
 
 	if doc == nil {
 		return fmt.Errorf("document is nil for change type %s", change.Type)
@@ -917,25 +1137,24 @@ func (o *SyncOrchestrator) processWithPipeline(
 		return fmt.Errorf("failed to save document: %w", err)
 	}
 
-	// Observer fires only after successful persistence. Failures are logged and ignored —
-	// observer health must not affect ingest correctness.
+	// Observer fires only after successful persistence. The call dispatches
+	// onto a bounded goroutine pool and returns immediately so the per-doc
+	// processing path doesn't block on observer latency. Failures are logged
+	// and ignored — observer health must not affect ingest correctness.
 	if o.documentIngestObserver != nil {
-		if err := o.documentIngestObserver.OnDocumentIngested(ctx, source, doc); err != nil {
-			o.logger.Warn("document ingest observer failed",
-				"document_id", doc.ID,
-				"source_id", source.ID,
-				"error", err,
-			)
-		}
+		o.dispatchIngestObserver(source, doc)
 	}
 
 	// Update stats
-	if isUpdate {
-		stats.DocumentsUpdated++
-	} else {
-		stats.DocumentsAdded++
-	}
-	stats.ChunksIndexed += len(output.ChunkIDs)
+	chunkCount := len(output.ChunkIDs)
+	o.withStats(stats, func(s *domain.SyncStats) {
+		if isUpdate {
+			s.DocumentsUpdated++
+		} else {
+			s.DocumentsAdded++
+		}
+		s.ChunksIndexed += chunkCount
+	})
 
 	return nil
 }

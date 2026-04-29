@@ -157,12 +157,23 @@ func (s *searchService) searchWithPipeline(
 		return nil, err
 	}
 
-	// Convert pipeline results to domain results, filtering out orphaned documents
+	// Convert pipeline results to domain results, filtering out orphaned
+	// documents. Batch the metadata lookup so we don't issue N database
+	// queries for what is typically a 20-doc result set.
+	docIDs := make([]string, 0, len(pipelineOutput.Results))
+	for _, result := range pipelineOutput.Results {
+		docIDs = append(docIDs, result.DocumentID)
+	}
+	docs, err := s.documentStore.GetByIDs(ctx, docIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	items := make([]*domain.SearchResultItem, 0, len(pipelineOutput.Results))
 	for _, result := range pipelineOutput.Results {
-		// Look up the document — skip results where the document no longer exists
-		doc, err := s.documentStore.Get(ctx, result.DocumentID)
-		if err != nil || doc == nil {
+		// Skip results where the document no longer exists
+		doc, ok := docs[result.DocumentID]
+		if !ok || doc == nil {
 			continue
 		}
 

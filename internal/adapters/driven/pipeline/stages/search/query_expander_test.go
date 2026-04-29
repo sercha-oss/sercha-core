@@ -176,8 +176,8 @@ func TestQueryExpanderStage_Process_WithLLM_ReturnsOriginalAndVariants(t *testin
 	}
 
 	input := &pipeline.ParsedQuery{
-		Original: "python async examples",
-		Terms:    []string{"python", "async", "examples"},
+		Original: "python async programming examples for production",
+		Terms:    []string{"python", "async", "programming", "examples", "for", "production"},
 		SearchFilters: pipeline.SearchFilters{
 			Sources: []string{"src-1"},
 		},
@@ -199,8 +199,8 @@ func TestQueryExpanderStage_Process_WithLLM_ReturnsOriginalAndVariants(t *testin
 	}
 
 	// First should be original
-	if queries[0].Original != "python async examples" {
-		t.Errorf("queries[0].Original = %q, want %q", queries[0].Original, "python async examples")
+	if queries[0].Original != "python async programming examples for production" {
+		t.Errorf("queries[0].Original = %q, want %q", queries[0].Original, "python async programming examples for production")
 	}
 
 	// Variants should match
@@ -352,8 +352,8 @@ func TestQueryExpanderStage_Process_VariantsInheritSearchFilters(t *testing.T) {
 	}
 
 	input := &pipeline.ParsedQuery{
-		Original: "kubernetes deploy",
-		Terms:    []string{"kubernetes", "deploy"},
+		Original: "kubernetes deploy strategies for production environments",
+		Terms:    []string{"kubernetes", "deploy", "strategies", "for", "production", "environments"},
 		SearchFilters: pipeline.SearchFilters{
 			Sources:      []string{"src-docs", "src-wiki"},
 			ContentTypes: []string{"text/plain"},
@@ -408,8 +408,8 @@ func TestQueryExpanderStage_Process_MaxVariantsRespected(t *testing.T) {
 	}
 
 	input := &pipeline.ParsedQuery{
-		Original: "original query",
-		Terms:    []string{"original", "query"},
+		Original: "original query that is long enough to expand",
+		Terms:    []string{"original", "query", "that", "is", "long", "enough", "to", "expand"},
 	}
 
 	result, err := stage.Process(context.Background(), input)
@@ -458,8 +458,8 @@ func TestQueryExpanderStage_Process_VariantsHaveTermsTokenized(t *testing.T) {
 	}
 
 	input := &pipeline.ParsedQuery{
-		Original: "python async",
-		Terms:    []string{"python", "async"},
+		Original: "python async programming examples production",
+		Terms:    []string{"python", "async", "programming", "examples", "production"},
 	}
 
 	result, err := stage.Process(context.Background(), input)

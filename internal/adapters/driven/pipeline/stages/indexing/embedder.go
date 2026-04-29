@@ -3,12 +3,30 @@ package indexing
 import (
 	"context"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
 )
 
-const EmbedderStageID = "embedder"
+const (
+	EmbedderStageID = "embedder"
+
+	// defaultEmbedderBatchSize is the chunk count per embedder.Embed call
+	// when stage config does not override batch_size. Larger batches mean
+	// fewer round-trips per document; 96 is in-line with provider per-call
+	// limits and roughly cuts the request count by 3x vs the previous 32.
+	defaultEmbedderBatchSize = 96
+
+	// defaultEmbedderConcurrency is the number of in-flight embedder
+	// batches per document when stage config does not override
+	// embedder_concurrency. Combined with the per-container doc-level
+	// worker pool (see SyncOrchestratorConfig.Concurrency), this caps
+	// total in-flight embedder calls at roughly Concurrency *
+	// embedder_concurrency.
+	defaultEmbedderConcurrency = 2
+)
 
 // EmbedderFactory creates embedder stages.
 type EmbedderFactory struct {
@@ -57,15 +75,24 @@ func (f *EmbedderFactory) Create(config pipeline.StageConfig, capabilities *pipe
 		return nil, &StageError{Stage: f.descriptor.ID, Message: "invalid embedder instance type"}
 	}
 
-	batchSize := 32
+	batchSize := defaultEmbedderBatchSize
 	if bs, ok := config.Parameters["batch_size"].(float64); ok {
 		batchSize = int(bs)
 	}
 
+	concurrency := defaultEmbedderConcurrency
+	if c, ok := config.Parameters["embedder_concurrency"].(float64); ok {
+		concurrency = int(c)
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
 	return &EmbedderStage{
-		descriptor: f.descriptor,
-		embedder:   embedder,
-		batchSize:  batchSize,
+		descriptor:  f.descriptor,
+		embedder:    embedder,
+		batchSize:   batchSize,
+		concurrency: concurrency,
 	}, nil
 }
 
@@ -76,9 +103,10 @@ func (f *EmbedderFactory) Validate(config pipeline.StageConfig) error {
 
 // EmbedderStage generates embeddings for chunks.
 type EmbedderStage struct {
-	descriptor pipeline.StageDescriptor
-	embedder   driven.EmbeddingService
-	batchSize  int
+	descriptor  pipeline.StageDescriptor
+	embedder    driven.EmbeddingService
+	batchSize   int
+	concurrency int
 }
 
 // Descriptor returns the stage descriptor.
@@ -87,6 +115,16 @@ func (s *EmbedderStage) Descriptor() pipeline.StageDescriptor {
 }
 
 // Process generates embeddings for input chunks.
+//
+// Batches run concurrently up to s.concurrency; results are written
+// back to the source slice using captured indices so the original
+// chunk ordering is preserved without any post-merge step.
+//
+// Failure semantics differ from the orchestrator's per-doc fan-out: a
+// partial set of embeddings is useless to the downstream vector loader,
+// so any batch error fast-fails the whole stage via errgroup.Wait
+// short-circuit. The orchestrator already treats a stage failure as a
+// per-doc error and increments stats.Errors accordingly.
 func (s *EmbedderStage) Process(ctx context.Context, input any) (any, error) {
 	chunks, ok := input.([]*pipeline.Chunk)
 	if !ok {
@@ -97,27 +135,40 @@ func (s *EmbedderStage) Process(ctx context.Context, input any) (any, error) {
 		return chunks, nil
 	}
 
-	// Process in batches
-	for i := 0; i < len(chunks); i += s.batchSize {
-		end := i + s.batchSize
+	g, gctx := errgroup.WithContext(ctx)
+	sem := make(chan struct{}, s.concurrency)
+
+	for start := 0; start < len(chunks); start += s.batchSize {
+		end := start + s.batchSize
 		if end > len(chunks) {
 			end = len(chunks)
 		}
 
-		batch := chunks[i:end]
-		texts := make([]string, len(batch))
-		for j, chunk := range batch {
-			texts[j] = chunk.Content
-		}
+		start, end := start, end
+		sem <- struct{}{}
+		g.Go(func() error {
+			defer func() { <-sem }()
 
-		embeddings, err := s.embedder.Embed(ctx, texts)
-		if err != nil {
-			return nil, &StageError{Stage: s.descriptor.ID, Message: "embedding failed", Err: err}
-		}
+			batch := chunks[start:end]
+			texts := make([]string, len(batch))
+			for j, chunk := range batch {
+				texts[j] = chunk.Content
+			}
 
-		for j, embedding := range embeddings {
-			batch[j].Embedding = embedding
-		}
+			embeddings, err := s.embedder.Embed(gctx, texts)
+			if err != nil {
+				return &StageError{Stage: s.descriptor.ID, Message: "embedding failed", Err: err}
+			}
+
+			for j, embedding := range embeddings {
+				batch[j].Embedding = embedding
+			}
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	return chunks, nil

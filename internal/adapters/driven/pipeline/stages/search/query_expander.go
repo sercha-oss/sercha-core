@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
@@ -12,6 +13,12 @@ import (
 )
 
 const QueryExpanderStageID = "query-expander"
+
+// minTermsForExpansion is the smallest term count that benefits from LLM
+// query expansion. Short keyword queries ("annual report 2021") are
+// already specific; paraphrases waste an LLM round trip and produce
+// variants that retrieve roughly the same set anyway.
+const minTermsForExpansion = 5
 
 // queryExpansionSystemPrompt is the LLM system prompt for generating query variants.
 const queryExpansionSystemPrompt = `You are a search query expansion assistant. Given a user's search query, generate 2-3 alternative search phrases that:
@@ -93,6 +100,22 @@ func (s *QueryExpanderStage) Process(ctx context.Context, input any) (any, error
 	// Always start with the original query as the first variant
 	variants := []*pipeline.ParsedQuery{parsed}
 
+	// Skip expansion when the user's intent is unambiguous:
+	//   - Short keyword queries (≤4 terms) are already specific. Paraphrases
+	//     drag in adjacent terminology, dilute precision, and add a 1-3s
+	//     LLM round-trip for no measurable recall gain.
+	//   - Quoted phrase queries are explicit "find this exact text" intent.
+	//     Paraphrasing them defeats the purpose.
+	if s.shouldSkipExpansion(parsed) {
+		slog.Debug("search.query_expander skipped",
+			"phase", "expand_query",
+			"reason", s.skipReason(parsed),
+			"term_count", len(parsed.Terms),
+			"phrase_count", len(parsed.Phrases),
+		)
+		return variants, nil
+	}
+
 	// If LLM is available, generate additional variants
 	if s.llm != nil {
 		expansions, err := s.generateVariants(ctx, parsed.Original)
@@ -113,6 +136,28 @@ func (s *QueryExpanderStage) Process(ctx context.Context, input any) (any, error
 	}
 
 	return variants, nil
+}
+
+// shouldSkipExpansion decides when LLM-based query expansion adds no value.
+// Returns true for short keyword queries and any query containing quoted
+// phrases (the user has expressed exact-text intent).
+func (s *QueryExpanderStage) shouldSkipExpansion(parsed *pipeline.ParsedQuery) bool {
+	if len(parsed.Phrases) > 0 {
+		return true
+	}
+	if len(parsed.Terms) < minTermsForExpansion {
+		return true
+	}
+	return false
+}
+
+// skipReason annotates the skip log line so future tuning can tell which
+// branch fired without re-deriving it from the term/phrase counts.
+func (s *QueryExpanderStage) skipReason(parsed *pipeline.ParsedQuery) string {
+	if len(parsed.Phrases) > 0 {
+		return "quoted_phrase_present"
+	}
+	return "term_count_below_minimum"
 }
 
 // generateVariants uses the LLM to generate query expansion variants.

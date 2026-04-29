@@ -3,6 +3,7 @@ package indexing
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
@@ -424,13 +425,18 @@ func TestEmbedderStage_Process_InvalidInput(t *testing.T) {
 func TestEmbedderStage_Process_BatchProcessing(t *testing.T) {
 	factory := NewEmbedderFactory()
 
-	callCount := 0
+	var (
+		mu        sync.Mutex
+		callCount int
+	)
 	capabilities := pipeline.NewCapabilitySet()
 	mockEmbedder := &mockEmbeddingService{
 		dimensions: 384,
 		model:      "test-model",
 		embedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+			mu.Lock()
 			callCount++
+			mu.Unlock()
 			embeddings := make([][]float32, len(texts))
 			for i := range embeddings {
 				embeddings[i] = make([]float32, 384)
@@ -484,8 +490,11 @@ func TestEmbedderStage_Process_BatchProcessing(t *testing.T) {
 
 	// Verify batch processing: 5 chunks with batch size 2 should result in 3 calls
 	expectedCalls := 3
-	if callCount != expectedCalls {
-		t.Errorf("expected %d embedder calls, got %d", expectedCalls, callCount)
+	mu.Lock()
+	gotCalls := callCount
+	mu.Unlock()
+	if gotCalls != expectedCalls {
+		t.Errorf("expected %d embedder calls, got %d", expectedCalls, gotCalls)
 	}
 
 	for i, chunk := range resultChunks {

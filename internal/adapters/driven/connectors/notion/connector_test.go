@@ -134,12 +134,18 @@ func TestConnector_FetchChanges_InitialSync(t *testing.T) {
 		t.Errorf("Type = %v, want ChangeTypeModified", changes[0].Type)
 	}
 
-	if !strings.Contains(changes[0].Content, "Test Page") {
-		t.Errorf("Content missing page title, got: %s", changes[0].Content)
+	if changes[0].LoadContent == nil {
+		t.Fatal("expected LoadContent thunk to be set")
 	}
-
-	if !strings.Contains(changes[0].Content, "Page content") {
-		t.Errorf("Content missing paragraph text, got: %s", changes[0].Content)
+	loaded, err := changes[0].LoadContent(context.Background())
+	if err != nil {
+		t.Fatalf("LoadContent error = %v", err)
+	}
+	if !strings.Contains(loaded, "Test Page") {
+		t.Errorf("Content missing page title, got: %s", loaded)
+	}
+	if !strings.Contains(loaded, "Page content") {
+		t.Errorf("Content missing paragraph text, got: %s", loaded)
 	}
 
 	if cursor == "" {
