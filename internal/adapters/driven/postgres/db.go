@@ -3,34 +3,25 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"fmt"
-	"log/slog"
+	"os"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq"
-)
 
-const (
-	// schemaLockID is the advisory lock ID used to serialize schema initialization.
-	// This prevents race conditions when multiple instances start simultaneously.
-	// The value is arbitrary but must be consistent across all instances.
-	schemaLockID = 12345678
+	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 )
-
-//go:embed schema.sql
-var schema string
 
 // DB wraps a sql.DB connection pool with Sercha-specific functionality
 type DB struct {
 	*sql.DB
 }
 
-// Config holds database connection configuration
+// Config holds database connection-pool tuning. The DSN itself is resolved
+// out-of-band via a driven.DBCredentialProvider and is no longer carried on
+// this struct.
 type Config struct {
-	// URL is the full connection string (postgres://user:pass@host:port/db?sslmode=disable)
-	URL string
-
 	// MaxOpenConns is the maximum number of open connections
 	MaxOpenConns int
 
@@ -44,10 +35,9 @@ type Config struct {
 	ConnMaxIdleTime time.Duration
 }
 
-// DefaultConfig returns sensible defaults
-func DefaultConfig(url string) Config {
+// DefaultConfig returns sensible defaults for the connection pool.
+func DefaultConfig() Config {
 	return Config{
-		URL:             url,
 		MaxOpenConns:    25,
 		MaxIdleConns:    5,
 		ConnMaxLifetime: 5 * time.Minute,
@@ -55,9 +45,27 @@ func DefaultConfig(url string) Config {
 	}
 }
 
-// Connect establishes a database connection and runs migrations
-func Connect(ctx context.Context, cfg Config) (*DB, error) {
-	db, err := sql.Open("postgres", cfg.URL)
+// Connect resolves the DSN via the supplied credential provider, enforces
+// the sslmode=disable startup guard, opens a connection pool, and verifies
+// connectivity. It does NOT run migrations; that responsibility belongs to
+// either the `migrate` subcommand or the AUTO_MIGRATE branch in main.go.
+func Connect(ctx context.Context, provider driven.DBCredentialProvider, cfg Config) (*DB, error) {
+	if provider == nil {
+		return nil, fmt.Errorf("postgres.Connect: nil DBCredentialProvider")
+	}
+
+	dsn, err := provider.Resolve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve db credential: %w", err)
+	}
+
+	// SSL guard: refuse to start against a plaintext DSN unless the operator
+	// has explicitly opted in via SERCHA_DEV=1.
+	if strings.Contains(dsn, "sslmode=disable") && os.Getenv("SERCHA_DEV") != "1" {
+		return nil, fmt.Errorf("sslmode=disable not allowed unless SERCHA_DEV=1")
+	}
+
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -75,39 +83,6 @@ func Connect(ctx context.Context, cfg Config) (*DB, error) {
 	}
 
 	return &DB{DB: db}, nil
-}
-
-// InitSchema runs the schema initialization with advisory lock protection.
-// This is idempotent - safe to run multiple times.
-// Uses PostgreSQL advisory locks to prevent race conditions when multiple
-// instances start simultaneously.
-func (db *DB) InitSchema(ctx context.Context) error {
-	// Acquire advisory lock to serialize schema initialization across instances.
-	// pg_advisory_lock blocks until the lock is acquired.
-	slog.Info("acquiring schema initialization lock")
-	_, err := db.ExecContext(ctx, "SELECT pg_advisory_lock($1)", schemaLockID)
-	if err != nil {
-		return fmt.Errorf("failed to acquire schema lock: %w", err)
-	}
-
-	// Ensure we release the lock when done
-	defer func() {
-		_, unlockErr := db.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", schemaLockID)
-		if unlockErr != nil {
-			slog.Error("failed to release schema lock", "error", unlockErr)
-		} else {
-			slog.Info("released schema initialization lock")
-		}
-	}()
-
-	slog.Info("running schema initialization")
-	_, err = db.ExecContext(ctx, schema)
-	if err != nil {
-		return fmt.Errorf("failed to initialize schema: %w", err)
-	}
-
-	slog.Info("schema initialization complete")
-	return nil
 }
 
 // Ping checks if the database is reachable

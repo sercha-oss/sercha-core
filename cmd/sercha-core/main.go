@@ -21,6 +21,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"log/slog"
@@ -30,6 +31,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	_ "github.com/lib/pq"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driven/ai"
@@ -76,6 +79,12 @@ func (r *redisPinger) Ping(ctx context.Context) error {
 }
 
 func main() {
+	// Handle the `migrate` subcommand BEFORE any heavy startup work. The
+	// migrate path resolves DSN, opens a sql.DB, dispatches, and exits.
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		os.Exit(runMigrateCmd(os.Args[2:]))
+	}
+
 	// Get run mode: environment variable takes precedence, command arg as fallback
 	mode := "all"
 	if len(os.Args) > 1 {
@@ -116,23 +125,33 @@ func main() {
 	// ===== Initialize PostgreSQL =====
 	log.Println("Connecting to PostgreSQL...")
 	dbConfig := postgres.Config{
-		URL:             cfg.DatabaseURL,
 		MaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 25),
 		MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
 		ConnMaxLifetime: time.Duration(getEnvInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
 		ConnMaxIdleTime: time.Duration(getEnvInt("DB_CONN_MAX_IDLE_SEC", 60)) * time.Second,
 	}
-	db, err := postgres.Connect(ctx, dbConfig)
+	dbCreds := postgres.NewEnvDBCredential()
+	db, err := postgres.Connect(ctx, dbCreds, dbConfig)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer func() { _ = db.Close() }()
 
-	// Initialize schema (idempotent)
-	if err := db.InitSchema(ctx); err != nil {
-		log.Fatalf("Failed to initialize schema: %v", err)
+	// Schema management: either auto-migrate, or assert the DB is already at
+	// the version this binary expects. Either way, the binary refuses to
+	// start against a wrong-version schema.
+	autoMigrate := getEnv("AUTO_MIGRATE", "true") == "true"
+	if autoMigrate {
+		if err := postgres.Up(ctx, db.DB); err != nil {
+			log.Fatalf("Failed to run migrations: %v", err)
+		}
+		log.Println("Migrations applied")
+	} else {
+		if err := postgres.EnsureClean(ctx, db.DB); err != nil {
+			log.Fatalf("Schema version check failed: %v", err)
+		}
+		log.Println("Schema version verified")
 	}
-	log.Println("PostgreSQL connected and schema initialized")
 
 	// ===== Initialize Redis (optional) =====
 	var redisClient *redis.Client
@@ -191,9 +210,12 @@ func main() {
 			pgvectorAdapter.Close()
 			pgvectorAdapter = nil
 		} else {
-			// Ensure the embeddings table exists
-			if err := pgvectorAdapter.EnsureTable(ctx); err != nil {
-				log.Fatalf("Failed to ensure pgvector embeddings table: %v", err)
+			// Manage the pgvector schema. The pgvector adapter uses its own
+			// DSN (PGVECTOR_URL), so the migration runner needs a separate
+			// database/sql handle — pgvector's runtime path uses pgx, but
+			// goose targets database/sql.
+			if err := managePgvectorSchema(ctx, cfg.PgvectorURL, autoMigrate); err != nil {
+				log.Fatalf("Failed to manage pgvector schema: %v", err)
 			}
 			vectorIndex = pgvectorAdapter
 			cfg.VectorStoreAvailable = true
@@ -852,4 +874,36 @@ func parseCORSOrigins(value string) []string {
 		}
 	}
 	return origins
+}
+
+// managePgvectorSchema runs the pgvector migration train (or just checks the
+// version, when AUTO_MIGRATE is off) against the pgvector DSN. The pgvector
+// runtime adapter uses pgx, so we open a separate database/sql handle here
+// just for the migration; goose targets database/sql.
+func managePgvectorSchema(ctx context.Context, dsn string, autoMigrate bool) error {
+	if strings.Contains(dsn, "sslmode=disable") && os.Getenv("SERCHA_DEV") != "1" {
+		return fmt.Errorf("sslmode=disable not allowed unless SERCHA_DEV=1")
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("open pgvector db for migrations: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping pgvector db: %w", err)
+	}
+
+	if autoMigrate {
+		if err := pgvector.Up(ctx, db); err != nil {
+			return fmt.Errorf("pgvector migrations: %w", err)
+		}
+		log.Println("pgvector migrations applied")
+		return nil
+	}
+	if err := pgvector.EnsureClean(ctx, db); err != nil {
+		return fmt.Errorf("pgvector schema version check: %w", err)
+	}
+	log.Println("pgvector schema version verified")
+	return nil
 }

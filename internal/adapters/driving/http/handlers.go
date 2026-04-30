@@ -60,16 +60,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	components := make(map[string]ComponentHealth)
 	allHealthy := true
 
-	// Check PostgreSQL health
+	// Check primary database health. The key is intentionally generic
+	// ("database") so the public health surface does not bake in the storage
+	// brand. Internal logs may still call it Postgres.
 	if s.db != nil {
 		if err := s.db.Ping(r.Context()); err != nil {
-			components["postgres"] = ComponentHealth{
+			components["database"] = ComponentHealth{
 				Status:  "unhealthy",
 				Message: err.Error(),
 			}
 			allHealthy = false
 		} else {
-			components["postgres"] = ComponentHealth{Status: "healthy"}
+			components["database"] = ComponentHealth{Status: "healthy"}
 		}
 	}
 

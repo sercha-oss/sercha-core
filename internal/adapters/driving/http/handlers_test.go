@@ -413,6 +413,45 @@ func TestHealthHandler(t *testing.T) {
 	}
 }
 
+// stubPinger is a test-only Pinger that always succeeds.
+type stubPinger struct{}
+
+func (stubPinger) Ping(ctx context.Context) error { return nil }
+
+// TestHealthHandler_DatabaseKey verifies that when a database Pinger is
+// wired into the Server, the health response surfaces it under the generic
+// "database" key (not "postgres"). This guards Part F of TASK.md (issue
+// #112): the public health surface must not bake in the storage brand.
+func TestHealthHandler_DatabaseKey(t *testing.T) {
+	server := &Server{version: "test", db: stubPinger{}}
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	rr := httptest.NewRecorder()
+
+	server.handleHealth(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var response HealthResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	dbComp, ok := response.Components["database"]
+	if !ok {
+		t.Fatalf("expected components to contain \"database\" key, got %v", response.Components)
+	}
+	if dbComp.Status != "healthy" {
+		t.Errorf("expected database component status 'healthy', got %q", dbComp.Status)
+	}
+
+	if _, legacy := response.Components["postgres"]; legacy {
+		t.Errorf("did not expect legacy \"postgres\" key in components, got %v", response.Components)
+	}
+}
+
 func TestReadyHandler(t *testing.T) {
 	server := &Server{version: "test"}
 

@@ -1,3 +1,5 @@
+-- +goose Up
+
 -- Sercha Core PostgreSQL Schema
 -- This schema is idempotent - can be run multiple times safely
 
@@ -227,6 +229,7 @@ CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
 
 -- Add connection_id and selected_containers to sources table
 -- Using DO block to handle idempotent column additions
+-- +goose StatementBegin
 DO $$
 BEGIN
     -- Handle legacy installation_id -> connection_id rename
@@ -256,8 +259,10 @@ BEGIN
         ALTER TABLE sources ADD COLUMN selected_containers JSONB DEFAULT '[]';
     END IF;
 END $$;
+-- +goose StatementEnd
 
 -- Add sync_exclusions column to settings if it doesn't exist (migration)
+-- +goose StatementBegin
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -267,6 +272,7 @@ BEGIN
         ALTER TABLE settings ADD COLUMN sync_exclusions JSONB DEFAULT '{}' NOT NULL;
     END IF;
 END $$;
+-- +goose StatementEnd
 
 -- Drop legacy index if it exists and create new one
 DROP INDEX IF EXISTS idx_sources_installation_id;
@@ -306,6 +312,7 @@ CREATE INDEX IF NOT EXISTS idx_search_queries_created_at ON search_queries(creat
 CREATE INDEX IF NOT EXISTS idx_search_queries_team_created ON search_queries(team_id, created_at DESC);
 
 -- Platform column for OAuth platform/service separation (Issue #42)
+-- +goose StatementBegin
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -318,8 +325,10 @@ BEGIN
         ALTER TABLE connector_installations ALTER COLUMN platform SET NOT NULL;
     END IF;
 END $$;
+-- +goose StatementEnd
 
 -- Replace unique constraint: (provider_type, account_id) -> (platform, account_id)
+-- +goose StatementBegin
 DO $$
 BEGIN
     IF EXISTS (
@@ -334,6 +343,7 @@ BEGIN
         ALTER TABLE connector_installations ADD CONSTRAINT unique_platform_account UNIQUE (platform, account_id);
     END IF;
 END $$;
+-- +goose StatementEnd
 
 CREATE INDEX IF NOT EXISTS idx_installations_platform ON connector_installations(platform);
 
@@ -429,3 +439,35 @@ CREATE INDEX IF NOT EXISTS idx_sync_events_team_id ON sync_events(team_id);
 CREATE INDEX IF NOT EXISTS idx_sync_events_source_id ON sync_events(source_id);
 CREATE INDEX IF NOT EXISTS idx_sync_events_created_at ON sync_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_sync_events_team_created ON sync_events(team_id, created_at DESC);
+
+-- ===== Application role: sercha_app =====
+-- Migration creates the role; the password is set out-of-band
+-- (compose bootstrap.sql, IaC, or manually for prod).
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'sercha_app') THEN
+        CREATE ROLE sercha_app LOGIN;
+    END IF;
+END
+$$;
+-- +goose StatementEnd
+
+-- GRANT CONNECT requires a literal database identifier; resolve current DB at
+-- runtime via a DO block + format/EXECUTE so the migration is portable across
+-- database names.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO sercha_app', current_database());
+END
+$$;
+-- +goose StatementEnd
+
+GRANT USAGE ON SCHEMA public TO sercha_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sercha_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sercha_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sercha_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO sercha_app;
