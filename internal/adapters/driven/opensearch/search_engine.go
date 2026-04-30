@@ -103,9 +103,9 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 	mustClauses := []any{
 		map[string]any{
 			"multi_match": map[string]any{
-				"query":                query,
-				"fields":               matchFields,
-				"type":                 "most_fields",
+				"query":  query,
+				"fields": matchFields,
+				"type":   "most_fields",
 				// AUTO:7,15 means 0 edits below 7 chars, 1 edit 7-14, 2 edits 15+.
 				// Default AUTO permits 1 edit on 3-5 char tokens, which lets
 				// year tokens fuzzy-match adjacent years (`2021` ≈ `2023`) and
@@ -525,9 +525,7 @@ func (s *SearchEngine) ensureIndex(ctx context.Context) error {
 				// than per-field analysis, but the alternative — leaving
 				// metadata out of search entirely as it was before — is
 				// strictly worse.
-				"metadata": map[string]any{
-					"type": "flattened",
-				},
+				"metadata": map[string]any{"type": "object", "dynamic": true},
 				"mime_type": map[string]any{
 					"type": "keyword",
 				},
