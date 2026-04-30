@@ -17,7 +17,6 @@ const RankerStageID = "ranker"
 // With k=30, rank 1 vs 5 has ~12% difference vs ~6% with k=60.
 const DefaultRRFk = 30
 
-
 // RankerFactory creates ranker stages.
 type RankerFactory struct {
 	descriptor pipeline.StageDescriptor

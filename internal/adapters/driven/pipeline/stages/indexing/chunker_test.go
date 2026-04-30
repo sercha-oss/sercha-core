@@ -400,4 +400,3 @@ func chunkContents(chunks []*pipeline.Chunk) []string {
 	}
 	return out
 }
-

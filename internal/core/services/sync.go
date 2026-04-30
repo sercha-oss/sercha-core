@@ -75,28 +75,28 @@ type SyncOrchestrator struct {
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
 type SyncOrchestratorConfig struct {
-	SourceStore            driven.SourceStore
-	DocumentStore          driven.DocumentStore
-	SyncStore              driven.SyncStateStore
-	SearchEngine           driven.SearchEngine
-	VectorIndex            driven.VectorIndex
-	ConnectorFactory       driven.ConnectorFactory
-	NormaliserReg          driven.NormaliserRegistry
-	Services               *runtime.Services
-	Logger                 *slog.Logger
-	IndexingExecutor       pipelineport.IndexingExecutor // Required pipeline executor
-	CapabilitySet          *pipeline.CapabilitySet       // Capabilities for pipeline
-	CapabilityStore        driven.CapabilityStore        // For fetching capability preferences
-	SettingsStore          driven.SettingsStore          // For loading team settings
-	SyncEventRepo          driven.SyncEventRepository    // For audit logging of sync events
-	TeamID                 string                        // Team ID for settings lookup
-	DocumentIngestObserver driven.DocumentIngestObserver // Optional; nil means no observer.
-	DocumentDeleteObserver driven.DocumentDeleteObserver // Optional; nil means no observer.
-	Lock                   driven.DistributedLock        // Optional. When set, SyncSource/SyncContainer acquire "sync:source:<id>" before running so concurrent invocations no-op (Skipped=true) instead of racing.
-	LockTTL                time.Duration                 // Optional. Defaults to 1h. Ignored by PG advisory locks (which release on connection close).
-	Concurrency            int                           // Optional. Per-container doc-level worker count. Defaults to 4 when zero.
-	OnDocumentIngestedTimeout time.Duration             // Optional. Per-call timeout for the async DocumentIngestObserver. Defaults to 30s when zero.
-	ObserverQueueDepth     int                           // Optional. Bounded goroutine pool depth for the async DocumentIngestObserver. Defaults to 32 when zero.
+	SourceStore               driven.SourceStore
+	DocumentStore             driven.DocumentStore
+	SyncStore                 driven.SyncStateStore
+	SearchEngine              driven.SearchEngine
+	VectorIndex               driven.VectorIndex
+	ConnectorFactory          driven.ConnectorFactory
+	NormaliserReg             driven.NormaliserRegistry
+	Services                  *runtime.Services
+	Logger                    *slog.Logger
+	IndexingExecutor          pipelineport.IndexingExecutor // Required pipeline executor
+	CapabilitySet             *pipeline.CapabilitySet       // Capabilities for pipeline
+	CapabilityStore           driven.CapabilityStore        // For fetching capability preferences
+	SettingsStore             driven.SettingsStore          // For loading team settings
+	SyncEventRepo             driven.SyncEventRepository    // For audit logging of sync events
+	TeamID                    string                        // Team ID for settings lookup
+	DocumentIngestObserver    driven.DocumentIngestObserver // Optional; nil means no observer.
+	DocumentDeleteObserver    driven.DocumentDeleteObserver // Optional; nil means no observer.
+	Lock                      driven.DistributedLock        // Optional. When set, SyncSource/SyncContainer acquire "sync:source:<id>" before running so concurrent invocations no-op (Skipped=true) instead of racing.
+	LockTTL                   time.Duration                 // Optional. Defaults to 1h. Ignored by PG advisory locks (which release on connection close).
+	Concurrency               int                           // Optional. Per-container doc-level worker count. Defaults to 4 when zero.
+	OnDocumentIngestedTimeout time.Duration                 // Optional. Per-call timeout for the async DocumentIngestObserver. Defaults to 30s when zero.
+	ObserverQueueDepth        int                           // Optional. Bounded goroutine pool depth for the async DocumentIngestObserver. Defaults to 32 when zero.
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
