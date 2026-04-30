@@ -13,51 +13,6 @@ import (
 // Ensure interface compliance at compile time
 var _ driven.VectorIndex = (*VectorIndex)(nil)
 
-// EnsureTable creates the embeddings table if it doesn't exist.
-// Called during startup to ensure the table is ready.
-func (v *VectorIndex) EnsureTable(ctx context.Context) error {
-	query := fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS embeddings (
-			chunk_id TEXT PRIMARY KEY,
-			document_id TEXT NOT NULL,
-			source_id TEXT NOT NULL DEFAULT '',
-			content TEXT NOT NULL DEFAULT '',
-			embedding vector(%d) NOT NULL
-		)
-	`, v.dimensions)
-
-	if _, err := v.pool.Exec(ctx, query); err != nil {
-		return fmt.Errorf("failed to create embeddings table: %w", err)
-	}
-
-	// Migrations: add columns if table existed before these changes
-	_, _ = v.pool.Exec(ctx, `ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT ''`)
-	_, _ = v.pool.Exec(ctx, `ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS source_id TEXT NOT NULL DEFAULT ''`)
-
-	// Create index on document_id for deletion queries
-	_, err := v.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_embeddings_document_id ON embeddings(document_id)`)
-	if err != nil {
-		return fmt.Errorf("failed to create document_id index: %w", err)
-	}
-
-	// Create index on source_id for source filtering
-	_, err = v.pool.Exec(ctx, `CREATE INDEX IF NOT EXISTS idx_embeddings_source_id ON embeddings(source_id)`)
-	if err != nil {
-		return fmt.Errorf("failed to create source_id index: %w", err)
-	}
-
-	// Create HNSW vector index for similarity search
-	idxQuery := `
-		CREATE INDEX IF NOT EXISTS idx_embeddings_vector ON embeddings
-		USING hnsw (embedding vector_cosine_ops)
-	`
-	if _, err := v.pool.Exec(ctx, idxQuery); err != nil {
-		return fmt.Errorf("failed to create vector index: %w", err)
-	}
-
-	return nil
-}
-
 // Index inserts or updates a single embedding
 func (v *VectorIndex) Index(ctx context.Context, id string, documentID string, embedding []float32) error {
 	if len(embedding) != v.dimensions {

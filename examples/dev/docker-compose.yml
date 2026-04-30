@@ -13,6 +13,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # bootstrap.sql sets the dev password for sercha_app. The role itself
+      # is created by the migration; this just gives the dev stack a known
+      # password. Runs once on first cluster init.
+      - ./bootstrap.sql:/docker-entrypoint-initdb.d/bootstrap.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sercha -d sercha"]
       interval: 5s
@@ -35,21 +39,69 @@ services:
       timeout: 5s
       retries: 5
 
+  # Core schema migration sidecar. Runs `sercha-core migrate up` against the
+  # postgres superuser, exits, and unblocks the main app service. The
+  # superuser DSN is necessary here because the migration creates the
+  # sercha_app role and grants schema privileges — the day-to-day app role
+  # does not have those.
+  sercha-migrate:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: ["migrate", "up"]
+    environment:
+      DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
+      SERCHA_DEV: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # pgvector schema migration sidecar. Runs `sercha-core migrate pgvector up`
+  # against the postgres superuser. Creates the embeddings table, the HNSW
+  # index, the vector extension, and the sercha_vector role. Same superuser
+  # rationale as sercha-migrate.
+  sercha-migrate-pgvector:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: ["migrate", "pgvector", "up"]
+    environment:
+      PGVECTOR_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
+      PGVECTOR_DIMENSIONS: "1536"
+      SERCHA_DEV: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sercha-migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   sercha:
     build:
       context: ../..
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
+      # App connects as sercha_app (CRUD-only). The role is created by the
+      # migration sidecar above; the dev password comes from bootstrap.sql.
+      DATABASE_URL: postgres://sercha_app:sercha_app_dev@postgres:5432/sercha?sslmode=disable
       JWT_SECRET: ${JWT_SECRET}
       MASTER_KEY: ${MASTER_KEY}
       PORT: 8080
       UI_BASE_URL: http://localhost:3000
       CORS_ORIGINS: "*"  # Permissive for local dev (MCP Inspector, etc.)
       OPENSEARCH_URL: http://opensearch:9200
-      PGVECTOR_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
+      # pgvector connects as sercha_vector (CRUD-only on the embeddings
+      # table). Role created by sercha-migrate-pgvector; dev password from
+      # bootstrap.sql.
+      PGVECTOR_URL: postgres://sercha_vector:sercha_vector_dev@postgres:5432/sercha?sslmode=disable
       PGVECTOR_DIMENSIONS: "1536"
       LOCALFS_ALLOWED_ROOTS: /data
+      # Migrations were already applied by the sidecars; just verify the
+      # binary's expected versions match the DB.
+      AUTO_MIGRATE: "false"
+      # Allow sslmode=disable for local dev only.
+      SERCHA_DEV: "1"
       # MCP OAuth server
       MCP_ENABLED: "true"
       MCP_SERVER_URL: http://localhost:8080/mcp
@@ -75,6 +127,10 @@ services:
         condition: service_healthy
       opensearch:
         condition: service_healthy
+      sercha-migrate:
+        condition: service_completed_successfully
+      sercha-migrate-pgvector:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

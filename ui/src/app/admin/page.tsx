@@ -387,9 +387,9 @@ export default function AdminDashboardPage() {
           </h2>
           <div className="grid gap-4 sm:grid-cols-3">
             <HealthCard
-              title="PostgreSQL"
-              status={getComponentHealth("postgres")}
-              message={health?.components?.postgres?.message}
+              title="Database"
+              status={getComponentHealth("database")}
+              message={health?.components?.database?.message}
             />
             <HealthCard
               title="API Server"

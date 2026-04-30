@@ -85,8 +85,6 @@ func TestNewSearchEngine(t *testing.T) {
 	}
 }
 
-
-
 // TestSearchEngine_DeleteByDocument validates deletion by document ID
 func TestSearchEngine_DeleteByDocument(t *testing.T) {
 	tests := []struct {
@@ -1033,18 +1031,17 @@ func TestSearchEngine_SearchDocuments_WithDocumentIDFilter(t *testing.T) {
 	}
 }
 
-
 // TestSearchEngine_SearchDocuments_WithBoostTerms validates keyword boosting in document search
 func TestSearchEngine_SearchDocuments_WithBoostTerms(t *testing.T) {
 	tests := []struct {
-		name           string
-		query          string
-		opts           domain.SearchOptions
-		setupServer    func(*testing.T) *httptest.Server
-		wantCount      int
-		wantTotal      int
-		wantErr        bool
-		validateQuery  func(*testing.T, map[string]any)
+		name          string
+		query         string
+		opts          domain.SearchOptions
+		setupServer   func(*testing.T) *httptest.Server
+		wantCount     int
+		wantTotal     int
+		wantErr       bool
+		validateQuery func(*testing.T, map[string]any)
 	}{
 		{
 			name:  "search with boost terms",
@@ -1336,7 +1333,6 @@ func TestSearchEngine_SearchDocuments_WithBoostTerms(t *testing.T) {
 		})
 	}
 }
-
 
 // TestSearchEngine_BoostTermsQueryStructure validates exact OpenSearch query structure
 func TestSearchEngine_BoostTermsQueryStructure(t *testing.T) {
@@ -1700,13 +1696,18 @@ func TestSearchEngine_EnsureIndex_Mapping(t *testing.T) {
 		t.Errorf("path.basename analyzer = %v, want basename_analyzer", pb["analyzer"])
 	}
 
-	// metadata is flattened so connector-supplied attributes are searchable.
+	// metadata is an object with dynamic mapping so connector-supplied
+	// attributes are searchable. flattened is Elasticsearch-only and
+	// rejected by OpenSearch with "no handler for type [flattened]".
 	metadata, ok := props["metadata"].(map[string]any)
 	if !ok {
 		t.Fatal("metadata field missing from mapping")
 	}
-	if metadata["type"] != "flattened" {
-		t.Errorf("metadata type = %v, want flattened", metadata["type"])
+	if metadata["type"] != "object" {
+		t.Errorf("metadata type = %v, want object", metadata["type"])
+	}
+	if metadata["dynamic"] != true {
+		t.Errorf("metadata dynamic = %v, want true", metadata["dynamic"])
 	}
 
 	// Custom analyzers/normalizer registered on the index settings.

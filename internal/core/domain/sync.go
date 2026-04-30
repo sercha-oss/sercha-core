@@ -59,12 +59,12 @@ const (
 // connector-scoped state (HTTP client, auth) that is not portable across
 // process boundaries.
 type Change struct {
-	Type        ChangeType                                  `json:"type"`
-	Document    *Document                                   `json:"document,omitempty"`   // For added/modified
-	Content     string                                      `json:"content,omitempty"`    // Eager content; ignored when LoadContent is set
-	LoadContent func(ctx context.Context) (string, error)   `json:"-"`                    // Optional. When set, invoked once during processing to fetch content lazily.
-	DeletedID   string                                      `json:"deleted_id,omitempty"` // For deleted
-	ExternalID  string                                      `json:"external_id"`          // ID from source system
+	Type        ChangeType                                `json:"type"`
+	Document    *Document                                 `json:"document,omitempty"`   // For added/modified
+	Content     string                                    `json:"content,omitempty"`    // Eager content; ignored when LoadContent is set
+	LoadContent func(ctx context.Context) (string, error) `json:"-"`                    // Optional. When set, invoked once during processing to fetch content lazily.
+	DeletedID   string                                    `json:"deleted_id,omitempty"` // For deleted
+	ExternalID  string                                    `json:"external_id"`          // ID from source system
 }
 
 // SyncResult represents the outcome of a sync operation

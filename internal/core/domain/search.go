@@ -13,9 +13,9 @@ const (
 
 // SearchOptions configures a search request
 type SearchOptions struct {
-	Mode        SearchMode         `json:"mode"`
-	Limit       int                `json:"limit"`
-	Offset      int                `json:"offset"`
+	Mode             SearchMode         `json:"mode"`
+	Limit            int                `json:"limit"`
+	Offset           int                `json:"offset"`
 	SourceIDs        []string           `json:"source_ids,omitempty"`         // Filter by sources
 	DocumentIDFilter *DocumentIDFilter  `json:"document_id_filter,omitempty"` // Three-case filter (see DocumentIDFilter godoc). Nil = no filter.
 	Filters          Filters            `json:"filters,omitempty"`
@@ -70,4 +70,3 @@ type SearchResultItem struct {
 	Score      float64   `json:"score"`
 	IndexedAt  time.Time `json:"indexed_at"`
 }
-

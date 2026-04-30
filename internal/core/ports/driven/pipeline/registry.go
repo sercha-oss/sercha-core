@@ -92,4 +92,3 @@ type CapabilityRegistry interface {
 	// Uses default providers for each required capability type.
 	BuildCapabilitySet(required []pipeline.CapabilityRequirement) (*pipeline.CapabilitySet, error)
 }
-
