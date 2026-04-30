@@ -39,12 +39,19 @@ services:
   sercha:
     image: ghcr.io/sercha-oss/sercha-core:latest
     environment:
+      # Quickstart trades the dev compose's role-separation story for fewer
+      # moving parts: single superuser, AUTO_MIGRATE=true (the binary runs
+      # its own migrations on boot). For production-grade deployments see
+      # examples/dev for the migrate-sidecar + sercha_app/sercha_vector
+      # CRUD-only pattern.
       DATABASE_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
       JWT_SECRET: change-me-in-production
       PORT: 8080
       OPENSEARCH_URL: http://opensearch:9200
       PGVECTOR_URL: postgres://sercha:sercha_dev@postgres:5432/sercha?sslmode=disable
       PGVECTOR_DIMENSIONS: "1536"
+      # Allow sslmode=disable for local dev only.
+      SERCHA_DEV: "1"
       # UI configuration (for CORS and OAuth redirects)
       UI_BASE_URL: http://localhost:3000
       CORS_ALLOWED_ORIGINS: http://localhost:3000
