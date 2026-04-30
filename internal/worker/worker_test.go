@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -700,9 +701,13 @@ func TestWorker_ProcessLoop_WithTasks(t *testing.T) {
 	}
 	_ = queue.Enqueue(context.Background(), task)
 
-	var acked []string
+	// ackedCount is read by the test goroutine in a busy-wait poll BEFORE
+	// w.Stop() establishes a happens-before, so plain `[]string` append +
+	// len() reads race under -race. atomic.Int32 keeps the assertion shape
+	// without needing a mutex.
+	var ackedCount atomic.Int32
 	queue.ackFn = func(taskID string) error {
-		acked = append(acked, taskID)
+		ackedCount.Add(1)
 		return nil
 	}
 
@@ -722,15 +727,15 @@ func TestWorker_ProcessLoop_WithTasks(t *testing.T) {
 
 	// Wait for task to be processed
 	deadline := time.Now().Add(2 * time.Second)
-	for len(acked) == 0 && time.Now().Before(deadline) {
+	for ackedCount.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
 	cancel()
 	w.Stop()
 
-	if len(acked) != 1 {
-		t.Errorf("expected 1 ack, got %d", len(acked))
+	if got := ackedCount.Load(); got != 1 {
+		t.Errorf("expected 1 ack, got %d", got)
 	}
 }
 
