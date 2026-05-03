@@ -212,3 +212,117 @@ func TestPlatformDisplayName(t *testing.T) {
 		})
 	}
 }
+
+// resetPlatformRegistry restores the package-level registration maps to empty.
+// Used by tests that mutate the registry to avoid leaking state into siblings.
+func resetPlatformRegistry(t *testing.T) {
+	t.Helper()
+	platformRegistryMu.Lock()
+	defer platformRegistryMu.Unlock()
+	customProviderToPlatform = map[ProviderType]PlatformType{}
+	customPlatformToServices = map[PlatformType][]ProviderType{}
+	customPlatformDisplay = map[PlatformType]string{}
+}
+
+func TestRegisterPlatformMapping_PlatformForReturnsRegisteredPlatform(t *testing.T) {
+	t.Cleanup(func() { resetPlatformRegistry(t) })
+
+	provider := ProviderType("microsoft-drives-test")
+	RegisterPlatformMapping(provider, PlatformMicrosoft)
+
+	if got := PlatformFor(provider); got != PlatformMicrosoft {
+		t.Errorf("PlatformFor(%s) = %s, want %s", provider, got, PlatformMicrosoft)
+	}
+}
+
+func TestRegisterPlatformMapping_OverridesBuiltinFallback(t *testing.T) {
+	t.Cleanup(func() { resetPlatformRegistry(t) })
+
+	// Without registration, an unknown provider falls through to PlatformType(provider).
+	provider := ProviderType("custom-provider-test")
+	if got := PlatformFor(provider); got != PlatformType("custom-provider-test") {
+		t.Fatalf("precondition failed: expected fallback %s, got %s", provider, got)
+	}
+
+	RegisterPlatformMapping(provider, PlatformGitHub)
+	if got := PlatformFor(provider); got != PlatformGitHub {
+		t.Errorf("after registration, PlatformFor(%s) = %s, want %s", provider, got, PlatformGitHub)
+	}
+}
+
+func TestRegisterPlatformMapping_BuiltinProvidersUnaffected(t *testing.T) {
+	t.Cleanup(func() { resetPlatformRegistry(t) })
+
+	// Register a custom mapping; existing built-in cases must continue to work.
+	RegisterPlatformMapping(ProviderType("unrelated"), PlatformNotion)
+
+	if got := PlatformFor(ProviderTypeOneDrive); got != PlatformMicrosoft {
+		t.Errorf("expected built-in OneDrive→Microsoft mapping unchanged, got %s", got)
+	}
+	if got := PlatformFor(ProviderTypeGitHub); got != PlatformGitHub {
+		t.Errorf("expected built-in GitHub mapping unchanged, got %s", got)
+	}
+}
+
+func TestServicesFor_IncludesRegisteredService(t *testing.T) {
+	t.Cleanup(func() { resetPlatformRegistry(t) })
+
+	custom := ProviderType("microsoft-drives-test")
+	RegisterPlatformMapping(custom, PlatformMicrosoft)
+
+	got := ServicesFor(PlatformMicrosoft)
+	hasBuiltin := false
+	hasCustom := false
+	for _, p := range got {
+		if p == ProviderTypeOneDrive {
+			hasBuiltin = true
+		}
+		if p == custom {
+			hasCustom = true
+		}
+	}
+	if !hasBuiltin {
+		t.Errorf("expected ServicesFor(microsoft) to include OneDrive (built-in), got %v", got)
+	}
+	if !hasCustom {
+		t.Errorf("expected ServicesFor(microsoft) to include %s (registered), got %v", custom, got)
+	}
+}
+
+func TestServicesFor_NewPlatformWithOnlyRegisteredServices(t *testing.T) {
+	t.Cleanup(func() { resetPlatformRegistry(t) })
+
+	platform := PlatformType("custom-platform-test")
+	provider := ProviderType("custom-provider-test")
+	RegisterPlatformMapping(provider, platform)
+
+	got := ServicesFor(platform)
+	if len(got) != 1 || got[0] != provider {
+		t.Errorf("expected ServicesFor(%s) = [%s], got %v", platform, provider, got)
+	}
+}
+
+func TestRegisterPlatformDisplayName(t *testing.T) {
+	t.Cleanup(func() { resetPlatformRegistry(t) })
+
+	// Custom platform with no built-in display name; without override the raw string is returned.
+	platform := PlatformType("custom-display-test")
+	if got := PlatformDisplayName(platform); got != "custom-display-test" {
+		t.Fatalf("precondition failed: expected raw string %q, got %q", platform, got)
+	}
+
+	RegisterPlatformDisplayName(platform, "Custom Display")
+	if got := PlatformDisplayName(platform); got != "Custom Display" {
+		t.Errorf("PlatformDisplayName(%s) after registration = %q, want %q", platform, got, "Custom Display")
+	}
+}
+
+func TestRegisterPlatformDisplayName_OverridesBuiltin(t *testing.T) {
+	t.Cleanup(func() { resetPlatformRegistry(t) })
+
+	// Registered display name takes precedence over the built-in switch.
+	RegisterPlatformDisplayName(PlatformMicrosoft, "Microsoft 365")
+	if got := PlatformDisplayName(PlatformMicrosoft); got != "Microsoft 365" {
+		t.Errorf("expected override %q, got %q", "Microsoft 365", got)
+	}
+}

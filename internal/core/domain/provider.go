@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // ProviderType identifies a data source provider
 type ProviderType string
@@ -82,11 +85,63 @@ const (
 	PlatformMicrosoft PlatformType = "microsoft"
 )
 
+// Custom registrations layered on top of the built-in tables below. Populated
+// at process startup by callers that ship additional connectors and want them
+// to map cleanly onto an existing PlatformType (so they share an OAuth client,
+// token endpoint, refresh logic, etc) without forking the lookup tables here.
+//
+// These maps are intended to be written exactly once at startup, before any
+// concurrent reads. They are protected by platformRegistryMu only because Go
+// requires a memory barrier between a write on one goroutine and a read on
+// another; in practice the contention is nil.
+var (
+	platformRegistryMu       sync.RWMutex
+	customProviderToPlatform = map[ProviderType]PlatformType{}
+	customPlatformToServices = map[PlatformType][]ProviderType{}
+	customPlatformDisplay    = map[PlatformType]string{}
+)
+
+// RegisterPlatformMapping declares that a custom ProviderType belongs to an
+// existing PlatformType. Wiring code (typically the binary's main) calls this
+// at startup before any sync work begins. Subsequent calls to PlatformFor and
+// ServicesFor honour the registration.
+//
+// The corresponding PlatformDisplayName falls back to the platform's built-in
+// display name. Use RegisterPlatformDisplayName to override it for a brand-new
+// PlatformType not represented in the built-in switch.
+//
+// Safe to call concurrently with itself; not designed to race with reads.
+func RegisterPlatformMapping(provider ProviderType, platform PlatformType) {
+	platformRegistryMu.Lock()
+	defer platformRegistryMu.Unlock()
+	customProviderToPlatform[provider] = platform
+	customPlatformToServices[platform] = append(customPlatformToServices[platform], provider)
+}
+
+// RegisterPlatformDisplayName declares a human-readable display name for a
+// PlatformType not represented in the built-in switch. Optional companion to
+// RegisterPlatformMapping for entirely new platforms.
+func RegisterPlatformDisplayName(platform PlatformType, displayName string) {
+	platformRegistryMu.Lock()
+	defer platformRegistryMu.Unlock()
+	customPlatformDisplay[platform] = displayName
+}
+
 // PlatformFor returns the platform that owns a given service/provider.
 // For 1:1 connectors (all current ones), platform == provider.
-// Multi-service platforms (Google, Microsoft, Atlassian) will map
-// multiple ProviderTypes to one PlatformType when implemented.
+// Multi-service platforms (Google, Microsoft, Atlassian) map multiple
+// ProviderTypes to one PlatformType.
+//
+// Custom mappings registered via RegisterPlatformMapping take precedence over
+// the built-in switch. Unknown providers fall through to PlatformType(provider).
 func PlatformFor(provider ProviderType) PlatformType {
+	platformRegistryMu.RLock()
+	if p, ok := customProviderToPlatform[provider]; ok {
+		platformRegistryMu.RUnlock()
+		return p
+	}
+	platformRegistryMu.RUnlock()
+
 	switch provider {
 	case ProviderTypeGitHub:
 		return PlatformGitHub
@@ -101,23 +156,56 @@ func PlatformFor(provider ProviderType) PlatformType {
 	}
 }
 
-// ServicesFor returns all services under a platform.
+// ServicesFor returns all services under a platform. The result combines the
+// built-in mapping with anything registered via RegisterPlatformMapping.
 func ServicesFor(platform PlatformType) []ProviderType {
+	var builtin []ProviderType
 	switch platform {
 	case PlatformGitHub:
-		return []ProviderType{ProviderTypeGitHub}
+		builtin = []ProviderType{ProviderTypeGitHub}
 	case PlatformLocalFS:
-		return []ProviderType{ProviderTypeLocalFS}
+		builtin = []ProviderType{ProviderTypeLocalFS}
 	case PlatformNotion:
-		return []ProviderType{ProviderTypeNotion}
+		builtin = []ProviderType{ProviderTypeNotion}
 	case PlatformMicrosoft:
-		return []ProviderType{ProviderTypeOneDrive}
+		builtin = []ProviderType{ProviderTypeOneDrive}
 	default:
-		return []ProviderType{ProviderType(platform)}
+		builtin = nil
 	}
+
+	platformRegistryMu.RLock()
+	custom, hasCustom := customPlatformToServices[platform]
+	platformRegistryMu.RUnlock()
+
+	if !hasCustom {
+		if builtin == nil {
+			return []ProviderType{ProviderType(platform)}
+		}
+		return builtin
+	}
+	if builtin == nil {
+		out := make([]ProviderType, len(custom))
+		copy(out, custom)
+		return out
+	}
+	out := make([]ProviderType, 0, len(builtin)+len(custom))
+	out = append(out, builtin...)
+	out = append(out, custom...)
+	return out
 }
 
+// PlatformDisplayName returns a human-readable name for a platform. Custom
+// names registered via RegisterPlatformDisplayName take precedence; otherwise
+// the built-in switch is consulted; otherwise the raw PlatformType string is
+// returned.
 func PlatformDisplayName(platform PlatformType) string {
+	platformRegistryMu.RLock()
+	if name, ok := customPlatformDisplay[platform]; ok {
+		platformRegistryMu.RUnlock()
+		return name
+	}
+	platformRegistryMu.RUnlock()
+
 	switch platform {
 	case PlatformGitHub:
 		return "GitHub"
