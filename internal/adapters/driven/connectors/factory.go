@@ -47,6 +47,16 @@ func (f *Factory) RegisterOAuthHandler(platform domain.PlatformType, handler OAu
 // Create creates a connector for the given source, scoped to a container.
 // Called by SyncOrchestrator once per container in source.SelectedContainers.
 // For providers without container selection, containerID may be empty.
+//
+// If source.ConnectionID is empty, no per-connection TokenProvider is
+// resolved and the Builder is invoked with a nil token provider. This
+// supports connectors whose credentials are deployment-level rather than
+// per-connection (for example a Builder that captures static or
+// service-principal credentials at registration time and ignores the
+// argument). Builders that require a per-connection TokenProvider must
+// either return an error from Build when given nil or document that a
+// non-empty ConnectionID is required by setting Builder-level validation
+// upstream of this call.
 func (f *Factory) Create(ctx context.Context, source *domain.Source, containerID string) (driven.Connector, error) {
 	f.mu.RLock()
 	builder, ok := f.builders[source.ProviderType]
@@ -55,10 +65,16 @@ func (f *Factory) Create(ctx context.Context, source *domain.Source, containerID
 		return nil, fmt.Errorf("%w: %s", domain.ErrUnsupportedProvider, source.ProviderType)
 	}
 
-	// Create token provider from connection
-	tokenProvider, err := f.tokenProviderFactory.Create(ctx, source.ConnectionID)
-	if err != nil {
-		return nil, fmt.Errorf("create token provider: %w", err)
+	// Create token provider from connection. Skip the lookup when the
+	// source has no ConnectionID — the Builder is responsible for either
+	// supplying its own credentials or rejecting the nil provider.
+	var tokenProvider driven.TokenProvider
+	if source.ConnectionID != "" {
+		tp, err := f.tokenProviderFactory.Create(ctx, source.ConnectionID)
+		if err != nil {
+			return nil, fmt.Errorf("create token provider: %w", err)
+		}
+		tokenProvider = tp
 	}
 
 	// Build connector scoped to container
