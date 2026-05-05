@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 )
@@ -525,7 +526,12 @@ func TestOpenAILLM_Complete_RateLimitError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	svc, err := NewOpenAILLM("sk-test", "gpt-4o", server.URL)
+	// Disable retries and sleep so the test completes immediately.
+	noSleep := func(_ context.Context, _ time.Duration) error { return nil }
+	svc, err := NewOpenAILLM("sk-test", "gpt-4o", server.URL,
+		WithLLMMaxRetries(0),
+		WithLLMTransportSleep(noSleep),
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -635,8 +641,13 @@ func TestOpenAILLM_Complete_ServerError(t *testing.T) {
 }
 
 func TestOpenAILLM_Complete_NetworkError(t *testing.T) {
-	// Use invalid URL to trigger network error
-	svc, err := NewOpenAILLM("sk-test", "gpt-4o", "http://localhost:99999")
+	// Use invalid URL to trigger network error. Disable retries so the test
+	// completes quickly without real backoff delays.
+	noSleep := func(_ context.Context, _ time.Duration) error { return nil }
+	svc, err := NewOpenAILLM("sk-test", "gpt-4o", "http://localhost:99999",
+		WithLLMMaxRetries(0),
+		WithLLMTransportSleep(noSleep),
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -704,6 +715,136 @@ func TestOpenAILLM_Complete_InvalidJSON(t *testing.T) {
 	_, err = svc.Complete(context.Background(), req)
 	if err == nil {
 		t.Error("expected error for invalid JSON response")
+	}
+}
+
+// TestOpenAILLM_429_RetryAfterEventuallySucceeds verifies that when the server
+// returns a 429 with a Retry-After header, the LLM client retries and returns
+// the successful completion on the second attempt.
+func TestOpenAILLM_429_RetryAfterEventuallySucceeds(t *testing.T) {
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if requestCount == 1 {
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+
+		resp := chatCompletionResponse{
+			ID:      "chatcmpl-retry",
+			Object:  "chat.completion",
+			Created: 1234567890,
+			Model:   "gpt-4o",
+			Choices: []struct {
+				Index        int         `json:"index"`
+				Message      chatMessage `json:"message"`
+				FinishReason string      `json:"finish_reason"`
+			}{
+				{
+					Index: 0,
+					Message: chatMessage{
+						Role:    "assistant",
+						Content: "Success after retry",
+					},
+					FinishReason: "stop",
+				},
+			},
+			Usage: struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			}{PromptTokens: 5, CompletionTokens: 3, TotalTokens: 8},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	var sleptFor time.Duration
+	fakeSleep := func(_ context.Context, d time.Duration) error {
+		sleptFor = d
+		return nil
+	}
+
+	svc, err := NewOpenAILLM("sk-test", "gpt-4o", server.URL,
+		WithLLMMaxRetries(3),
+		WithLLMTransportSleep(fakeSleep),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	req := domain.NewCompletionRequest("", "Test retry")
+	result, err := svc.Complete(context.Background(), req)
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+	if result.Content != "Success after retry" {
+		t.Errorf("unexpected content: %s", result.Content)
+	}
+	if requestCount != 2 {
+		t.Errorf("expected 2 requests, got %d", requestCount)
+	}
+	if sleptFor < 1900*time.Millisecond || sleptFor > 2100*time.Millisecond {
+		t.Errorf("expected ~2s sleep from Retry-After, got %v", sleptFor)
+	}
+}
+
+// TestOpenAILLM_HeaderDrivenUpdate verifies that x-ratelimit-* headers from
+// a successful response update the bucket and do not cause errors on
+// subsequent completions.
+func TestOpenAILLM_HeaderDrivenUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("x-ratelimit-remaining-tokens", "500")
+		w.Header().Set("x-ratelimit-reset-tokens", "10s")
+
+		resp := chatCompletionResponse{
+			ID:      "chatcmpl-123",
+			Object:  "chat.completion",
+			Created: 1234567890,
+			Model:   "gpt-4o",
+			Choices: []struct {
+				Index        int         `json:"index"`
+				Message      chatMessage `json:"message"`
+				FinishReason string      `json:"finish_reason"`
+			}{
+				{
+					Index: 0,
+					Message: chatMessage{
+						Role:    "assistant",
+						Content: "ok",
+					},
+					FinishReason: "stop",
+				},
+			},
+			Usage: struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			}{PromptTokens: 5, CompletionTokens: 1, TotalTokens: 6},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	svc, err := NewOpenAILLM("sk-test", "gpt-4o", server.URL,
+		WithLLMMaxRetries(0),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	req := domain.NewCompletionRequest("", "first")
+	if _, err := svc.Complete(context.Background(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Second call should succeed — verifies Update did not deadlock or panic.
+	req = domain.NewCompletionRequest("", "second")
+	if _, err := svc.Complete(context.Background(), req); err != nil {
+		t.Fatalf("unexpected error on second complete: %v", err)
 	}
 }
 

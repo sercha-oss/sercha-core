@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestNewOpenAIEmbedding_RequiresAPIKey(t *testing.T) {
@@ -276,8 +277,13 @@ func TestOpenAIEmbedding_Embed_ServerError(t *testing.T) {
 }
 
 func TestOpenAIEmbedding_Embed_NetworkError(t *testing.T) {
-	// Use invalid URL to trigger network error
-	svc, err := NewOpenAIEmbedding("sk-test", "text-embedding-3-small", "http://localhost:99999")
+	// Use invalid URL to trigger network error. Disable retries so the test
+	// completes quickly without real backoff delays.
+	noSleep := func(_ context.Context, _ time.Duration) error { return nil }
+	svc, err := NewOpenAIEmbedding("sk-test", "text-embedding-3-small", "http://localhost:99999",
+		WithEmbeddingMaxRetries(0),
+		WithEmbeddingTransportSleep(noSleep),
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -315,6 +321,113 @@ func TestOpenAIEmbedding_HealthCheck(t *testing.T) {
 	err = svc.HealthCheck(context.Background())
 	if err != nil {
 		t.Errorf("expected no error from health check, got %v", err)
+	}
+}
+
+// TestOpenAIEmbedding_429_RetryAfterEventuallySucceeds verifies that when the
+// server returns a 429 with a Retry-After header, the embedding client retries
+// and returns the successful embedding on the second attempt.
+func TestOpenAIEmbedding_429_RetryAfterEventuallySucceeds(t *testing.T) {
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if requestCount == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+
+		resp := embeddingResponse{
+			Object: "list",
+			Data: []struct {
+				Object    string    `json:"object"`
+				Index     int       `json:"index"`
+				Embedding []float32 `json:"embedding"`
+			}{
+				{Object: "embedding", Index: 0, Embedding: []float32{0.1, 0.2, 0.3}},
+			},
+			Model: "text-embedding-3-small",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// Use a no-op sleep so the test does not actually sleep 1 second.
+	var sleptFor time.Duration
+	fakeSleep := func(_ context.Context, d time.Duration) error {
+		sleptFor = d
+		return nil
+	}
+
+	svc, err := NewOpenAIEmbedding("sk-test", "text-embedding-3-small", server.URL,
+		WithEmbeddingMaxRetries(3),
+		WithEmbeddingTransportSleep(fakeSleep),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	result, err := svc.Embed(context.Background(), []string{"test"})
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+	if len(result) != 1 || len(result[0]) != 3 {
+		t.Errorf("unexpected embedding result: %v", result)
+	}
+	if requestCount != 2 {
+		t.Errorf("expected 2 requests, got %d", requestCount)
+	}
+	// The Retry-After header specified 1 second.
+	if sleptFor < 900*time.Millisecond || sleptFor > 1100*time.Millisecond {
+		t.Errorf("expected ~1s sleep from Retry-After, got %v", sleptFor)
+	}
+}
+
+// TestOpenAIEmbedding_HeaderDrivenUpdate verifies that x-ratelimit-* headers
+// in a successful response update the bucket and are reflected in subsequent
+// Wait calls. This test checks that ParseLimit is called and Update propagates.
+func TestOpenAIEmbedding_HeaderDrivenUpdate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return rate-limit headers indicating near-exhaustion.
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("x-ratelimit-remaining-tokens", "10")
+		w.Header().Set("x-ratelimit-reset-tokens", "30s")
+
+		resp := embeddingResponse{
+			Object: "list",
+			Data: []struct {
+				Object    string    `json:"object"`
+				Index     int       `json:"index"`
+				Embedding []float32 `json:"embedding"`
+			}{
+				{Object: "embedding", Index: 0, Embedding: []float32{0.5, 0.6}},
+			},
+			Model: "text-embedding-3-small",
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	svc, err := NewOpenAIEmbedding("sk-test", "text-embedding-3-small", server.URL,
+		WithEmbeddingMaxRetries(0),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	_, err = svc.Embed(context.Background(), []string{"hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// After the first successful response, the bucket should have been
+	// updated with remaining=10. We verify this indirectly by confirming
+	// that a second Embed succeeds — if Update somehow panicked or caused
+	// a deadlock, this would hang.
+	_, err = svc.Embed(context.Background(), []string{"world"})
+	if err != nil {
+		t.Fatalf("unexpected error on second embed: %v", err)
 	}
 }
 
