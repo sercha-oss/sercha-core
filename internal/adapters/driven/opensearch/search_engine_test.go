@@ -1920,11 +1920,10 @@ func TestSearchEngine_SearchByQueryDSL_WrapsCallerQueryInBoolEnvelope(t *testing
 	}
 }
 
-// TestSearchDocuments_NoHighlightClause asserts that the request body sent to
-// OpenSearch contains no top-level "highlight" key. A highlight clause causes
-// OpenSearch to 400 all shards when any matched document's content field
-// exceeds index.highlight.max_analyzed_offset.
-func TestSearchDocuments_NoHighlightClause(t *testing.T) {
+// TestSearchDocuments_HighlightWithMaxAnalyzedOffset asserts that the request
+// body sent to OpenSearch contains a highlight clause with max_analyzer_offset
+// and that _source.excludes contains "content".
+func TestSearchDocuments_HighlightWithMaxAnalyzedOffset(t *testing.T) {
 	var capturedBody map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
@@ -1957,8 +1956,156 @@ func TestSearchDocuments_NoHighlightClause(t *testing.T) {
 	if capturedBody == nil {
 		t.Fatal("no search request body captured")
 	}
-	if _, ok := capturedBody["highlight"]; ok {
-		t.Error("request body must not contain a highlight clause")
+
+	// highlight key must exist and contain max_analyzer_offset
+	highlightRaw, ok := capturedBody["highlight"]
+	if !ok {
+		t.Fatal("request body must contain a highlight clause")
+	}
+	highlight, ok := highlightRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("highlight must be a map, got %T", highlightRaw)
+	}
+	if _, ok := highlight["max_analyzer_offset"]; !ok {
+		t.Error("highlight must contain max_analyzer_offset")
+	}
+
+	// highlight.fields.content must exist
+	fieldsRaw, ok := highlight["fields"]
+	if !ok {
+		t.Fatal("highlight must contain fields")
+	}
+	fields, ok := fieldsRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("highlight.fields must be a map, got %T", fieldsRaw)
+	}
+	if _, ok := fields["content"]; !ok {
+		t.Error("highlight.fields must contain content")
+	}
+
+	// _source.excludes must contain "content"
+	sourceRaw, ok := capturedBody["_source"]
+	if !ok {
+		t.Fatal("request body must contain _source")
+	}
+	source, ok := sourceRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("_source must be a map, got %T", sourceRaw)
+	}
+	excludesRaw, ok := source["excludes"]
+	if !ok {
+		t.Fatal("_source must contain excludes")
+	}
+	excludes, ok := excludesRaw.([]any)
+	if !ok {
+		t.Fatalf("_source.excludes must be an array, got %T", excludesRaw)
+	}
+	foundContent := false
+	for _, v := range excludes {
+		if s, ok := v.(string); ok && s == "content" {
+			foundContent = true
+			break
+		}
+	}
+	if !foundContent {
+		t.Errorf("_source.excludes must contain \"content\", got %v", excludes)
+	}
+}
+
+// TestSearchDocuments_HighlightFragmentBecomesSnippet asserts that the Content
+// field on a returned DocumentResult is populated from the highlight fragment,
+// not from the source body.
+func TestSearchDocuments_HighlightFragmentBecomesSnippet(t *testing.T) {
+	fragment := "...the matched <em>kubernetes</em> context here..."
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hits": map[string]any{
+					"total": map[string]any{"value": 1},
+					"hits": []map[string]any{
+						{
+							"_id":    "doc-1",
+							"_score": 1.5,
+							"_source": map[string]any{
+								"document_id": "doc-1",
+								"source_id":   "source-1",
+								"title":       "Kubernetes Setup",
+							},
+							"highlight": map[string]any{
+								"content": []any{fragment},
+							},
+						},
+					},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{URL: ts.URL, IndexName: "sercha_chunks", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	results, _, err := engine.SearchDocuments(context.Background(), "kubernetes", domain.SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 result, got %d", len(results))
+	}
+	if results[0].Content != fragment {
+		t.Errorf("Content = %q, want %q", results[0].Content, fragment)
+	}
+}
+
+// TestSearchDocuments_NoHighlightLeavesContentEmpty asserts that a hit with no
+// highlight key in the response produces a DocumentResult with Content == ""
+// and does not panic.
+func TestSearchDocuments_NoHighlightLeavesContentEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hits": map[string]any{
+					"total": map[string]any{"value": 1},
+					"hits": []map[string]any{
+						{
+							"_id":    "doc-1",
+							"_score": 1.0,
+							"_source": map[string]any{
+								"document_id": "doc-1",
+								"source_id":   "source-1",
+								"title":       "No Highlight Doc",
+							},
+							// no "highlight" key
+						},
+					},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{URL: ts.URL, IndexName: "sercha_chunks", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	results, _, err := engine.SearchDocuments(context.Background(), "kubernetes", domain.SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 result, got %d", len(results))
+	}
+	if results[0].Content != "" {
+		t.Errorf("Content = %q, want empty string when no highlight", results[0].Content)
 	}
 }
 

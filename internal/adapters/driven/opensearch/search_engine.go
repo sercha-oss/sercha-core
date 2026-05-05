@@ -232,14 +232,43 @@ func (s *SearchEngine) buildBoolEnvelope(mustClauses []any, opts domain.SearchOp
 		boolQuery["filter"] = filterClauses
 	}
 
-	// Highlight is omitted from the request body. OpenSearch 400s the entire
-	// search (all shards fail) if any matched document's content field exceeds
-	// index.highlight.max_analyzed_offset. Snippet extraction is done
-	// client-side from the returned Content field instead.
+	// _source: exclude `content`. The full document body lands as a single
+	// indexed field; shipping it back for every search marshals 100s of MB
+	// per query when the corpus has multi-MB documents. The match-context
+	// snippet is reconstructed via the highlight clause below, so callers
+	// still get a relevance-aware preview without paying the full-body
+	// shipping cost.
+	//
+	// highlight with `max_analyzer_offset` capped at 1 MB. Without the cap
+	// OpenSearch 400s the entire search (all shards fail) when any matched
+	// document's content exceeds the index-level offset; the per-request
+	// override truncates the highlighter's analysis window rather than
+	// failing the query. Per-field options:
+	//   - fragment_size 200 keeps the snippet readable in result lists.
+	//   - number_of_fragments 1 returns a single best fragment per hit.
+	//   - no_match_size 0 leaves the snippet empty when the match was in a
+	//     non-highlighted field (e.g. title); the title is still shown.
+	//
+	// NOTE: the option key is `max_analyzer_offset` (not `max_analyzed_offset`
+	// as the documentation occasionally suggests). Verified against OpenSearch
+	// 2.11.0 — the alternative spelling produces a 400 x_content_parse_exception.
 	return map[string]any{
 		"query": map[string]any{"bool": boolQuery},
 		"from":  opts.Offset,
 		"size":  opts.Limit,
+		"_source": map[string]any{
+			"excludes": []string{"content"},
+		},
+		"highlight": map[string]any{
+			"max_analyzer_offset": 1000000,
+			"fields": map[string]any{
+				"content": map[string]any{
+					"fragment_size":       200,
+					"number_of_fragments": 1,
+					"no_match_size":       0,
+				},
+			},
+		},
 	}
 }
 
@@ -273,11 +302,16 @@ func (s *SearchEngine) executeSearch(ctx context.Context, searchQuery map[string
 			return nil, 0, fmt.Errorf("failed to unmarshal source: %w", err)
 		}
 
+		// Content is no longer in the source (excluded for payload size).
+		// Use the highlight fragment as a relevance-aware snippet — falls
+		// back to empty when the match was outside the content field.
+		snippet := firstHighlight(hit.Highlight, "content")
+
 		results = append(results, driven.DocumentResult{
 			DocumentID: getString(source, "document_id"),
 			SourceID:   getString(source, "source_id"),
 			Title:      getString(source, "title"),
-			Content:    getString(source, "content"),
+			Content:    snippet,
 			Score:      float64(hit.Score),
 		})
 	}
@@ -669,6 +703,21 @@ func getInt(m map[string]any, key string) int {
 		}
 	}
 	return 0
+}
+
+// firstHighlight returns the first highlight fragment for the named field,
+// or empty string if none. The OpenSearch response shape is
+// `{"<field>": ["<fragment>", ...]}` per hit; with number_of_fragments=1
+// the slice is at most one element long.
+func firstHighlight(highlight map[string][]string, field string) string {
+	if highlight == nil {
+		return ""
+	}
+	frags, ok := highlight[field]
+	if !ok || len(frags) == 0 {
+		return ""
+	}
+	return frags[0]
 }
 
 // isIndexNotFoundError checks if an opensearch error is due to a missing index.
