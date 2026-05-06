@@ -186,6 +186,12 @@ func (s *searchService) searchWithPipeline(
 			Snippet:    result.Snippet,
 			Score:      result.Score,
 			IndexedAt:  doc.IndexedAt,
+			// Forward presenter metadata so pipeline stages can annotate
+			// individual results (e.g. faceting hints, ranking signals,
+			// stage-specific outcome flags) and downstream adapters can read
+			// them without importing pipeline types. The service does not
+			// interpret the keys; consumers read what they care about.
+			Metadata: result.Metadata,
 		})
 	}
 
