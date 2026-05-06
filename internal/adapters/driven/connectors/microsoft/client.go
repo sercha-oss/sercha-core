@@ -54,7 +54,11 @@ func DefaultClientConfig() *ClientConfig {
 		BaseURL:        "https://graph.microsoft.com/v1.0",
 		RateLimitRPS:   10.0, // Conservative rate limit
 		RequestTimeout: 30 * time.Second,
-		MaxRetries:     3,
+		// Graph throttle windows are typically ~30 s. With 3 retries the cumulative
+		// wait (1+2+3 = 6 s) was too short on sustained 429 bursts. With 5 retries
+		// the wait reaches 1+2+3+4+5 = 15 s, plus any Retry-After header honour,
+		// which comfortably spans a standard throttle window.
+		MaxRetries: 5,
 	}
 }
 

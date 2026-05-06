@@ -611,8 +611,8 @@ func TestClient_DefaultConfig(t *testing.T) {
 		t.Errorf("RequestTimeout = %v, want 30s", cfg.RequestTimeout)
 	}
 
-	if cfg.MaxRetries != 3 {
-		t.Errorf("MaxRetries = %d, want 3", cfg.MaxRetries)
+	if cfg.MaxRetries != 5 {
+		t.Errorf("MaxRetries = %d, want 5", cfg.MaxRetries)
 	}
 }
 
@@ -1311,5 +1311,14 @@ func TestDoRequest_FallsBackToExponentialBackoffWhenNoRetryAfter(t *testing.T) {
 	}
 	if attemptCount != 2 {
 		t.Errorf("attemptCount = %d, want 2", attemptCount)
+	}
+}
+
+// TestDefaultClientConfig_MaxRetriesIs5 is a sanity check that the default
+// retry budget has been raised to 5.
+func TestDefaultClientConfig_MaxRetriesIs5(t *testing.T) {
+	cfg := DefaultClientConfig()
+	if cfg.MaxRetries != 5 {
+		t.Errorf("DefaultClientConfig().MaxRetries = %d, want 5", cfg.MaxRetries)
 	}
 }
