@@ -69,4 +69,22 @@ type SearchResultItem struct {
 	Snippet    string    `json:"snippet"`
 	Score      float64   `json:"score"`
 	IndexedAt  time.Time `json:"indexed_at"`
+
+	// Metadata carries arbitrary key-value annotations produced by pipeline
+	// stages and copied through from pipeline.PresentedResult.Metadata by the
+	// search service.
+	//
+	// This mirrors the Metadata fields already present on pipeline.Candidate
+	// and pipeline.PresentedResult: stages can attach derived information to a
+	// result (faceting hints, ranking signals, query-expansion match info,
+	// stage-specific outcome flags) and have it survive the projection from
+	// the pipeline's internal types to the public domain type.
+	//
+	// Keys are convention-based and stage-specific; the search service does
+	// not interpret them, it only forwards what the presenter exposes.
+	// Driving adapters (HTTP handlers, MCP servers, downstream services) read
+	// keys they care about and ignore the rest.
+	//
+	// Stages that do not need to attach metadata may leave this nil.
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
