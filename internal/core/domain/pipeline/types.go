@@ -43,6 +43,10 @@ const (
 	CapabilityDocStore           CapabilityType = "doc_store"
 	CapabilityOntology           CapabilityType = "ontology"
 	CapabilityDocumentIDProvider CapabilityType = "document_id_provider" // Provides allowed document IDs for filtering
+
+	CapabilityEntityDetector     CapabilityType = "entity_detector"      // Extracts entity spans from text
+	CapabilityEntityRegister     CapabilityType = "entity_register"      // Cache of entity analysis results per document
+	CapabilityEntityTypeRegistry CapabilityType = "entity_type_registry" // Source of truth for the active entity taxonomy
 )
 
 // CapabilityMode describes how a stage depends on a capability.
