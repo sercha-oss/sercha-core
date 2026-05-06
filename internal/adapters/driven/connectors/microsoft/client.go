@@ -264,7 +264,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 		// Check for rate limiting
 		if resp.StatusCode == http.StatusTooManyRequests {
-			backoff := parseRetryAfter(resp.Header.Get("Retry-After"))
+			backoff := ParseRetryAfter(resp.Header.Get("Retry-After"))
 			if backoff <= 0 {
 				backoff = time.Duration(attempt+1) * time.Second
 			}
@@ -287,7 +287,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		}
 
 		// Server error - retry with backoff, honouring Retry-After if present.
-		backoff := parseRetryAfter(resp.Header.Get("Retry-After"))
+		backoff := ParseRetryAfter(resp.Header.Get("Retry-After"))
 		if backoff <= 0 {
 			backoff = time.Duration(attempt+1) * time.Second
 		}
@@ -345,11 +345,15 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 	return nil
 }
 
-// parseRetryAfter returns the duration to wait as advised by the HTTP
+// ParseRetryAfter returns the duration to wait as advised by the HTTP
 // Retry-After header. Empty header or unparsable values return 0. Only
 // the delta-seconds form is supported per RFC 7231; HTTP-date form
 // returns 0 (callers fall back to their own backoff strategy).
-func parseRetryAfter(headerValue string) time.Duration {
+//
+// Exported so callers issuing requests to Microsoft endpoints outside
+// of doRequest (notably content downloads via pre-signed CDN URLs)
+// can apply the same Retry-After semantics as the API path.
+func ParseRetryAfter(headerValue string) time.Duration {
 	if headerValue == "" {
 		return 0
 	}

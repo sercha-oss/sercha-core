@@ -1121,7 +1121,7 @@ func TestWaitForRateLimit_RespectsCancelledContext(t *testing.T) {
 	}
 }
 
-// TestParseRetryAfter checks the parseRetryAfter helper against a range of
+// TestParseRetryAfter checks the ParseRetryAfter helper against a range of
 // header values covering the delta-seconds form (RFC 7231), whitespace
 // tolerance, edge cases, and HTTP-date form (not supported; must return 0).
 func TestParseRetryAfter(t *testing.T) {
@@ -1137,9 +1137,9 @@ func TestParseRetryAfter(t *testing.T) {
 		{"Wed, 21 Oct 2015 07:28:00 GMT", 0},
 	}
 	for _, tc := range cases {
-		got := parseRetryAfter(tc.header)
+		got := ParseRetryAfter(tc.header)
 		if got != tc.want {
-			t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.header, got, tc.want)
+			t.Errorf("ParseRetryAfter(%q) = %v, want %v", tc.header, got, tc.want)
 		}
 	}
 }
@@ -1234,7 +1234,7 @@ func TestDoRequest_HonorsRetryAfterOn503(t *testing.T) {
 // TestDoRequest_429BackoffFloorsAtOneSecond verifies that when a 429 response
 // carries Retry-After: 0 (or a value that parses to zero), the backoff is
 // floored at 1 second rather than hammering the server immediately.
-// With Retry-After: 0, parseRetryAfter returns 0, the fallback is
+// With Retry-After: 0, ParseRetryAfter returns 0, the fallback is
 // (attempt+1)*1s = 1s at attempt 0, and the floor leaves it at 1s.
 func TestDoRequest_429BackoffFloorsAtOneSecond(t *testing.T) {
 	attemptCount := 0
