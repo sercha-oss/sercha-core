@@ -225,8 +225,27 @@ func (c *Client) GetNextPage(ctx context.Context, nextLink string, result interf
 // callers that hold this Client through the RESTClient port can invoke
 // Graph endpoints not covered by the typed methods above while reusing the
 // same auth, rate-limit, and retry behaviour.
+//
+// For requests that need extra outgoing headers (for example a custom
+// Prefer or ConsistencyLevel), use DoWithHeaders.
 func (c *Client) Do(ctx context.Context, method, path string, body, result any) error {
-	return c.doRequest(ctx, method, path, body, result)
+	return c.doRequestWithHeaders(ctx, method, path, body, nil, result)
+}
+
+// DoWithHeaders behaves identically to Do but merges the supplied headers
+// into the outgoing request after the default Authorization and
+// Content-Type headers are set. Headers in the map are applied with
+// http.Header.Set, so providing the same key as a default replaces the
+// default for that single request (for example, "Content-Type" can be
+// overridden, and "Prefer" can be supplied to request alternative
+// representations).
+//
+// A nil or empty map is a no-op equivalent to Do. All other behaviour —
+// rate limiting, retry budget, Retry-After honouring, response
+// decoding, and ErrResyncRequired mapping — is shared with Do via a
+// common code path; this method does not duplicate that logic.
+func (c *Client) DoWithHeaders(ctx context.Context, method, path string, body any, headers map[string]string, out any) error {
+	return c.doRequestWithHeaders(ctx, method, path, body, headers, out)
 }
 
 // WaitForRateLimit blocks until the next request is permitted by the
@@ -258,7 +277,21 @@ var _ driven.RESTClient = (*Client)(nil)
 //     window closes. MaxRetries is not the right shape for this — a wall-clock
 //     budget is used instead.
 //   - 5xx: bounded by c.maxRetries with per-attempt exponential backoff.
+//
+// It is a thin wrapper around doRequestWithHeaders that supplies a nil headers
+// map, preserving the original signature for existing internal callers.
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
+	return c.doRequestWithHeaders(ctx, method, path, body, nil, result)
+}
+
+// doRequestWithHeaders performs an authenticated HTTP request with rate
+// limiting and retry logic, applying any caller-supplied headers via
+// http.Header.Set after the Authorization and Content-Type defaults.
+// A nil or empty headers map is equivalent to doRequest.
+//
+// This is the single source of truth for the request lifecycle; both Do
+// and DoWithHeaders go through here, as do the typed helper methods.
+func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, body interface{}, headers map[string]string, result interface{}) error {
 	token, err := c.tokenProvider.GetAccessToken(ctx)
 	if err != nil {
 		return fmt.Errorf("get access token: %w", err)
@@ -313,6 +346,12 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
+
+		// Apply caller-supplied headers last so they can override defaults
+		// (e.g. Content-Type for a non-JSON payload, or supply Prefer).
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
 
 		resp, err = c.httpClient.Do(req)
 		if err != nil {

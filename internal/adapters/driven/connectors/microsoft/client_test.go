@@ -1531,3 +1531,160 @@ func TestClient_Retry429TotalBudgetAccessor(t *testing.T) {
 		t.Errorf("Retry429TotalBudget() = %v, want 3m0s", got)
 	}
 }
+
+// TestDoWithHeaders_AppliesCustomHeaders verifies that headers in the
+// supplied map are present on the outgoing request alongside the
+// Authorization and Content-Type defaults.
+func TestDoWithHeaders_AppliesCustomHeaders(t *testing.T) {
+	var (
+		gotPrefer        string
+		gotConsistency   string
+		gotAuthorization string
+	)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPrefer = r.Header.Get("Prefer")
+		gotConsistency = r.Header.Get("ConsistencyLevel")
+		gotAuthorization = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	headers := map[string]string{
+		"Prefer":           "return=minimal",
+		"ConsistencyLevel": "eventual",
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := client.DoWithHeaders(context.Background(), "GET", "/me", nil, headers, &result); err != nil {
+		t.Fatalf("DoWithHeaders() error = %v", err)
+	}
+
+	if gotPrefer != "return=minimal" {
+		t.Errorf("Prefer header = %q, want %q", gotPrefer, "return=minimal")
+	}
+	if gotConsistency != "eventual" {
+		t.Errorf("ConsistencyLevel header = %q, want %q", gotConsistency, "eventual")
+	}
+	if gotAuthorization != "Bearer test-token" {
+		t.Errorf("Authorization header = %q, want Bearer test-token (defaults must still be set)", gotAuthorization)
+	}
+	if !result.OK {
+		t.Error("result.OK = false, want true")
+	}
+}
+
+// TestDoWithHeaders_OverridesContentType verifies that a header in the map
+// overrides the default Content-Type via http.Header.Set semantics, so callers
+// can switch a payload from application/json to a different media type for a
+// single request.
+func TestDoWithHeaders_OverridesContentType(t *testing.T) {
+	var gotContentType string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		// Also confirm there is exactly one Content-Type value (Set, not Add).
+		if values := r.Header.Values("Content-Type"); len(values) != 1 {
+			t.Errorf("Content-Type header values = %d, want 1 (must use Set, not Add)", len(values))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	headers := map[string]string{
+		"Content-Type": "application/octet-stream",
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := client.DoWithHeaders(context.Background(), "POST", "/me", map[string]string{"hello": "world"}, headers, &result); err != nil {
+		t.Fatalf("DoWithHeaders() error = %v", err)
+	}
+
+	if gotContentType != "application/octet-stream" {
+		t.Errorf("Content-Type header = %q, want %q (override of default application/json)", gotContentType, "application/octet-stream")
+	}
+}
+
+// TestDoWithHeaders_NilMapEquivalentToDo verifies that a nil headers map is a
+// no-op and produces the same request shape as Do.
+func TestDoWithHeaders_NilMapEquivalentToDo(t *testing.T) {
+	var (
+		doHeaders        http.Header
+		doWithHeaders    http.Header
+		seenFirstRequest bool
+	)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Capture only the headers a caller cares about for parity. Stripping
+		// hop-by-hop and library-internal headers (User-Agent, Accept-Encoding,
+		// Host, Content-Length) avoids spurious diffs from net/http internals.
+		captured := http.Header{}
+		for _, key := range []string{"Authorization", "Content-Type"} {
+			if v := r.Header.Get(key); v != "" {
+				captured.Set(key, v)
+			}
+		}
+		if !seenFirstRequest {
+			doHeaders = captured
+			seenFirstRequest = true
+		} else {
+			doWithHeaders = captured
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	var result struct {
+		OK bool `json:"ok"`
+	}
+
+	// Baseline: Do() with no extra headers.
+	if err := client.Do(context.Background(), "POST", "/me", map[string]string{"x": "y"}, &result); err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+
+	// DoWithHeaders with nil map should produce the same request-side header set.
+	if err := client.DoWithHeaders(context.Background(), "POST", "/me", map[string]string{"x": "y"}, nil, &result); err != nil {
+		t.Fatalf("DoWithHeaders(nil) error = %v", err)
+	}
+
+	if doHeaders.Get("Authorization") != doWithHeaders.Get("Authorization") {
+		t.Errorf("Authorization mismatch: Do=%q, DoWithHeaders(nil)=%q",
+			doHeaders.Get("Authorization"), doWithHeaders.Get("Authorization"))
+	}
+	if doHeaders.Get("Content-Type") != doWithHeaders.Get("Content-Type") {
+		t.Errorf("Content-Type mismatch: Do=%q, DoWithHeaders(nil)=%q",
+			doHeaders.Get("Content-Type"), doWithHeaders.Get("Content-Type"))
+	}
+
+	// Empty (non-nil) map should also be a no-op.
+	if err := client.DoWithHeaders(context.Background(), "POST", "/me", map[string]string{"x": "y"}, map[string]string{}, &result); err != nil {
+		t.Fatalf("DoWithHeaders(empty) error = %v", err)
+	}
+}
