@@ -614,6 +614,10 @@ func TestClient_DefaultConfig(t *testing.T) {
 	if cfg.MaxRetries != 5 {
 		t.Errorf("MaxRetries = %d, want 5", cfg.MaxRetries)
 	}
+
+	if cfg.Retry429TotalBudget != 5*time.Minute {
+		t.Errorf("Retry429TotalBudget = %v, want 5m0s", cfg.Retry429TotalBudget)
+	}
 }
 
 func TestDriveItem_IsFile(t *testing.T) {
@@ -877,21 +881,71 @@ func TestGetDelta_NonResyncErrorPassesThrough(t *testing.T) {
 	}
 }
 
-// TestDoRequest_AllRetriesReturn429_SurfacesExhaustion verifies that when every
-// attempt returns 429, the caller gets a clear "retries exhausted" error rather
-// than the misleading "file already closed" that results from ReadAll on a body
-// closed inside the retry loop.
-func TestDoRequest_AllRetriesReturn429_SurfacesExhaustion(t *testing.T) {
+// TestDoRequest_429RetryUnderBudget_Succeeds verifies that a server returning
+// 429 four times (with Retry-After: 1 each time) and then 200 succeeds when
+// the budget is generous enough to absorb all the waits.
+func TestDoRequest_429RetryUnderBudget_Succeeds(t *testing.T) {
+	attemptCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount <= 4 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(User{
+			ID:          "user-budget",
+			DisplayName: "Budget User",
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 10 * time.Second,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	user, err := client.GetMe(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("GetMe() error = %v (should succeed on 5th attempt within budget)", err)
+	}
+	if user.ID != "user-budget" {
+		t.Errorf("user.ID = %q, want user-budget", user.ID)
+	}
+	if attemptCount != 5 {
+		t.Errorf("attemptCount = %d, want 5 (4 x 429 + 1 success)", attemptCount)
+	}
+	// Four 1-second waits = 4s total.
+	if elapsed < 4*time.Second {
+		t.Errorf("elapsed = %v, want >= 4s (4 Retry-After: 1 waits)", elapsed)
+	}
+}
+
+// TestDoRequest_429RetryExceedsBudget_ReturnsBudgetError verifies that when the
+// server keeps returning 429 with Retry-After: 2 and the budget is 5 seconds,
+// the client stops retrying once the next wait would push cumulative wait past
+// the budget, and returns a typed budget-exhaustion error.
+func TestDoRequest_429RetryExceedsBudget_ReturnsBudgetError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "2")
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer ts.Close()
 
 	cfg := &ClientConfig{
-		BaseURL:        ts.URL + "/v1.0",
-		RateLimitRPS:   100.0,
-		RequestTimeout: 5 * time.Second,
-		MaxRetries:     2,
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          10,
+		Retry429TotalBudget: 5 * time.Second,
 	}
 	client := NewClient(&stubTokenProvider{}, cfg, nil)
 
@@ -900,17 +954,62 @@ func TestDoRequest_AllRetriesReturn429_SurfacesExhaustion(t *testing.T) {
 		t.Fatal("GetMe() expected error, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "retries exhausted") {
-		t.Errorf("error = %q, want to contain 'retries exhausted'", msg)
+	if !strings.Contains(msg, "429 throttling persisted past") {
+		t.Errorf("error = %q, want to contain '429 throttling persisted past'", msg)
 	}
-	if !strings.Contains(msg, "status 429") {
-		t.Errorf("error = %q, want to contain 'status 429'", msg)
+	// Budget is 5s; each attempt costs 2s. After 2 successful retries (4s total),
+	// the 3rd attempt (would add 2s → 6s) exceeds the budget, so error fires.
+	if !strings.Contains(msg, "5s budget") {
+		t.Errorf("error = %q, want to contain '5s budget'", msg)
 	}
-	if !strings.Contains(msg, "after 3 attempts") {
-		t.Errorf("error = %q, want to contain 'after 3 attempts'", msg)
+	if strings.Contains(msg, "retries exhausted") {
+		t.Errorf("error = %q, must not contain 'retries exhausted' (that's the 5xx message)", msg)
 	}
 	if strings.Contains(msg, "file already closed") {
 		t.Errorf("error = %q, must not contain 'file already closed'", msg)
+	}
+}
+
+// TestDoRequest_429RetryRespectsContextCancellation verifies that when the
+// context is cancelled mid-wait, the retry loop returns context.Canceled
+// promptly rather than waiting out the full Retry-After window.
+func TestDoRequest_429RetryRespectsContextCancellation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 5 * time.Minute,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after a short delay so the client has time to hit the first 429 and
+	// enter the sleep select.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := client.GetMe(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("GetMe() expected error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want to wrap context.Canceled", err)
+	}
+	// Must return well before the 60s Retry-After window.
+	if elapsed > 2*time.Second {
+		t.Errorf("elapsed = %v, want < 2s (context cancellation not respected)", elapsed)
 	}
 }
 
@@ -1320,5 +1419,115 @@ func TestDefaultClientConfig_MaxRetriesIs5(t *testing.T) {
 	cfg := DefaultClientConfig()
 	if cfg.MaxRetries != 5 {
 		t.Errorf("DefaultClientConfig().MaxRetries = %d, want 5", cfg.MaxRetries)
+	}
+}
+
+// TestDoRequest_5xxStillBoundedByMaxRetries verifies that sustained 5xx
+// responses are still bounded by MaxRetries and produce a "retries exhausted"
+// error, unaffected by the 429 budget.
+func TestDoRequest_5xxStillBoundedByMaxRetries(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      5 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 1 * time.Minute,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	_, err := client.GetMe(context.Background())
+	if err == nil {
+		t.Fatal("GetMe() expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "retries exhausted") {
+		t.Errorf("error = %q, want to contain 'retries exhausted'", msg)
+	}
+	if !strings.Contains(msg, "status 503") {
+		t.Errorf("error = %q, want to contain 'status 503'", msg)
+	}
+	if !strings.Contains(msg, "after 3 attempts") {
+		t.Errorf("error = %q, want to contain 'after 3 attempts'", msg)
+	}
+	if strings.Contains(msg, "429 throttling persisted past") {
+		t.Errorf("error = %q, must not contain '429 throttling persisted past'", msg)
+	}
+}
+
+// TestDoRequest_Mixed429And5xx_BudgetAppliesOnlyTo429 verifies that a sequence
+// of 429, 5xx, 200 succeeds: the 429 consumes budget, the 5xx consumes a 5xx
+// retry slot, and the 200 succeeds.
+func TestDoRequest_Mixed429And5xx_BudgetAppliesOnlyTo429(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		switch attemptCount {
+		case 1:
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+		case 2:
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(User{ID: "user-mixed", DisplayName: "Mixed"})
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 10 * time.Second,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	user, err := client.GetMe(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("GetMe() error = %v (should succeed after 429 + 5xx)", err)
+	}
+	if user.ID != "user-mixed" {
+		t.Errorf("user.ID = %q, want user-mixed", user.ID)
+	}
+	if attemptCount != 3 {
+		t.Errorf("attemptCount = %d, want 3", attemptCount)
+	}
+	// The 429 retry cost 1s. The 5xx retry cost (serverAttempt 0 + 1 = 1) second.
+	if elapsed < 2*time.Second {
+		t.Errorf("elapsed = %v, want >= 2s (1s 429 wait + 1s 5xx backoff)", elapsed)
+	}
+}
+
+// TestDefaultClientConfig_Retry429TotalBudgetIs5Min is a sanity check that the
+// default 429 budget is 5 minutes.
+func TestDefaultClientConfig_Retry429TotalBudgetIs5Min(t *testing.T) {
+	cfg := DefaultClientConfig()
+	if cfg.Retry429TotalBudget != 5*time.Minute {
+		t.Errorf("DefaultClientConfig().Retry429TotalBudget = %v, want 5m0s", cfg.Retry429TotalBudget)
+	}
+}
+
+// TestClient_Retry429TotalBudgetAccessor verifies that the budget accessor
+// returns the value supplied at construction time.
+func TestClient_Retry429TotalBudgetAccessor(t *testing.T) {
+	cfg := &ClientConfig{
+		BaseURL:             "https://graph.microsoft.com/v1.0",
+		RateLimitRPS:        10.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          3,
+		Retry429TotalBudget: 3 * time.Minute,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+	if got := client.Retry429TotalBudget(); got != 3*time.Minute {
+		t.Errorf("Retry429TotalBudget() = %v, want 3m0s", got)
 	}
 }
