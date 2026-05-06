@@ -25,10 +25,16 @@ const defaultDocConcurrency = 4
 // defaultObserverTimeout bounds each individual OnDocumentIngested
 // invocation. A stuck observer cannot indefinitely block the bounded
 // goroutine pool — once the timeout fires the dispatched goroutine
-// completes and releases its slot. 30s is generous enough for typical
-// network observers (identity lookups, audit writes) without parking
-// goroutines forever on a hung downstream.
-const defaultObserverTimeout = 30 * time.Second
+// completes and releases its slot.
+//
+// 5 minutes matches the upstream Microsoft Graph 429 retry budget
+// (microsoft.ClientConfig.Retry429TotalBudget). Observers that run
+// throttle-sensitive remote calls (e.g. per-document permission sync)
+// need to wait through full Retry-After windows without the observer
+// context popping mid-wait. The goroutine pool is sized at
+// defaultObserverQueueDepth (32), so even all 32 stuck observers do
+// not threaten runtime stability.
+const defaultObserverTimeout = 5 * time.Minute
 
 // defaultObserverQueueDepth caps in-flight observer goroutines per
 // orchestrator. When the queue is full, the dispatch path blocks
