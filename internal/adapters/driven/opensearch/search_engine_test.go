@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1916,10 +1918,194 @@ func TestSearchEngine_SearchByQueryDSL_WrapsCallerQueryInBoolEnvelope(t *testing
 	if len(filter) != 1 {
 		t.Fatalf("want 1 filter clause (source_id), got %d", len(filter))
 	}
+}
 
-	// Highlight config still attached so consumers get fragment data.
-	if _, ok := capturedBody["highlight"]; !ok {
-		t.Error("highlight config missing from envelope")
+// TestSearchDocuments_HighlightWithMaxAnalyzedOffset asserts that the request
+// body sent to OpenSearch contains a highlight clause with max_analyzer_offset
+// and that _source.excludes contains "content".
+func TestSearchDocuments_HighlightWithMaxAnalyzedOffset(t *testing.T) {
+	var capturedBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+			if err := json.NewDecoder(r.Body).Decode(&capturedBody); err != nil {
+				t.Errorf("decode request body: %v", err)
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hits": map[string]any{
+					"total": map[string]any{"value": 0},
+					"hits":  []map[string]any{},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{URL: ts.URL, IndexName: "sercha_chunks", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	_, _, err = engine.SearchDocuments(context.Background(), "kubernetes", domain.SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+
+	if capturedBody == nil {
+		t.Fatal("no search request body captured")
+	}
+
+	// highlight key must exist and contain max_analyzer_offset
+	highlightRaw, ok := capturedBody["highlight"]
+	if !ok {
+		t.Fatal("request body must contain a highlight clause")
+	}
+	highlight, ok := highlightRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("highlight must be a map, got %T", highlightRaw)
+	}
+	if _, ok := highlight["max_analyzer_offset"]; !ok {
+		t.Error("highlight must contain max_analyzer_offset")
+	}
+
+	// highlight.fields.content must exist
+	fieldsRaw, ok := highlight["fields"]
+	if !ok {
+		t.Fatal("highlight must contain fields")
+	}
+	fields, ok := fieldsRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("highlight.fields must be a map, got %T", fieldsRaw)
+	}
+	if _, ok := fields["content"]; !ok {
+		t.Error("highlight.fields must contain content")
+	}
+
+	// _source.excludes must contain "content"
+	sourceRaw, ok := capturedBody["_source"]
+	if !ok {
+		t.Fatal("request body must contain _source")
+	}
+	source, ok := sourceRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("_source must be a map, got %T", sourceRaw)
+	}
+	excludesRaw, ok := source["excludes"]
+	if !ok {
+		t.Fatal("_source must contain excludes")
+	}
+	excludes, ok := excludesRaw.([]any)
+	if !ok {
+		t.Fatalf("_source.excludes must be an array, got %T", excludesRaw)
+	}
+	foundContent := false
+	for _, v := range excludes {
+		if s, ok := v.(string); ok && s == "content" {
+			foundContent = true
+			break
+		}
+	}
+	if !foundContent {
+		t.Errorf("_source.excludes must contain \"content\", got %v", excludes)
+	}
+}
+
+// TestSearchDocuments_HighlightFragmentBecomesSnippet asserts that the Content
+// field on a returned DocumentResult is populated from the highlight fragment,
+// not from the source body.
+func TestSearchDocuments_HighlightFragmentBecomesSnippet(t *testing.T) {
+	fragment := "...the matched <em>kubernetes</em> context here..."
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hits": map[string]any{
+					"total": map[string]any{"value": 1},
+					"hits": []map[string]any{
+						{
+							"_id":    "doc-1",
+							"_score": 1.5,
+							"_source": map[string]any{
+								"document_id": "doc-1",
+								"source_id":   "source-1",
+								"title":       "Kubernetes Setup",
+							},
+							"highlight": map[string]any{
+								"content": []any{fragment},
+							},
+						},
+					},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{URL: ts.URL, IndexName: "sercha_chunks", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	results, _, err := engine.SearchDocuments(context.Background(), "kubernetes", domain.SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 result, got %d", len(results))
+	}
+	if results[0].Content != fragment {
+		t.Errorf("Content = %q, want %q", results[0].Content, fragment)
+	}
+}
+
+// TestSearchDocuments_NoHighlightLeavesContentEmpty asserts that a hit with no
+// highlight key in the response produces a DocumentResult with Content == ""
+// and does not panic.
+func TestSearchDocuments_NoHighlightLeavesContentEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.Contains(r.URL.Path, "_search") {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hits": map[string]any{
+					"total": map[string]any{"value": 1},
+					"hits": []map[string]any{
+						{
+							"_id":    "doc-1",
+							"_score": 1.0,
+							"_source": map[string]any{
+								"document_id": "doc-1",
+								"source_id":   "source-1",
+								"title":       "No Highlight Doc",
+							},
+							// no "highlight" key
+						},
+					},
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	engine, err := NewSearchEngine(Config{URL: ts.URL, IndexName: "sercha_chunks", Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("NewSearchEngine: %v", err)
+	}
+
+	results, _, err := engine.SearchDocuments(context.Background(), "kubernetes", domain.SearchOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("SearchDocuments: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("want 1 result, got %d", len(results))
+	}
+	if results[0].Content != "" {
+		t.Errorf("Content = %q, want empty string when no highlight", results[0].Content)
 	}
 }
 
@@ -1995,5 +2181,120 @@ func TestSearchEngine_ContextCancellation(t *testing.T) {
 	err = engine.HealthCheck(ctx)
 	if err == nil {
 		t.Error("HealthCheck() should return error when context is cancelled")
+	}
+}
+
+// TestEnsureIndex_ToleratesAlreadyExists verifies that ensureIndex returns nil when
+// OpenSearch responds with 400 resource_already_exists_exception (the shape seen in
+// production when concurrent callers race on first index creation).
+func TestEnsureIndex_ToleratesAlreadyExists(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" && strings.Contains(r.URL.Path, "sercha_chunks") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"type":"resource_already_exists_exception","reason":"index [sercha_chunks/6kbwfs7ZQ1ObW5hyb5K5aQ] already exists","root_cause":[{"type":"resource_already_exists_exception","reason":"index [sercha_chunks/6kbwfs7ZQ1ObW5hyb5K5aQ] already exists"}]},"status":400}`))
+			return
+		}
+	}))
+	defer ts.Close()
+
+	cfg := Config{
+		URL:       ts.URL,
+		IndexName: "sercha_chunks",
+		Timeout:   5 * time.Second,
+	}
+	engine, err := NewSearchEngine(cfg)
+	if err != nil {
+		t.Fatalf("NewSearchEngine() error = %v", err)
+	}
+
+	if err := engine.ensureIndex(context.Background()); err != nil {
+		t.Errorf("ensureIndex() returned error on resource_already_exists_exception: %v", err)
+	}
+}
+
+// TestEnsureIndex_PropagatesOtherErrors verifies that ensureIndex propagates 400
+// responses whose error type is something other than resource_already_exists_exception.
+func TestEnsureIndex_PropagatesOtherErrors(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" && strings.Contains(r.URL.Path, "sercha_chunks") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"type":"illegal_argument_exception","reason":"bad request"},"status":400}`))
+			return
+		}
+	}))
+	defer ts.Close()
+
+	cfg := Config{
+		URL:       ts.URL,
+		IndexName: "sercha_chunks",
+		Timeout:   5 * time.Second,
+	}
+	engine, err := NewSearchEngine(cfg)
+	if err != nil {
+		t.Fatalf("NewSearchEngine() error = %v", err)
+	}
+
+	if err := engine.ensureIndex(context.Background()); err == nil {
+		t.Error("ensureIndex() should return error for illegal_argument_exception, got nil")
+	}
+}
+
+// TestEnsureIndex_ConcurrentCallers_AllSucceed verifies that when 5 goroutines call
+// ensureIndex simultaneously and only one can win the creation race, all 5 complete
+// without error. The server returns 200 for the first PUT and
+// resource_already_exists_exception for subsequent ones.
+func TestEnsureIndex_ConcurrentCallers_AllSucceed(t *testing.T) {
+	var callCount atomic.Int32
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PUT" && strings.Contains(r.URL.Path, "sercha_chunks") {
+			n := callCount.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			if n == 1 {
+				// First caller wins — index created successfully.
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"acknowledged":true,"shards_acknowledged":true,"index":"sercha_chunks"}`))
+			} else {
+				// Subsequent callers race-lose with the exists error.
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"type":"resource_already_exists_exception","reason":"index [sercha_chunks/abc] already exists","root_cause":[{"type":"resource_already_exists_exception","reason":"index [sercha_chunks/abc] already exists"}]},"status":400}`))
+			}
+			return
+		}
+	}))
+	defer ts.Close()
+
+	cfg := Config{
+		URL:       ts.URL,
+		IndexName: "sercha_chunks",
+		Timeout:   5 * time.Second,
+	}
+	engine, err := NewSearchEngine(cfg)
+	if err != nil {
+		t.Fatalf("NewSearchEngine() error = %v", err)
+	}
+
+	const goroutines = 5
+	errs := make([]error, goroutines)
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = engine.ensureIndex(context.Background())
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: ensureIndex() returned error: %v", i, err)
+		}
+	}
+
+	if total := callCount.Load(); total != goroutines {
+		t.Errorf("expected %d PUT calls, got %d", goroutines, total)
 	}
 }

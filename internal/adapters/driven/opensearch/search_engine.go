@@ -133,7 +133,7 @@ func (s *SearchEngine) SearchDocuments(ctx context.Context, query string, opts d
 }
 
 // SearchByQueryDSL runs an arbitrary OpenSearch query body inside the
-// adapter's standard bool envelope (filters, highlights, pagination).
+// adapter's standard bool envelope (filters, pagination).
 // Caller owns the inner query shape — useful when the standard match-based
 // retrieval doesn't fit (e.g. function_score, custom rescoring, or any
 // other query DSL the existing methods don't expose).
@@ -162,9 +162,9 @@ func (s *SearchEngine) SearchByQueryDSL(ctx context.Context, queryBody json.RawM
 
 // buildBoolEnvelope wraps a slice of must clauses in the standard bool
 // query envelope: must + optional should (boost terms, exact-title boost)
-// + optional filter (source/document filters), plus pagination and
-// highlights. Shared by SearchDocuments and SearchByQueryDSL so they
-// apply filters and highlights identically.
+// + optional filter (source/document filters), plus pagination.
+// Shared by SearchDocuments and SearchByQueryDSL so they apply filters
+// identically.
 //
 // rawQuery is the user's original query string used to build the
 // exact-title-match should clause. SearchByQueryDSL passes "" because
@@ -232,19 +232,40 @@ func (s *SearchEngine) buildBoolEnvelope(mustClauses []any, opts domain.SearchOp
 		boolQuery["filter"] = filterClauses
 	}
 
+	// _source: exclude `content`. The full document body lands as a single
+	// indexed field; shipping it back for every search marshals 100s of MB
+	// per query when the corpus has multi-MB documents. The match-context
+	// snippet is reconstructed via the highlight clause below, so callers
+	// still get a relevance-aware preview without paying the full-body
+	// shipping cost.
+	//
+	// highlight with `max_analyzer_offset` capped at 1 MB. Without the cap
+	// OpenSearch 400s the entire search (all shards fail) when any matched
+	// document's content exceeds the index-level offset; the per-request
+	// override truncates the highlighter's analysis window rather than
+	// failing the query. Per-field options:
+	//   - fragment_size 200 keeps the snippet readable in result lists.
+	//   - number_of_fragments 1 returns a single best fragment per hit.
+	//   - no_match_size 0 leaves the snippet empty when the match was in a
+	//     non-highlighted field (e.g. title); the title is still shown.
+	//
+	// NOTE: the option key is `max_analyzer_offset` (not `max_analyzed_offset`
+	// as the documentation occasionally suggests). Verified against OpenSearch
+	// 2.11.0 — the alternative spelling produces a 400 x_content_parse_exception.
 	return map[string]any{
 		"query": map[string]any{"bool": boolQuery},
 		"from":  opts.Offset,
 		"size":  opts.Limit,
+		"_source": map[string]any{
+			"excludes": []string{"content"},
+		},
 		"highlight": map[string]any{
+			"max_analyzer_offset": 1000000,
 			"fields": map[string]any{
 				"content": map[string]any{
 					"fragment_size":       200,
-					"number_of_fragments": 3,
-				},
-				"title": map[string]any{
-					"fragment_size":       200,
 					"number_of_fragments": 1,
+					"no_match_size":       0,
 				},
 			},
 		},
@@ -281,11 +302,16 @@ func (s *SearchEngine) executeSearch(ctx context.Context, searchQuery map[string
 			return nil, 0, fmt.Errorf("failed to unmarshal source: %w", err)
 		}
 
+		// Content is no longer in the source (excluded for payload size).
+		// Use the highlight fragment as a relevance-aware snippet — falls
+		// back to empty when the match was outside the content field.
+		snippet := firstHighlight(hit.Highlight, "content")
+
 		results = append(results, driven.DocumentResult{
 			DocumentID: getString(source, "document_id"),
 			SourceID:   getString(source, "source_id"),
 			Title:      getString(source, "title"),
-			Content:    getString(source, "content"),
+			Content:    snippet,
 			Score:      float64(hit.Score),
 		})
 	}
@@ -392,24 +418,14 @@ func (s *SearchEngine) Count(ctx context.Context) (int64, error) {
 	return int64(resp.Count), nil
 }
 
-// ensureIndex creates the index with the correct mapping if it doesn't exist.
+// ensureIndex creates the index with the correct mapping if it does not already exist.
 // The index stores full documents (not chunks) for BM25 text search.
+//
+// The create call is made optimistically without a prior existence check.
+// OpenSearch returns 400 with type resource_already_exists_exception when concurrent
+// callers race on first creation; that response is treated as success so all callers
+// proceed normally. All other 400+ responses are propagated as errors.
 func (s *SearchEngine) ensureIndex(ctx context.Context) error {
-	// Check if index exists using low-level Do to avoid v4 client treating 404 as error.
-	// IndicesExists returns 200 if the index exists, 404 if it doesn't — both are valid.
-	existsResp, err := s.client.Client.Do(ctx, opensearchapi.IndicesExistsReq{
-		Indices: []string{s.indexName},
-	}, nil)
-	if err != nil {
-		return fmt.Errorf("failed to check index existence: %w", err)
-	}
-	defer func() { _ = existsResp.Body.Close() }()
-
-	// Index exists (200)
-	if existsResp.StatusCode == 200 {
-		return nil
-	}
-
 	// Create index with document-level mapping.
 	//
 	// The english analyser lowercases, strips english stop words, and applies
@@ -538,23 +554,46 @@ func (s *SearchEngine) ensureIndex(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal mapping: %w", err)
 	}
 
-	createReq := opensearchapi.IndicesCreateReq{
+	// Use low-level Do so that a 400 response arrives as a response object (not an
+	// error) and we can parse the body to distinguish resource_already_exists from
+	// genuine failures.
+	createResp, err := s.client.Client.Do(ctx, opensearchapi.IndicesCreateReq{
 		Index: s.indexName,
 		Body:  bytes.NewReader(mappingBody),
-	}
-
-	createResp, err := s.client.Indices.Create(ctx, createReq)
+	}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create index: %w", err)
 	}
+	defer func() { _ = createResp.Body.Close() }()
 
-	// Check for HTTP errors
-	if httpResp := createResp.Inspect().Response; httpResp != nil && httpResp.StatusCode != 200 {
-		body, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("failed to create index with status %d: %s", httpResp.StatusCode, string(body))
+	if createResp.StatusCode == 200 || createResp.StatusCode == 201 {
+		return nil
 	}
 
-	return nil
+	// Read body once for both the already-exists check and the error message.
+	respBody, _ := io.ReadAll(createResp.Body)
+
+	if isAlreadyExistsError(respBody) {
+		// OpenSearch returns 400 with resource_already_exists_exception when
+		// concurrent callers race on first creation; treat it as success.
+		return nil
+	}
+
+	return fmt.Errorf("failed to create index: status: %d, body: %s", createResp.StatusCode, string(respBody))
+}
+
+// isAlreadyExistsError reports whether an OpenSearch error response body indicates
+// that the index already exists (resource_already_exists_exception).
+func isAlreadyExistsError(body []byte) bool {
+	var errResp struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &errResp); err != nil {
+		return false
+	}
+	return errResp.Error.Type == "resource_already_exists_exception"
 }
 
 // deleteByQuery is a helper for deleting documents matching a query.
@@ -664,6 +703,21 @@ func getInt(m map[string]any, key string) int {
 		}
 	}
 	return 0
+}
+
+// firstHighlight returns the first highlight fragment for the named field,
+// or empty string if none. The OpenSearch response shape is
+// `{"<field>": ["<fragment>", ...]}` per hit; with number_of_fragments=1
+// the slice is at most one element long.
+func firstHighlight(highlight map[string][]string, field string) string {
+	if highlight == nil {
+		return ""
+	}
+	frags, ok := highlight[field]
+	if !ok || len(frags) == 0 {
+		return ""
+	}
+	return frags[0]
 }
 
 // isIndexNotFoundError checks if an opensearch error is due to a missing index.
