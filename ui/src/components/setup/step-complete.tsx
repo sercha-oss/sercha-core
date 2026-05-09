@@ -38,12 +38,13 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
           listSources().catch(() => []),
         ]);
 
-        // Check if any capabilities are enabled
-        const capabilitiesEnabled = capabilityPrefs
-          ? capabilityPrefs.text_indexing_enabled ||
-            capabilityPrefs.embedding_indexing_enabled ||
-            capabilityPrefs.bm25_search_enabled ||
-            capabilityPrefs.vector_search_enabled
+        // Check if any capability toggle has been explicitly persisted —
+        // i.e. the operator has visited the capabilities step. The presence
+        // of any entry in toggles indicates configuration; the absence of
+        // entries means defaults are in effect (which is also valid post-
+        // setup but doesn't count as "configured by the user").
+        const capabilitiesEnabled = capabilityPrefs?.toggles
+          ? Object.values(capabilityPrefs.toggles).some((v) => v)
           : false;
 
         setStatus({
@@ -127,7 +128,7 @@ export function StepComplete({ completedSteps }: StepCompleteProps) {
         Your Sercha is Ready!
       </h1>
       <p className="mt-2 text-sm text-sercha-fog-grey">
-        You&apos;ve successfully set up your enterprise search platform.
+        You&apos;ve successfully set up your search platform.
       </p>
 
       {/* Configuration Summary */}

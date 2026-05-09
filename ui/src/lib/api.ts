@@ -114,18 +114,29 @@ export interface CapabilityStatus {
   active: boolean;
 }
 
+export interface CapabilityDescriptor {
+  type: string;
+  display_name: string;
+  description: string;
+  phase: "indexing" | "search";
+  backend_id?: string;
+  depends_on?: string[];
+  grants?: string[];
+  default_enabled: boolean;
+}
+
 export interface CapabilitiesResponse {
   oauth_providers: string[];
   ai_providers: {
     embedding: string[];
     llm: string[];
   };
-  features: {
-    text_indexing: CapabilityStatus;
-    embedding_indexing: CapabilityStatus;
-    bm25_search: CapabilityStatus;
-    vector_search: CapabilityStatus;
-  };
+  // Registered capability metadata. Drives dynamic UI rendering — the
+  // admin panel iterates this list to know what toggles to show.
+  descriptors: CapabilityDescriptor[];
+  // Resolved status keyed by capability type id. Cross-reference with
+  // descriptors[].type.
+  features: Record<string, CapabilityStatus>;
   limits: {
     sync_min_interval: number;
     sync_max_interval: number;
@@ -185,7 +196,7 @@ export interface CreateSourceRequest {
   name: string;
   provider_type: string;
   config?: Record<string, unknown>;
-  connection_id: string;
+  connection_id?: string;
   containers: Container[];
 }
 
@@ -236,10 +247,19 @@ export interface SourceSummary {
 
 export interface SyncState {
   source_id: string;
-  status: "idle" | "syncing" | "success" | "error";
-  last_sync_time?: string;
-  documents_synced: number;
-  error_message?: string;
+  // Matches backend domain.SyncStatus values, NOT the older synonyms
+  // ("syncing"/"success") that briefly lived here. UI consumers should
+  // map "running" → spinner and "completed" / "failed" → final states.
+  status: "idle" | "running" | "completed" | "failed";
+  last_sync_at?: string;
+  next_sync_at?: string;
+  cursor?: string;
+  error?: string;
+  started_at?: string;
+  completed_at?: string;
+  // Aggregate counts come back nested as `stats` from the backend; keep
+  // the loose typing so downstream pages can read what they need.
+  stats?: Record<string, number>;
 }
 
 export interface ComponentHealth {
@@ -833,6 +853,59 @@ export async function search(data: SearchRequest, signal?: AbortSignal): Promise
   });
 }
 
+// Search by document - multipart/form-data upload
+export async function searchByDocument(
+  file: File,
+  options?: {
+    boost_terms?: Record<string, number>;
+    mode?: "hybrid" | "text" | "semantic";
+    limit?: number;
+    source_ids?: string[];
+  }
+): Promise<SearchResponse> {
+  const baseUrl = getBaseUrl();
+  const token = getToken();
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  // Add optional fields as JSON strings
+  if (options?.boost_terms) {
+    formData.append("boost_terms", JSON.stringify(options.boost_terms));
+  }
+  if (options?.mode) {
+    formData.append("mode", options.mode);
+  }
+  if (options?.limit) {
+    formData.append("limit", options.limit.toString());
+  }
+  if (options?.source_ids && options.source_ids.length > 0) {
+    formData.append("source_ids", JSON.stringify(options.source_ids));
+  }
+
+  const headers: HeadersInit = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${baseUrl}/api/v1/search/by-document`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new ApiError(
+      response.status,
+      error.code || "UNKNOWN",
+      error.message || "Document search failed"
+    );
+  }
+
+  return response.json();
+}
+
 // ========== Users API ==========
 
 export async function listUsers(): Promise<UserSummary[]> {
@@ -959,6 +1032,40 @@ export async function getSourceDocuments(
 
 export async function getSourceSyncState(id: string): Promise<SyncState> {
   return apiFetch<SyncState>(`/api/v1/sources/${id}/sync`);
+}
+
+// ----- Failed documents (skip-list / retry ledger) -----
+
+// Mirrors backend domain.SyncFailedDoc. Each row represents a document
+// the orchestrator failed to ingest within a sync run; the row is
+// retried independently with exponential backoff. Once attempt_count
+// exceeds the configured terminal threshold the row stays in the
+// ledger (terminal=true) but is no longer auto-retried — operator has
+// to investigate.
+export interface SyncFailedDocument {
+  source_id: string;
+  external_id: string;
+  attempt_count: number;
+  last_error: string;
+  last_attempted_at: string;
+  next_retry_after: string;
+  terminal: boolean;
+  created_at: string;
+}
+
+export interface FailedDocumentsResponse {
+  documents: SyncFailedDocument[];
+  total: number;
+}
+
+export async function getSourceFailedDocuments(
+  id: string,
+  limit?: number
+): Promise<FailedDocumentsResponse> {
+  const qs = limit ? `?limit=${limit}` : "";
+  return apiFetch<FailedDocumentsResponse>(
+    `/api/v1/sources/${id}/failed-documents${qs}`
+  );
 }
 
 // ========== Settings APIs ==========
@@ -1208,28 +1315,20 @@ export interface Capability {
   depends_on?: string;
 }
 
-// CapabilityPreferencesResponse represents per-team capability preferences
+// CapabilityPreferencesResponse represents per-team capability preferences.
+// Toggles is keyed by capability type id; capabilities absent from the map
+// have no explicit preference and fall back to the descriptor's
+// default_enabled at resolution time.
 export interface CapabilityPreferencesResponse {
   team_id: string;
-  text_indexing_enabled: boolean;
-  embedding_indexing_enabled: boolean;
-  bm25_search_enabled: boolean;
-  vector_search_enabled: boolean;
-  query_expansion_enabled: boolean;
-  query_rewriting_enabled: boolean;
-  summarization_enabled: boolean;
+  toggles: Record<string, boolean>;
   updated_at: string;
 }
 
-// UpdateCapabilityPreferencesRequest for partial updates
+// UpdateCapabilityPreferencesRequest is a partial-update DTO. Each entry
+// in toggles is upserted; capabilities not present are left unchanged.
 export interface UpdateCapabilityPreferencesRequest {
-  text_indexing_enabled?: boolean;
-  embedding_indexing_enabled?: boolean;
-  bm25_search_enabled?: boolean;
-  vector_search_enabled?: boolean;
-  query_expansion_enabled?: boolean;
-  query_rewriting_enabled?: boolean;
-  summarization_enabled?: boolean;
+  toggles: Record<string, boolean>;
 }
 
 export async function getCapabilityPreferences(): Promise<CapabilityPreferencesResponse> {
@@ -1244,3 +1343,4 @@ export async function updateCapabilityPreferences(
     body: JSON.stringify(req),
   });
 }
+

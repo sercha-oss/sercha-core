@@ -59,7 +59,7 @@ func WithEmbeddingRPMLimit(rpm int64) OpenAIEmbeddingOption {
 }
 
 // WithEmbeddingMaxRetries sets the maximum number of retry attempts for the
-// embedding client. The default is read from OPENAI_MAX_RETRIES (5 if unset).
+// embedding client. Defaults to 5 (hard-coded in NewOpenAIEmbedding).
 func WithEmbeddingMaxRetries(n int) OpenAIEmbeddingOption {
 	return func(e *OpenAIEmbedding) {
 		e.transport.MaxRetries = n
@@ -67,8 +67,7 @@ func WithEmbeddingMaxRetries(n int) OpenAIEmbeddingOption {
 }
 
 // WithEmbeddingMaxRetryElapsed sets the maximum total elapsed time for
-// retries. The default is read from OPENAI_MAX_RETRY_ELAPSED_SEC (60 if
-// unset).
+// retries. Defaults to 60s (hard-coded in NewOpenAIEmbedding).
 func WithEmbeddingMaxRetryElapsed(d time.Duration) OpenAIEmbeddingOption {
 	return func(e *OpenAIEmbedding) {
 		e.transport.MaxRetryElapsed = d
@@ -93,12 +92,13 @@ var openAIModelDimensions = map[string]int{
 
 // NewOpenAIEmbedding creates a new OpenAI embedding service.
 //
-// The constructor reads three env vars to configure the rate-limiter and retry
-// behaviour:
+// The constructor reads two env vars to size the rate-limiter:
 //
-//   - OPENAI_TPM_LIMIT (default 1000000): initial token-per-minute budget
-//   - OPENAI_MAX_RETRIES (default 5): max retry attempts on 429/5xx
-//   - OPENAI_MAX_RETRY_ELAPSED_SEC (default 60): max total seconds spent retrying
+//   - EMBEDDER_TPM (default 1000000): tokens-per-minute budget
+//   - EMBEDDER_RPM (default 3000):    requests-per-minute budget
+//
+// Retry policy (5 attempts, 60s total) is hard-coded; tests override via the
+// WithEmbeddingMaxRetries / WithEmbeddingMaxRetryElapsed options.
 //
 // These defaults are conservative and work without tuning. Pass opts to
 // override any of them programmatically (e.g. in tests).

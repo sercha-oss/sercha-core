@@ -1200,7 +1200,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a document by ID with all its chunks",
+                "description": "Get document metadata by ID",
                 "produces": [
                     "application/json"
                 ],
@@ -1221,65 +1221,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.DocumentWithChunks"
-                        }
-                    },
-                    "400": {
-                        "description": "Missing document ID",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Document not found",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal server error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/documents/{id}/chunks": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Get all chunks for a specific document. Chunks are the indexed segments of a document used for search.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Documents"
-                ],
-                "summary": "Get document chunks",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Document ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.DocumentWithChunks"
+                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.Document"
                         }
                     },
                     "400": {
@@ -2688,6 +2630,70 @@
                 }
             }
         },
+        "/sources/{id}/failed-documents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the per-document skip-list rows for a source —",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sources"
+                ],
+                "summary": "List failing documents for a source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Source ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max rows to return (default 100, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.FailedDocumentsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden - admin only",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_adapters_driving_http.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/sources/{id}/sync": {
             "get": {
                 "security": [
@@ -3297,7 +3303,8 @@
                 "api_key",
                 "basic",
                 "service_account",
-                "pat"
+                "pat",
+                "app_only"
             ],
             "x-enum-comments": {
                 "AuthMethodPAT": "Personal Access Token"
@@ -3307,85 +3314,132 @@
                 "",
                 "",
                 "",
-                "Personal Access Token"
+                "Personal Access Token",
+                ""
             ],
             "x-enum-varnames": [
                 "AuthMethodOAuth2",
                 "AuthMethodAPIKey",
                 "AuthMethodBasic",
                 "AuthMethodServiceAccount",
-                "AuthMethodPAT"
+                "AuthMethodPAT",
+                "AuthMethodAppOnly"
             ]
+        },
+        "github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityDescriptor": {
+            "type": "object",
+            "properties": {
+                "backend_id": {
+                    "description": "BackendID is an optional tag identifying the implementation backend\n(e.g. \"opensearch\", \"pgvector\", \"llm\"). Used purely for UX\n(grouping, badges); the capability resolution path does not consult\nit. Empty when the capability has no specific backend.",
+                    "type": "string"
+                },
+                "default_enabled": {
+                    "description": "DefaultEnabled is the toggle's default value when no per-team\npreference exists. The resolver uses this as the initial enabled\nstate before applying stored preferences.",
+                    "type": "boolean"
+                },
+                "depends_on": {
+                    "description": "DependsOn lists other capability types that must be enabled and\navailable for this capability to function. The resolver cascades\ndisable: if any dependency is not active, this capability is\nmarked disabled.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType"
+                    }
+                },
+                "description": {
+                    "description": "Description is one-line guidance text rendered alongside the toggle.",
+                    "type": "string"
+                },
+                "display_name": {
+                    "description": "DisplayName is the human-readable label rendered in the admin UI.",
+                    "type": "string"
+                },
+                "grants": {
+                    "description": "Grants lists capabilities that this capability enables. Reverse of\nDependsOn — purely informational for the UI today.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType"
+                    }
+                },
+                "phase": {
+                    "description": "Phase indicates whether this is an indexing or search capability.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.PipelinePhase"
+                        }
+                    ]
+                },
+                "type": {
+                    "description": "Type is the unique string key. Must match the registry's view.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType"
+                        }
+                    ]
+                }
+            }
         },
         "github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityPreferences": {
             "type": "object",
             "properties": {
-                "bm25_search_enabled": {
-                    "description": "Search preferences (can toggle down, but requires indexing to be enabled)",
-                    "type": "boolean"
-                },
-                "embedding_indexing_enabled": {
-                    "description": "Enable vector indexing",
-                    "type": "boolean"
-                },
                 "team_id": {
-                    "description": "TeamID is the team these preferences belong to",
                     "type": "string"
                 },
-                "text_indexing_enabled": {
-                    "description": "Indexing preferences (explicitly controlled by user)",
-                    "type": "boolean"
+                "toggles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "boolean"
+                    }
                 },
                 "updated_at": {
-                    "description": "UpdatedAt tracks when preferences were last modified",
                     "type": "string"
-                },
-                "vector_search_enabled": {
-                    "description": "Enable vector search (if embedding indexing enabled)",
-                    "type": "boolean"
                 }
             }
         },
-        "github_com_sercha-oss_sercha-core_internal_core_domain.Chunk": {
-            "type": "object",
-            "properties": {
-                "content": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "document_id": {
-                    "type": "string"
-                },
-                "embedding": {
-                    "type": "array",
-                    "items": {
-                        "type": "number"
-                    }
-                },
-                "end_char": {
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "position": {
-                    "description": "Chunk position within document",
-                    "type": "integer"
-                },
-                "source_id": {
-                    "type": "string"
-                },
-                "start_char": {
-                    "type": "integer"
-                }
-            }
+        "github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType": {
+            "type": "string",
+            "enum": [
+                "text_indexing",
+                "embedding_indexing",
+                "bm25_search",
+                "vector_search",
+                "query_expansion",
+                "query_rewriting",
+                "summarization"
+            ],
+            "x-enum-comments": {
+                "CapabilityBM25Search": "Keyword search",
+                "CapabilityEmbeddingIndexing": "Enables vector search",
+                "CapabilityQueryExpansion": "Expands queries with related terms",
+                "CapabilityQueryRewriting": "Reformulates queries for better matching",
+                "CapabilitySummarization": "Generates result snippets",
+                "CapabilityTextIndexing": "Enables BM25 search",
+                "CapabilityVectorSearch": "Semantic search"
+            },
+            "x-enum-descriptions": [
+                "Enables BM25 search",
+                "Enables vector search",
+                "Keyword search",
+                "Semantic search",
+                "Expands queries with related terms",
+                "Reformulates queries for better matching",
+                "Generates result snippets"
+            ],
+            "x-enum-varnames": [
+                "CapabilityTextIndexing",
+                "CapabilityEmbeddingIndexing",
+                "CapabilityBM25Search",
+                "CapabilityVectorSearch",
+                "CapabilityQueryExpansion",
+                "CapabilityQueryRewriting",
+                "CapabilitySummarization"
+            ]
         },
         "github_com_sercha-oss_sercha-core_internal_core_domain.ConnectionSummary": {
             "type": "object",
             "properties": {
                 "account_id": {
+                    "type": "string"
+                },
+                "app_credentials_ref": {
                     "type": "string"
                 },
                 "auth_method": {
@@ -3406,8 +3460,19 @@
                 "oauth_expiry": {
                     "type": "string"
                 },
+                "platform": {
+                    "description": "NEW",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.PlatformType"
+                        }
+                    ]
+                },
                 "provider_type": {
                     "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.ProviderType"
+                },
+                "tenant_id": {
+                    "type": "string"
                 }
             }
         },
@@ -3419,9 +3484,7 @@
                 },
                 "metadata": {
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                    "additionalProperties": {}
                 },
                 "name": {
                     "type": "string"
@@ -3468,20 +3531,6 @@
                 },
                 "updated_at": {
                     "type": "string"
-                }
-            }
-        },
-        "github_com_sercha-oss_sercha-core_internal_core_domain.DocumentWithChunks": {
-            "type": "object",
-            "properties": {
-                "chunks": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.Chunk"
-                    }
-                },
-                "document": {
-                    "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.Document"
                 }
             }
         },
@@ -3617,47 +3666,45 @@
                 }
             }
         },
+        "github_com_sercha-oss_sercha-core_internal_core_domain.PipelinePhase": {
+            "type": "string",
+            "enum": [
+                "indexing",
+                "search"
+            ],
+            "x-enum-varnames": [
+                "PipelinePhaseIndexing",
+                "PipelinePhaseSearch"
+            ]
+        },
+        "github_com_sercha-oss_sercha-core_internal_core_domain.PlatformType": {
+            "type": "string",
+            "enum": [
+                "github",
+                "localfs",
+                "notion",
+                "microsoft"
+            ],
+            "x-enum-varnames": [
+                "PlatformGitHub",
+                "PlatformLocalFS",
+                "PlatformNotion",
+                "PlatformMicrosoft"
+            ]
+        },
         "github_com_sercha-oss_sercha-core_internal_core_domain.ProviderType": {
             "type": "string",
             "enum": [
                 "github",
-                "gitlab",
-                "bitbucket",
-                "slack",
-                "discord",
-                "msteams",
-                "notion",
-                "confluence",
-                "google_docs",
-                "jira",
-                "linear",
-                "google_drive",
-                "dropbox",
-                "onedrive",
-                "s3",
                 "localfs",
-                "zendesk",
-                "intercom"
+                "notion",
+                "onedrive"
             ],
             "x-enum-varnames": [
                 "ProviderTypeGitHub",
-                "ProviderTypeGitLab",
-                "ProviderTypeBitbucket",
-                "ProviderTypeSlack",
-                "ProviderTypeDiscord",
-                "ProviderTypeMSTeams",
-                "ProviderTypeNotion",
-                "ProviderTypeConfluence",
-                "ProviderTypeGoogleDocs",
-                "ProviderTypeJira",
-                "ProviderTypeLinear",
-                "ProviderTypeGoogleDrive",
-                "ProviderTypeDropbox",
-                "ProviderTypeOneDrive",
-                "ProviderTypeS3",
                 "ProviderTypeLocalFS",
-                "ProviderTypeZendesk",
-                "ProviderTypeIntercom"
+                "ProviderTypeNotion",
+                "ProviderTypeOneDrive"
             ]
         },
         "github_com_sercha-oss_sercha-core_internal_core_domain.QueryFrequency": {
@@ -3961,6 +4008,11 @@
                 "indexed_at": {
                     "type": "string"
                 },
+                "metadata": {
+                    "description": "Metadata carries arbitrary key-value annotations produced by pipeline\nstages and copied through from pipeline.PresentedResult.Metadata by the\nsearch service.\n\nThis mirrors the Metadata fields already present on pipeline.Candidate\nand pipeline.PresentedResult: stages can attach derived information to a\nresult (faceting hints, ranking signals, query-expansion match info,\nstage-specific outcome flags) and have it survive the projection from\nthe pipeline's internal types to the public domain type.\n\nKeys are convention-based and stage-specific; the search service does\nnot interpret them, it only forwards what the presenter exposes.\nDriving adapters (HTTP handlers, MCP servers, downstream services) read\nkeys they care about and ignore the rest.\n\nStages that do not need to attach metadata may leave this nil.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "mime_type": {
                     "type": "string"
                 },
@@ -4181,6 +4233,50 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "mime_exclusions": {
+                    "description": "MimeExclusions are MIME type patterns to exclude (e.g., \"image/*\", \"font/*\")",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_sercha-oss_sercha-core_internal_core_domain.SyncFailedDoc": {
+            "type": "object",
+            "properties": {
+                "attempt_count": {
+                    "description": "AttemptCount is the number of times we've tried this doc since the\nrow was created. Drives backoff and the terminal cutoff.",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "description": "CreatedAt is when the first failure for this (source_id,\nexternal_id) was recorded.",
+                    "type": "string"
+                },
+                "external_id": {
+                    "description": "ExternalID is the connector's identifier for the doc that failed.\nNot the Sercha-internal document_id: failures often happen before\nany internal row gets created.",
+                    "type": "string"
+                },
+                "last_attempted_at": {
+                    "description": "LastAttemptedAt is when the most recent attempt ran. Useful for\n\"stuck since X\" presentations in admin UIs.",
+                    "type": "string"
+                },
+                "last_error": {
+                    "description": "LastError is the error message from the most recent attempt,\ntruncated by the store layer for storage hygiene.",
+                    "type": "string"
+                },
+                "next_retry_after": {
+                    "description": "NextRetryAfter is the earliest time the orchestrator should retry\nthis doc. The retry pre-pass picks rows where\nnext_retry_after \u003c= now() AND terminal = false.",
+                    "type": "string"
+                },
+                "source_id": {
+                    "description": "SourceID is the parent source — the (source_id, external_id) pair\nis the primary key.",
+                    "type": "string"
+                },
+                "terminal": {
+                    "description": "Terminal is true once the row has exceeded the configured maximum\nattempt count. Excluded from automatic retry; remains in the table\nfor operator visibility.",
+                    "type": "boolean"
                 }
             }
         },
@@ -4280,7 +4376,7 @@
                     "type": "integer"
                 },
                 "payload": {
-                    "description": "Payload contains task-specific data\nFor sync_source: {\"source_id\": \"src-123\"}\nFor sync_all: {} (empty)",
+                    "description": "Payload contains task-specific data\nFor sync_source: {\"source_id\": \"src-123\"}\nFor sync_container: {\"source_id\": \"src-123\", \"container_id\": \"cnt-456\"}\nFor sync_all: {} (empty)",
                     "type": "object",
                     "additionalProperties": {
                         "type": "string"
@@ -4343,11 +4439,13 @@
             "type": "string",
             "enum": [
                 "sync_source",
-                "sync_all"
+                "sync_all",
+                "sync_container"
             ],
             "x-enum-varnames": [
                 "TaskTypeSyncSource",
-                "TaskTypeSyncAll"
+                "TaskTypeSyncAll",
+                "TaskTypeSyncContainer"
             ]
         },
         "github_com_sercha-oss_sercha-core_internal_core_domain.UpcomingJobs": {
@@ -4435,16 +4533,18 @@
                     "description": "Description is an optional description of the container.",
                     "type": "string"
                 },
+                "has_children": {
+                    "description": "HasChildren indicates if this container has child containers (for folder navigation).",
+                    "type": "boolean"
+                },
                 "id": {
                     "description": "ID is the provider-specific identifier.\nFormat varies by provider:\n  - GitHub: \"owner/repo\"\n  - Google Drive: drive ID\n  - Confluence: space key",
                     "type": "string"
                 },
                 "metadata": {
-                    "description": "Metadata contains provider-specific additional data.\nExamples:\n  - GitHub: {\"owner\": \"...\", \"private\": \"true\", \"archived\": \"false\"}\n  - Google Drive: {\"shared\": \"true\"}",
+                    "description": "Metadata contains provider-specific additional data.\nValues may be any JSON-encodable type (booleans, ints, strings).\nExamples:\n  - GitHub: {\"owner\": \"octocat\", \"private\": true, \"archived\": false}\n  - Google Drive: {\"shared\": true}",
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                    "additionalProperties": {}
                 },
                 "name": {
                     "description": "Name is the human-readable display name.",
@@ -4460,14 +4560,12 @@
             "type": "object",
             "properties": {
                 "embedding": {
-                    "description": "Embedding lists providers available for embedding service",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.AIProvider"
                     }
                 },
                 "llm": {
-                    "description": "LLM lists providers available for LLM service",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.AIProvider"
@@ -4571,27 +4669,32 @@
             }
         },
         "github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilitiesResponse": {
-            "description": "Information about what features are enabled via environment configuration",
             "type": "object",
             "properties": {
                 "ai_providers": {
-                    "description": "AIProviders lists AI providers available for embedding and LLM",
+                    "description": "AIProviders lists AI providers available for embedding and LLM.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.AIProvidersCapability"
                         }
                     ]
                 },
+                "descriptors": {
+                    "description": "Descriptors lists every registered capability's metadata. Drives\ndynamic UI rendering — the admin panel iterates this list to know\nwhat toggles to show.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityDescriptor"
+                    }
+                },
                 "features": {
-                    "description": "Features lists feature flags",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.FeaturesCapability"
-                        }
-                    ]
+                    "description": "Features maps each registered capability's type to its resolved\nruntime status (available + enabled + active). Stable counterpart\nto Descriptors: callers cross-reference by Type.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus"
+                    }
                 },
                 "limits": {
-                    "description": "Limits defines operational boundaries from environment configuration",
+                    "description": "Limits defines operational boundaries from environment configuration.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.LimitsCapability"
@@ -4599,10 +4702,10 @@
                     ]
                 },
                 "oauth_providers": {
-                    "description": "OAuthProviders lists OAuth providers configured via environment variables",
+                    "description": "OAuthProviders lists OAuth platforms configured via environment.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.ProviderType"
+                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.PlatformType"
                     }
                 }
             }
@@ -4611,15 +4714,15 @@
             "type": "object",
             "properties": {
                 "active": {
-                    "description": "Active indicates both available AND enabled",
+                    "description": "Active is Available AND Enabled.",
                     "type": "boolean"
                 },
                 "available": {
-                    "description": "Available indicates if the backend is configured and healthy",
+                    "description": "Available reports whether the runtime can support this capability\nright now (backends configured, services healthy).",
                     "type": "boolean"
                 },
                 "enabled": {
-                    "description": "Enabled indicates if the user has enabled this capability",
+                    "description": "Enabled reports the operator's preference (or the descriptor default\nwhen no explicit preference is stored).",
                     "type": "boolean"
                 }
             }
@@ -4700,43 +4803,6 @@
                 }
             }
         },
-        "github_com_sercha-oss_sercha-core_internal_core_ports_driving.FeaturesCapability": {
-            "type": "object",
-            "properties": {
-                "bm25_search": {
-                    "description": "BM25Search indicates BM25 keyword search capability state (requires search engine)",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus"
-                        }
-                    ]
-                },
-                "embedding_indexing": {
-                    "description": "EmbeddingIndexing indicates embedding indexing capability state (requires embedding service + vector store)",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus"
-                        }
-                    ]
-                },
-                "text_indexing": {
-                    "description": "TextIndexing indicates BM25 text indexing capability state (requires search engine e.g. OpenSearch)",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus"
-                        }
-                    ]
-                },
-                "vector_search": {
-                    "description": "VectorSearch indicates vector similarity search capability state (requires embedding service + vector store)",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus"
-                        }
-                    ]
-                }
-            }
-        },
         "github_com_sercha-oss_sercha-core_internal_core_ports_driving.LLMSettingsInput": {
             "type": "object",
             "properties": {
@@ -4752,19 +4818,15 @@
             "type": "object",
             "properties": {
                 "max_results_per_page": {
-                    "description": "MaxResultsPerPage is the maximum results per page",
                     "type": "integer"
                 },
                 "max_workers": {
-                    "description": "MaxWorkers is the maximum number of sync workers",
                     "type": "integer"
                 },
                 "sync_max_interval": {
-                    "description": "SyncMaxInterval is the maximum sync interval in minutes",
                     "type": "integer"
                 },
                 "sync_min_interval": {
-                    "description": "SyncMinInterval is the minimum sync interval in minutes",
                     "type": "integer"
                 }
             }
@@ -4888,21 +4950,11 @@
         "github_com_sercha-oss_sercha-core_internal_core_ports_driving.UpdateCapabilityPreferencesRequest": {
             "type": "object",
             "properties": {
-                "bm25_search_enabled": {
-                    "description": "BM25SearchEnabled controls BM25 search (requires text indexing)",
-                    "type": "boolean"
-                },
-                "embedding_indexing_enabled": {
-                    "description": "EmbeddingIndexingEnabled controls vector/embedding indexing",
-                    "type": "boolean"
-                },
-                "text_indexing_enabled": {
-                    "description": "TextIndexingEnabled controls BM25 text indexing",
-                    "type": "boolean"
-                },
-                "vector_search_enabled": {
-                    "description": "VectorSearchEnabled controls vector search (requires embedding indexing)",
-                    "type": "boolean"
+                "toggles": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "boolean"
+                    }
                 }
             }
         },
@@ -5029,6 +5081,21 @@
                 "error": {
                     "type": "string",
                     "example": "invalid request body"
+                }
+            }
+        },
+        "internal_adapters_driving_http.FailedDocumentsResponse": {
+            "description": "Per-source documents the orchestrator failed to ingest.",
+            "type": "object",
+            "properties": {
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.SyncFailedDoc"
+                    }
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -5202,41 +5269,7 @@
             }
         },
         "internal_adapters_driving_http.searchRequest": {
-            "description": "Search query request",
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "example": 20
-                },
-                "mode": {
-                    "enum": [
-                        "hybrid",
-                        "text",
-                        "semantic"
-                    ],
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.SearchMode"
-                        }
-                    ],
-                    "example": "hybrid"
-                },
-                "offset": {
-                    "type": "integer",
-                    "example": 0
-                },
-                "query": {
-                    "type": "string",
-                    "example": "how to configure authentication"
-                },
-                "source_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            }
+            "type": "object"
         },
         "time.Duration": {
             "type": "integer",

@@ -68,15 +68,15 @@ func WithLLMRPMLimit(rpm int64) OpenAILLMOption {
 }
 
 // WithLLMMaxRetries sets the maximum number of retry attempts for the LLM
-// client. The default is read from OPENAI_MAX_RETRIES (5 if unset).
+// client. Defaults to 5 (hard-coded in NewOpenAILLM).
 func WithLLMMaxRetries(n int) OpenAILLMOption {
 	return func(l *OpenAILLM) {
 		l.transport.MaxRetries = n
 	}
 }
 
-// WithLLMMaxRetryElapsed sets the maximum total elapsed time for retries. The
-// default is read from OPENAI_MAX_RETRY_ELAPSED_SEC (60 if unset).
+// WithLLMMaxRetryElapsed sets the maximum total elapsed time for retries.
+// Defaults to 60s (hard-coded in NewOpenAILLM).
 func WithLLMMaxRetryElapsed(d time.Duration) OpenAILLMOption {
 	return func(l *OpenAILLM) {
 		l.transport.MaxRetryElapsed = d

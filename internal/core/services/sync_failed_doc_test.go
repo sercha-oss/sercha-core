@@ -20,11 +20,9 @@ import (
 // tests. Tracks every method call so test bodies can assert wiring,
 // recovers a sensible attempt-count progression, and never blocks.
 type fakeFailedDocStore struct {
-	mu     sync.Mutex
-	rows   map[string]*domain.SyncFailedDoc // key: source_id|external_id
-	calls  fakeFailedDocStoreCalls
-	policy driven.RetryBackoff
-	now    time.Time
+	mu    sync.Mutex
+	rows  map[string]*domain.SyncFailedDoc // key: source_id|external_id
+	calls fakeFailedDocStoreCalls
 	// readyOverride lets a test plant rows for the retry pre-pass to
 	// pick up without going through Record (handy for the "retry
 	// succeeds and clears" path).

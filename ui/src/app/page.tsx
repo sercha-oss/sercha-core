@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { getAIStatus, AISettingsStatus, getCapabilityPreferences } from "@/lib/api";
+import { getAIStatus, AISettingsStatus, getCapabilityPreferences, searchByDocument } from "@/lib/api";
+import { SearchModeToggle } from "@/components/search/SearchModeToggle";
+import { DocumentSearchForm } from "@/components/search/DocumentSearchForm";
 
 interface ToggleProps {
   enabled: boolean;
@@ -86,6 +88,9 @@ export default function SearchHomePage() {
   const [aiStatus, setAiStatus] = useState<AISettingsStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(true);
 
+  // Search mode state
+  const [searchMode, setSearchMode] = useState<"text" | "document">("text");
+
   // Derived AI configuration from status AND capability preferences
   // Vector search available only if embedding provider is configured AND preference is enabled
   const embeddingConfigured = aiStatus?.embedding?.available ?? false;
@@ -117,7 +122,7 @@ export default function SearchHomePage() {
     ])
       .then(([status, prefs]) => {
         setAiStatus(status);
-        const vectorPrefEnabled = prefs?.vector_search_enabled ?? true;
+        const vectorPrefEnabled = prefs?.toggles?.vector_search ?? true;
         setVectorSearchEnabled(vectorPrefEnabled);
 
         // Auto-enable vector search if both provider is available AND preference is enabled
@@ -156,6 +161,48 @@ export default function SearchHomePage() {
     e.preventDefault();
     if (query.trim()) {
       router.push(`/search?q=${encodeURIComponent(query)}&mode=${getMode()}`);
+    }
+  };
+
+  const handleDocumentSearch = async (file: File, boostTerms: string[]) => {
+    // Convert boost terms array to Record<string, number> with default weight of 1.5
+    const boostTermsMap = boostTerms.reduce((acc, term) => {
+      acc[term] = 1.5;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const mode = getMode();
+
+    try {
+      const response = await searchByDocument(file, {
+        boost_terms: Object.keys(boostTermsMap).length > 0 ? boostTermsMap : undefined,
+        mode,
+        limit: 20,
+      });
+
+      // Stash the full server response in sessionStorage before navigating.
+      // The search results page reads and immediately clears this envelope
+      // so it is single-use per upload.
+      if (typeof window !== "undefined") {
+        const envelope = {
+          response,
+          filename: file.name,
+          mode,
+          timestamp: Date.now(),
+          boostTerms,
+        };
+        sessionStorage.setItem("sercha:document-search-result", JSON.stringify(envelope));
+      }
+
+      // Navigate without a `q` param so the search page doesn't run a text
+      // search. The `source=document` param signals that results come from
+      // sessionStorage, not a text query.
+      router.push(
+        `/search?source=document&filename=${encodeURIComponent(file.name)}&mode=${mode}`
+      );
+    } catch (error) {
+      console.error("Document search failed:", error);
+      throw error;
     }
   };
 
@@ -260,71 +307,84 @@ export default function SearchHomePage() {
             </p>
           </div>
 
-          {/* Search Form */}
-          <form onSubmit={handleSearch} className="space-y-4">
-            {/* Search Input with embedded button */}
-            <div className="relative flex items-end rounded-3xl border-2 border-sercha-silverline bg-white transition-all focus-within:border-sercha-indigo focus-within:ring-4 focus-within:ring-sercha-indigo-soft">
-              <textarea
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (query.trim()) {
-                      handleSearch(e);
-                    }
-                  }
-                }}
-                placeholder="Search documents, code, messages..."
-                rows={1}
-                className="max-h-32 min-h-[56px] w-full resize-none rounded-3xl bg-transparent py-4 pl-5 pr-14 text-lg text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:outline-none"
-                style={{
-                  height: "auto",
-                  overflowY: query.split("\n").length > 4 ? "auto" : "hidden",
-                }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = "auto";
-                  const lineHeight = 28;
-                  const maxLines = 4;
-                  const maxHeight = lineHeight * maxLines + 32; // padding
-                  target.style.height = `${Math.min(target.scrollHeight, maxHeight)}px`;
-                }}
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={!query.trim()}
-                className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-sercha-indigo text-white transition-all hover:bg-sercha-indigo/90 disabled:bg-sercha-silverline disabled:text-sercha-fog-grey"
-              >
-                <Search size={20} />
-              </button>
-            </div>
+          {/* Search Mode Toggle */}
+          <div className="mb-6 flex justify-center">
+            <SearchModeToggle mode={searchMode} onChange={setSearchMode} />
+          </div>
 
-            {/* AI Enhancement Toggles */}
-            <div className="flex items-center justify-center gap-6">
-              {loadingStatus ? (
-                <div className="flex items-center gap-2 text-sercha-fog-grey">
-                  <Loader2 size={16} className="animate-spin" />
-                  <span className="text-sm">Loading AI status...</span>
-                </div>
-              ) : (
-                <>
-                  <Toggle
-                    enabled={vectorEnabled}
-                    onChange={setVectorEnabled}
-                    disabled={!embeddingConfigured || !vectorSearchEnabled}
-                    label="Vector Search"
-                    tooltip={!embeddingConfigured
-                      ? "Requires embedding provider to be configured."
-                      : !vectorSearchEnabled
-                        ? "Disabled by admin in Capabilities settings."
-                        : "Use AI embeddings to find semantically similar content, even when exact keywords don't match."}
+          {/* Search Form Container - fixed height to prevent layout shift */}
+          <div className="min-h-[220px]">
+            {searchMode === "text" ? (
+              <form onSubmit={handleSearch} className="space-y-4 transition-opacity duration-200">
+                {/* Search Input with embedded button */}
+                <div className="relative flex items-end rounded-3xl border-2 border-sercha-silverline bg-white transition-all focus-within:border-sercha-indigo focus-within:ring-4 focus-within:ring-sercha-indigo-soft">
+                  <textarea
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (query.trim()) {
+                          handleSearch(e);
+                        }
+                      }
+                    }}
+                    placeholder="Search documents, code, messages..."
+                    rows={1}
+                    className="max-h-32 min-h-[56px] w-full resize-none rounded-3xl bg-transparent py-4 pl-5 pr-14 text-lg text-sercha-ink-slate placeholder:text-sercha-fog-grey focus:outline-none"
+                    style={{
+                      height: "auto",
+                      overflowY: query.split("\n").length > 4 ? "auto" : "hidden",
+                    }}
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = "auto";
+                      const lineHeight = 28;
+                      const maxLines = 4;
+                      const maxHeight = lineHeight * maxLines + 32; // padding
+                      target.style.height = `${Math.min(target.scrollHeight, maxHeight)}px`;
+                    }}
+                    autoFocus
                   />
-                </>
-              )}
-            </div>
-          </form>
+                  <button
+                    type="submit"
+                    disabled={!query.trim()}
+                    className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-sercha-indigo text-white transition-all hover:bg-sercha-indigo/90 disabled:bg-sercha-silverline disabled:text-sercha-fog-grey"
+                  >
+                    <Search size={20} />
+                  </button>
+                </div>
+
+                {/* AI Enhancement Toggles */}
+                <div className="flex items-center justify-center gap-6">
+                  {loadingStatus ? (
+                    <div className="flex items-center gap-2 text-sercha-fog-grey">
+                      <Loader2 size={16} className="animate-spin" />
+                      <span className="text-sm">Loading AI status...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <Toggle
+                        enabled={vectorEnabled}
+                        onChange={setVectorEnabled}
+                        disabled={!embeddingConfigured || !vectorSearchEnabled}
+                        label="Vector Search"
+                        tooltip={!embeddingConfigured
+                          ? "Requires embedding provider to be configured."
+                          : !vectorSearchEnabled
+                            ? "Disabled by admin in Capabilities settings."
+                            : "Use AI embeddings to find semantically similar content, even when exact keywords don't match."}
+                      />
+                    </>
+                  )}
+                </div>
+              </form>
+            ) : (
+              <div className="transition-opacity duration-200">
+                <DocumentSearchForm onSearch={handleDocumentSearch} />
+              </div>
+            )}
+          </div>
         </div>
       </main>
 
