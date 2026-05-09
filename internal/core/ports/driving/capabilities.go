@@ -6,120 +6,86 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 )
 
-// CapabilitiesService provides information about what features are available
-// based on environment configuration (env vars) and per-team preferences.
+// CapabilitiesService exposes capability descriptors, runtime availability,
+// and per-team toggles to driving adapters (HTTP API, MCP, etc.).
+//
+// The service is registry-driven: it iterates the registered descriptors
+// and reports state for each. New capabilities (Core built-ins or add-on
+// registered) appear automatically without service-side code changes.
 type CapabilitiesService interface {
-	// GetCapabilities returns information about available features.
-	// teamID is used to resolve per-team preferences; if empty, defaults are used.
+	// GetCapabilities returns the full capability snapshot for a team —
+	// OAuth providers, AI providers, registered capability descriptors
+	// + their resolved status, and operational limits.
 	GetCapabilities(ctx context.Context, teamID string) (*CapabilitiesResponse, error)
 
-	// GetCapabilityPreferences retrieves capability preferences for a team.
+	// GetCapabilityPreferences returns the persisted toggle state for the
+	// team. Capabilities absent from the result have no explicit
+	// preference and fall back to descriptor defaults.
 	GetCapabilityPreferences(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error)
 
-	// UpdateCapabilityPreferences updates capability preferences for a team.
-	// Uses partial update semantics - only non-nil fields are applied.
+	// UpdateCapabilityPreferences applies a partial toggle update for the
+	// team. Toggles not present in the request are left unchanged.
+	// Returns the resulting preferences (post-update).
 	UpdateCapabilityPreferences(ctx context.Context, teamID string, req UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error)
 }
 
-// UpdateCapabilityPreferencesRequest represents a request to update capability preferences.
-// All fields are optional pointers to support partial updates.
+// UpdateCapabilityPreferencesRequest is a partial-update DTO. Each entry
+// in Toggles becomes one upsert against (team_id, capability_type).
+// Capabilities not in the map are untouched in storage.
+//
+// Toggle keys are domain.CapabilityType values; the map deliberately uses
+// the same type as the rest of the domain so callers cannot accidentally
+// pass arbitrary strings without going through the type.
 type UpdateCapabilityPreferencesRequest struct {
-	// TextIndexingEnabled controls BM25 text indexing
-	TextIndexingEnabled *bool `json:"text_indexing_enabled,omitempty"`
-
-	// EmbeddingIndexingEnabled controls vector/embedding indexing
-	EmbeddingIndexingEnabled *bool `json:"embedding_indexing_enabled,omitempty"`
-
-	// BM25SearchEnabled controls BM25 search (requires text indexing)
-	BM25SearchEnabled *bool `json:"bm25_search_enabled,omitempty"`
-
-	// VectorSearchEnabled controls vector search (requires embedding indexing)
-	VectorSearchEnabled *bool `json:"vector_search_enabled,omitempty"`
-
-	// QueryExpansionEnabled controls LLM-powered query expansion
-	QueryExpansionEnabled *bool `json:"query_expansion_enabled,omitempty"`
-
-	// QueryRewritingEnabled controls LLM-powered query rewriting
-	QueryRewritingEnabled *bool `json:"query_rewriting_enabled,omitempty"`
-
-	// SummarizationEnabled controls LLM-powered result summarization
-	SummarizationEnabled *bool `json:"summarization_enabled,omitempty"`
+	Toggles map[domain.CapabilityType]bool `json:"toggles"`
 }
 
-// CapabilitiesResponse represents the capabilities available to the application.
-// @Description Information about what features are enabled via environment configuration
+// CapabilitiesResponse is the full capability snapshot for a team.
 type CapabilitiesResponse struct {
-	// OAuthProviders lists OAuth platforms configured via environment variables
+	// OAuthProviders lists OAuth platforms configured via environment.
 	OAuthProviders []domain.PlatformType `json:"oauth_providers"`
 
-	// AIProviders lists AI providers available for embedding and LLM
+	// AIProviders lists AI providers available for embedding and LLM.
 	AIProviders AIProvidersCapability `json:"ai_providers"`
 
-	// Features lists feature flags
-	Features FeaturesCapability `json:"features"`
+	// Descriptors lists every registered capability's metadata. Drives
+	// dynamic UI rendering — the admin panel iterates this list to know
+	// what toggles to show.
+	Descriptors []domain.CapabilityDescriptor `json:"descriptors"`
 
-	// Limits defines operational boundaries from environment configuration
+	// Features maps each registered capability's type to its resolved
+	// runtime status (available + enabled + active). Stable counterpart
+	// to Descriptors: callers cross-reference by Type.
+	Features map[domain.CapabilityType]CapabilityStatus `json:"features"`
+
+	// Limits defines operational boundaries from environment configuration.
 	Limits LimitsCapability `json:"limits"`
 }
 
-// AIProvidersCapability lists available AI providers
+// AIProvidersCapability lists available AI providers.
 type AIProvidersCapability struct {
-	// Embedding lists providers available for embedding service
 	Embedding []domain.AIProvider `json:"embedding"`
-
-	// LLM lists providers available for LLM service
-	LLM []domain.AIProvider `json:"llm"`
+	LLM       []domain.AIProvider `json:"llm"`
 }
 
-// CapabilityStatus represents the state of a single capability.
+// CapabilityStatus is the resolved runtime state of one capability.
 type CapabilityStatus struct {
-	// Available indicates if the backend is configured and healthy
+	// Available reports whether the runtime can support this capability
+	// right now (backends configured, services healthy).
 	Available bool `json:"available"`
 
-	// Enabled indicates if the user has enabled this capability
+	// Enabled reports the operator's preference (or the descriptor default
+	// when no explicit preference is stored).
 	Enabled bool `json:"enabled"`
 
-	// Active indicates both available AND enabled
+	// Active is Available AND Enabled.
 	Active bool `json:"active"`
 }
 
-// FeaturesCapability lists backend availability for each capability type.
-// These map directly to domain.CapabilityType and combine backend availability
-// with user preferences to show the full capability state.
-type FeaturesCapability struct {
-	// TextIndexing indicates BM25 text indexing capability state (requires search engine e.g. OpenSearch)
-	TextIndexing CapabilityStatus `json:"text_indexing"`
-
-	// EmbeddingIndexing indicates embedding indexing capability state (requires embedding service + vector store)
-	EmbeddingIndexing CapabilityStatus `json:"embedding_indexing"`
-
-	// BM25Search indicates BM25 keyword search capability state (requires search engine)
-	BM25Search CapabilityStatus `json:"bm25_search"`
-
-	// VectorSearch indicates vector similarity search capability state (requires embedding service + vector store)
-	VectorSearch CapabilityStatus `json:"vector_search"`
-
-	// QueryExpansion indicates LLM-powered query expansion capability state (requires LLM provider)
-	QueryExpansion CapabilityStatus `json:"query_expansion"`
-
-	// QueryRewriting indicates LLM-powered query rewriting capability state (requires LLM provider)
-	QueryRewriting CapabilityStatus `json:"query_rewriting"`
-
-	// Summarization indicates LLM-powered result summarization capability state (requires LLM provider)
-	Summarization CapabilityStatus `json:"summarization"`
-}
-
-// LimitsCapability defines operational boundaries
+// LimitsCapability defines operational boundaries.
 type LimitsCapability struct {
-	// SyncMinInterval is the minimum sync interval in minutes
-	SyncMinInterval int `json:"sync_min_interval"`
-
-	// SyncMaxInterval is the maximum sync interval in minutes
-	SyncMaxInterval int `json:"sync_max_interval"`
-
-	// MaxWorkers is the maximum number of sync workers
-	MaxWorkers int `json:"max_workers"`
-
-	// MaxResultsPerPage is the maximum results per page
+	SyncMinInterval   int `json:"sync_min_interval"`
+	SyncMaxInterval   int `json:"sync_max_interval"`
+	MaxWorkers        int `json:"max_workers"`
 	MaxResultsPerPage int `json:"max_results_per_page"`
 }

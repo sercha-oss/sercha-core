@@ -18,8 +18,16 @@ import (
 )
 
 // defaultDocConcurrency is the per-container fan-out used when
-// SyncOrchestratorConfig.Concurrency is zero. Chosen as a balance between
-// embedder/connector RPM headroom and observed wall-time gain on large syncs.
+// SyncOrchestratorConfig.Concurrency is zero. Set to 4 — multiplies with
+// worker-level fan-out (typically 2) to give up to 8 concurrent docs
+// processing per source sync. The LLM-bound entity-extractor stage caps
+// in-flight LLM calls at maxInFlightLLMCalls (currently 8) regardless,
+// so this can't oversubscribe the LLM bucket. Faster: more parallelism
+// across non-LLM stages (chunker, embedder, vector-loader) where the
+// individual workers spend most of their time on I/O.
+//
+// Operators override via the binary's wiring (typically a
+// SYNC_DOC_CONCURRENCY env var passed into SyncOrchestratorConfig).
 const defaultDocConcurrency = 4
 
 // defaultObserverTimeout bounds each individual OnDocumentIngested
@@ -77,6 +85,17 @@ type SyncOrchestrator struct {
 	observerTimeout        time.Duration                 // Per-call timeout for OnDocumentIngested.
 	observerSem            chan struct{}                 // Bounded semaphore for in-flight observer goroutines.
 	observerWG             sync.WaitGroup                // Tracks in-flight observer goroutines for WaitForObservers.
+
+	// failedDocStore tracks per-document failures so the cursor can
+	// always advance on a fresh delta batch — failures are retried on
+	// subsequent runs with exponential backoff. nil means the legacy
+	// "stall cursor on any error" behaviour is retained (test wiring).
+	failedDocStore   driven.SyncFailedDocStore
+	failedDocBackoff driven.RetryBackoff
+	// retryBatchPerSync caps how many previously-failing docs the
+	// pre-pass tries to recover per sync run. Bounds tail latency for
+	// sources with a large failure backlog.
+	retryBatchPerSync int
 }
 
 // SyncOrchestratorConfig holds dependencies for SyncOrchestrator.
@@ -100,9 +119,25 @@ type SyncOrchestratorConfig struct {
 	DocumentDeleteObserver    driven.DocumentDeleteObserver // Optional; nil means no observer.
 	Lock                      driven.DistributedLock        // Optional. When set, SyncSource/SyncContainer acquire "sync:source:<id>" before running so concurrent invocations no-op (Skipped=true) instead of racing.
 	LockTTL                   time.Duration                 // Optional. Defaults to 1h. Ignored by PG advisory locks (which release on connection close).
-	Concurrency               int                           // Optional. Per-container doc-level worker count. Defaults to 4 when zero.
+	Concurrency               int                           // Optional. Per-container doc-level worker count. Defaults to defaultDocConcurrency (1) when zero.
 	OnDocumentIngestedTimeout time.Duration                 // Optional. Per-call timeout for the async DocumentIngestObserver. Defaults to 30s when zero.
 	ObserverQueueDepth        int                           // Optional. Bounded goroutine pool depth for the async DocumentIngestObserver. Defaults to 32 when zero.
+
+	// FailedDocStore enables the per-document skip-list / retry ledger.
+	// When non-nil the orchestrator records per-doc failures here and
+	// always advances the cursor on a fresh delta batch (failures are
+	// retried independently). When nil the legacy "stall cursor on any
+	// error" behaviour is retained — kept for test wiring and any
+	// embedder that prefers the older semantics.
+	FailedDocStore driven.SyncFailedDocStore
+	// FailedDocBackoff overrides the default exponential schedule used
+	// when recording new failures. Optional — defaults to a sensible
+	// (5min base, 24h cap, 10 attempts) policy when the zero value is
+	// passed.
+	FailedDocBackoff driven.RetryBackoff
+	// RetryBatchPerSync caps how many previously-failing docs the
+	// pre-pass attempts per sync run. Defaults to 50 when zero.
+	RetryBatchPerSync int
 }
 
 // NewSyncOrchestrator creates a new sync orchestrator.
@@ -137,6 +172,26 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		queueDepth = defaultObserverQueueDepth
 	}
 
+	// Failed-doc retry policy. Defaults match what most ops tooling
+	// expects: an immediate-ish first retry (5 min) so transient
+	// upstream blips recover within one ticker interval, capped at 24 h
+	// so a deeply broken doc still gets retried daily, terminal at 10
+	// attempts so a permanently-broken doc stops generating churn.
+	failedBackoff := cfg.FailedDocBackoff
+	if failedBackoff.Base <= 0 {
+		failedBackoff.Base = 5 * time.Minute
+	}
+	if failedBackoff.Max <= 0 {
+		failedBackoff.Max = 24 * time.Hour
+	}
+	if failedBackoff.MaxAttempts <= 0 {
+		failedBackoff.MaxAttempts = 10
+	}
+	retryBatch := cfg.RetryBatchPerSync
+	if retryBatch <= 0 {
+		retryBatch = 50
+	}
+
 	return &SyncOrchestrator{
 		sourceStore:            cfg.SourceStore,
 		documentStore:          cfg.DocumentStore,
@@ -160,6 +215,9 @@ func NewSyncOrchestrator(cfg SyncOrchestratorConfig) *SyncOrchestrator {
 		concurrency:            concurrency,
 		observerTimeout:        observerTimeout,
 		observerSem:            make(chan struct{}, queueDepth),
+		failedDocStore:         cfg.FailedDocStore,
+		failedDocBackoff:       failedBackoff,
+		retryBatchPerSync:      retryBatch,
 	}
 }
 
@@ -644,6 +702,20 @@ func (o *SyncOrchestrator) syncContainer(
 	// the loop does nothing for them.
 	o.reconcileDeletions(ctx, source, connector, stats, processedExternalIDs)
 
+	// Phase 1b: retry previously-failing documents from the skip-list.
+	//
+	// The orchestrator no longer stalls cursor-advance when a doc fails;
+	// instead failures land in sync_failed_documents and are retried here
+	// independently with backoff. Bounded per run by retryBatchPerSync so
+	// a source with a huge backlog can't dominate one ticker interval.
+	//
+	// Successful retries mark the row succeeded (cleared); fresh failures
+	// bump the row's attempt count and push next_retry_after out per the
+	// configured exponential schedule. Anything that successfully retries
+	// here is recorded in processedExternalIDs so the delta loop below
+	// won't re-process it on the same tick.
+	o.retryFailedDocuments(ctx, source, containerID, connector, stats, processedExternalIDs)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -748,6 +820,11 @@ func (o *SyncOrchestrator) syncContainer(
 						"error", err,
 					)
 					o.withStats(stats, func(s *domain.SyncStats) { s.Errors++ })
+					// Record the failure in the skip-list so the next sync run
+					// retries this doc independently. The cursor still advances
+					// past this batch — the failure is no longer load-bearing
+					// on the cursor watermark.
+					o.recordDocumentFailure(ctx, source.ID, change.ExternalID, err)
 				} else {
 					o.logger.Debug("processed change",
 						"phase", "process_change",
@@ -757,6 +834,9 @@ func (o *SyncOrchestrator) syncContainer(
 						"change_type", string(change.Type),
 						"duration_ms", procDuration.Milliseconds(),
 					)
+					// Clear any prior skip-list row — a fresh delta processed
+					// successfully supersedes whatever previous failure.
+					o.clearDocumentFailure(ctx, source.ID, change.ExternalID)
 				}
 				return nil // never short-circuit on per-doc error
 			})
@@ -768,10 +848,24 @@ func (o *SyncOrchestrator) syncContainer(
 			return stats, lastCursor, err
 		}
 
-		// Only advance cursor if all documents in this batch succeeded
+		// Cursor advance policy:
+		//   * With a failed-doc store wired, ALWAYS advance — failures are
+		//     tracked separately in sync_failed_documents and retried on
+		//     subsequent runs. This eliminates the historical "one bad doc
+		//     stalls the cursor forever" pathology.
+		//   * Without the store wired (test or partial config), retain the
+		//     legacy "stall on any per-batch error" semantic so existing
+		//     callers don't silently change behaviour.
 		errorsAfter := o.readStatsErrors(stats)
-		if errorsAfter == errorsBefore {
+		if o.failedDocStore != nil || errorsAfter == errorsBefore {
 			lastCursor = nextCursor
+			if errorsAfter != errorsBefore {
+				o.logger.Info("advancing cursor; failed documents recorded for retry",
+					"source_id", source.ID,
+					"container_id", containerID,
+					"failed_count", errorsAfter-errorsBefore,
+				)
+			}
 		} else {
 			o.logger.Warn("not advancing cursor due to failed documents",
 				"source_id", source.ID,
@@ -1120,16 +1214,17 @@ func (o *SyncOrchestrator) processWithPipeline(
 
 	// Fetch capability preferences
 	if o.capabilityStore != nil {
-		// Use "default" teamID - in production, this should come from source metadata
-		prefs, _ := o.capabilityStore.GetPreferences(ctx, "default")
-		if prefs != nil {
-			pipelineContext.Preferences = &pipeline.StagePreferences{
-				TextIndexingEnabled:      prefs.TextIndexingEnabled,
-				EmbeddingIndexingEnabled: prefs.EmbeddingIndexingEnabled,
-				BM25SearchEnabled:        prefs.BM25SearchEnabled,
-				VectorSearchEnabled:      prefs.VectorSearchEnabled,
+		// Use "default" teamID - in production, this should come from source
+		// metadata. Stages resolve absent toggles via prefs.IsEnabled with
+		// their own descriptor default; we just pass the persisted map
+		// through.
+		toggles := map[domain.CapabilityType]bool{}
+		if prefs, err := o.capabilityStore.GetPreferences(ctx, "default"); err == nil && prefs != nil && prefs.Toggles != nil {
+			for k, v := range prefs.Toggles {
+				toggles[k] = v
 			}
 		}
+		pipelineContext.Preferences = &pipeline.StagePreferences{Toggles: toggles}
 	}
 
 	// Execute pipeline
@@ -1166,6 +1261,146 @@ func (o *SyncOrchestrator) processWithPipeline(
 }
 
 // failSync marks a sync as failed and returns the result.
+// recordDocumentFailure persists a per-doc failure to the skip-list. No-op
+// when the store isn't wired (test / partial-config paths). Failure to
+// record is logged but doesn't propagate — the cursor still advances and
+// the next delta will surface the same change again on its own clock.
+func (o *SyncOrchestrator) recordDocumentFailure(ctx context.Context, sourceID, externalID string, cause error) {
+	if o.failedDocStore == nil || externalID == "" {
+		return
+	}
+	if err := o.failedDocStore.Record(ctx, driven.SyncFailedDocRecord{
+		SourceID:   sourceID,
+		ExternalID: externalID,
+		Err:        cause,
+		Now:        time.Now().UTC(),
+		Backoff:    o.failedDocBackoff,
+	}); err != nil {
+		o.logger.Warn("sync: failed to record skip-list entry",
+			"source_id", sourceID,
+			"external_id", externalID,
+			"err", err,
+		)
+	}
+}
+
+// clearDocumentFailure removes a skip-list row for a doc that just
+// processed successfully. Idempotent — safe to call when no row exists.
+// No-op when the store isn't wired.
+func (o *SyncOrchestrator) clearDocumentFailure(ctx context.Context, sourceID, externalID string) {
+	if o.failedDocStore == nil || externalID == "" {
+		return
+	}
+	if err := o.failedDocStore.MarkSucceeded(ctx, sourceID, externalID); err != nil {
+		o.logger.Debug("sync: failed to clear skip-list entry",
+			"source_id", sourceID,
+			"external_id", externalID,
+			"err", err,
+		)
+	}
+}
+
+// retryFailedDocuments runs the per-source retry pre-pass: pull every
+// non-terminal skip-list row whose next_retry_after has elapsed, fetch
+// the doc afresh, and process it through the same pipeline a delta
+// change would take. Successful retries clear the row; fresh failures
+// bump it per the configured backoff schedule.
+//
+// No-op when the failed-doc store isn't wired. processedExternalIDs is
+// updated in lockstep so the delta-fetch loop further down won't double-
+// process anything we already retried this tick.
+func (o *SyncOrchestrator) retryFailedDocuments(
+	ctx context.Context,
+	source *domain.Source,
+	containerID string,
+	connector driven.Connector,
+	stats *domain.SyncStats,
+	processedExternalIDs map[string]bool,
+) {
+	if o.failedDocStore == nil {
+		return
+	}
+
+	now := time.Now().UTC()
+	rows, err := o.failedDocStore.ListReadyForRetry(ctx, source.ID, now, o.retryBatchPerSync)
+	if err != nil {
+		o.logger.Warn("sync: list-ready-for-retry failed",
+			"source_id", source.ID,
+			"err", err,
+		)
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+	o.logger.Info("sync: retrying previously-failing documents",
+		"source_id", source.ID,
+		"container_id", containerID,
+		"count", len(rows),
+	)
+
+	for _, row := range rows {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Skip docs another container already processed this tick (e.g.
+		// in a multi-container source where the same external_id is
+		// reachable through both). Idempotent and avoids redundant work.
+		if processedExternalIDs[row.ExternalID] {
+			continue
+		}
+
+		// Re-fetch the doc from the connector. The skip-list row only
+		// carries the external_id — we need fresh content + metadata to
+		// run the indexing pipeline. A connector that doesn't support
+		// FetchDocument (e.g. localfs) returns an error here; that's a
+		// fatal mismatch with the skip-list feature and we record the
+		// failure so the row keeps backing off.
+		doc, content, fetchErr := connector.FetchDocument(ctx, source, row.ExternalID)
+		if fetchErr != nil {
+			o.recordDocumentFailure(ctx, source.ID, row.ExternalID, fmt.Errorf("retry fetch: %w", fetchErr))
+			o.logger.Warn("sync: retry fetch failed",
+				"source_id", source.ID,
+				"external_id", row.ExternalID,
+				"attempt", row.AttemptCount+1,
+				"err", fetchErr,
+			)
+			processedExternalIDs[row.ExternalID] = true
+			continue
+		}
+		// Build a synthetic Modified change carrying the freshly-fetched
+		// document so the rest of the pipeline (validation, stages,
+		// observers) treats this just like any delta-borne update.
+		change := &domain.Change{
+			Type:       domain.ChangeTypeModified,
+			ExternalID: row.ExternalID,
+			Document:   doc,
+			Content:    content,
+		}
+		processedExternalIDs[row.ExternalID] = true
+		if err := o.processChange(ctx, source, change, stats); err != nil {
+			o.withStats(stats, func(s *domain.SyncStats) { s.Errors++ })
+			o.recordDocumentFailure(ctx, source.ID, row.ExternalID, err)
+			o.logger.Warn("sync: retry attempt failed",
+				"source_id", source.ID,
+				"external_id", row.ExternalID,
+				"attempt", row.AttemptCount+1,
+				"err", err,
+			)
+			continue
+		}
+		o.clearDocumentFailure(ctx, source.ID, row.ExternalID)
+		o.logger.Info("sync: retry succeeded; cleared skip-list entry",
+			"source_id", source.ID,
+			"external_id", row.ExternalID,
+			"prior_attempts", row.AttemptCount,
+		)
+	}
+}
+
 func (o *SyncOrchestrator) failSync(
 	ctx context.Context,
 	sourceID string,
@@ -1287,6 +1522,16 @@ func (o *SyncOrchestrator) CancelSync(ctx context.Context, sourceID string) erro
 	state.Error = "cancelled by user"
 
 	return o.syncStore.Save(ctx, state)
+}
+
+// ListFailedDocuments returns the per-doc skip-list rows for a source.
+// Empty slice when no failed-doc store is wired (legacy mode); the
+// store's own ListBySource handles pagination ordering and limits.
+func (o *SyncOrchestrator) ListFailedDocuments(ctx context.Context, sourceID string, limit int) ([]domain.SyncFailedDoc, error) {
+	if o.failedDocStore == nil {
+		return nil, nil
+	}
+	return o.failedDocStore.ListBySource(ctx, sourceID, limit)
 }
 
 // loadSettings loads team settings for the sync orchestrator

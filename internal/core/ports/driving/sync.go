@@ -22,6 +22,18 @@ type SyncOrchestrator interface {
 
 	// CancelSync cancels an ongoing sync for a source
 	CancelSync(ctx context.Context, sourceID string) error
+
+	// ListFailedDocuments returns the per-doc skip-list rows for a
+	// source: documents the orchestrator failed to ingest and is
+	// retrying (or has marked terminal). Used by the admin UI to
+	// surface "N docs need attention" without a separate plumbing of
+	// the SyncFailedDocStore through the HTTP server.
+	//
+	// Returns an empty slice when no failed-doc store is wired (the
+	// legacy "stall cursor on error" mode) — callers see "no rows" as
+	// distinct from "feature unavailable" only by inspecting whether
+	// the source has had any errors at all.
+	ListFailedDocuments(ctx context.Context, sourceID string, limit int) ([]domain.SyncFailedDoc, error)
 }
 
 // Scheduler manages periodic sync scheduling

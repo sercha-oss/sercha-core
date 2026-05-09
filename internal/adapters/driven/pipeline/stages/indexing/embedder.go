@@ -13,19 +13,22 @@ import (
 const (
 	EmbedderStageID = "embedder"
 
-	// defaultEmbedderBatchSize is the chunk count per embedder.Embed call
-	// when stage config does not override batch_size. Larger batches mean
-	// fewer round-trips per document; 96 is in-line with provider per-call
-	// limits and roughly cuts the request count by 3x vs the previous 32.
-	defaultEmbedderBatchSize = 96
+	// defaultEmbedderBatchSize is the chunk count per embedder.Embed call.
+	// Larger batches mean fewer round-trips. text-embedding-3-* accepts up
+	// to 2048 inputs per request; 256 is comfortable headroom while
+	// reducing call count ~2.7× vs the prior 96.
+	defaultEmbedderBatchSize = 256
 
-	// defaultEmbedderConcurrency is the number of in-flight embedder
-	// batches per document when stage config does not override
-	// embedder_concurrency. Combined with the per-container doc-level
-	// worker pool (see SyncOrchestratorConfig.Concurrency), this caps
-	// total in-flight embedder calls at roughly Concurrency *
-	// embedder_concurrency.
-	defaultEmbedderConcurrency = 2
+	// defaultEmbedderConcurrency is the in-flight embedder batches PER
+	// DOCUMENT. Combined with the per-container doc-level worker pool
+	// (SyncOrchestratorConfig.Concurrency, default 4), total in-flight
+	// embedder calls = doc-concurrency × embedder-concurrency.
+	//
+	// Set to 1: with doc-level concurrency at 4 we already have plenty of
+	// parallelism into the embedder bucket; per-doc fan-out just compounds
+	// queue depth without throughput gain (the embedder bucket is the
+	// binding constraint, not local goroutine availability).
+	defaultEmbedderConcurrency = 1
 )
 
 // EmbedderFactory creates embedder stages.

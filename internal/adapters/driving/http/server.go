@@ -15,6 +15,45 @@ import (
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
 )
 
+// Per-route write deadlines. Long-running routes (search, MCP) need a much
+// larger budget than REST CRUD endpoints because they may invoke chained LLM
+// calls (query expansion, entity extraction, etc.). The default REST budget
+// stays tight to bound exposure to slow-loris-style abuse.
+const (
+	defaultRouteTimeout    = 30 * time.Second
+	longRunningRouteTimeout = 5 * time.Minute
+)
+
+// withPerRouteTimeout dispatches each request through an http.TimeoutHandler
+// whose budget depends on the request path. This is wired in place of a
+// single server-level WriteTimeout because some endpoints intrinsically
+// need longer than 30s while the rest must not.
+func withPerRouteTimeout(next http.Handler) http.Handler {
+	long := http.TimeoutHandler(next, longRunningRouteTimeout, "request timed out")
+	short := http.TimeoutHandler(next, defaultRouteTimeout, "request timed out")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isLongRunningRoute(r.URL.Path) {
+			long.ServeHTTP(w, r)
+			return
+		}
+		short.ServeHTTP(w, r)
+	})
+}
+
+// isLongRunningRoute reports whether a request path should use the long
+// timeout budget.
+func isLongRunningRoute(path string) bool {
+	switch {
+	case path == "/mcp", strings.HasPrefix(path, "/mcp/"):
+		return true
+	case path == "/api/v1/search", strings.HasPrefix(path, "/api/v1/search/"):
+		return true
+	case strings.HasPrefix(path, "/api/v1/documents/") && strings.HasSuffix(path, "/similar"):
+		return true
+	}
+	return false
+}
+
 // stripTrailingSlash removes trailing slashes from request paths (except root)
 func stripTrailingSlash(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,8 +208,13 @@ func NewServer(
 		redisClient:         redisClient,
 	}
 
-	// Build handler chain: CORS -> strip trailing slash -> router
-	handler := stripTrailingSlash(s.router)
+	// Build handler chain: per-route timeout -> CORS -> strip trailing slash -> router.
+	// Per-route timeout: long-running endpoints (search, MCP) get a 5-minute
+	// budget; everything else stays at 30s. The server's WriteTimeout is
+	// disabled (set to 0) so the per-route TimeoutHandler is the sole source
+	// of write deadlines — leaving WriteTimeout at 30s would re-cap the long
+	// routes regardless of the per-route choice.
+	handler := withPerRouteTimeout(stripTrailingSlash(s.router))
 	if len(cfg.CORSOrigins) > 0 {
 		corsMiddleware := NewCORSMiddleware(cfg.CORSOrigins)
 		handler = corsMiddleware.Handler(handler)
@@ -180,7 +224,7 @@ func NewServer(
 		Addr:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Handler:      handler,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0, // per-route via withPerRouteTimeout
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -278,6 +322,9 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("GET /api/v1/sources/sync-states",
 		authMiddleware.Authenticate(
 			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListSyncStates))))
+	s.router.Handle("GET /api/v1/sources/{id}/failed-documents",
+		authMiddleware.Authenticate(
+			authMiddleware.RequireAdmin(http.HandlerFunc(s.handleListFailedDocuments))))
 
 	// Settings endpoints (admin-only)
 	s.router.Handle("GET /api/v1/settings",

@@ -31,6 +31,7 @@ import { AdminLayout } from "@/components/layout";
 import {
   getSource,
   getSourceSyncState,
+  getSourceFailedDocuments,
   triggerSync,
   deleteSource,
   enableSource,
@@ -45,6 +46,7 @@ import {
   SyncState,
   Document,
   Container,
+  type SyncFailedDocument,
 } from "@/lib/api";
 import { getProviderIcon, getProviderName } from "@/lib/providers";
 
@@ -87,6 +89,10 @@ function SourceDetailContent() {
   const [source, setSource] = useState<Source | null>(null);
   const [connection, setConnection] = useState<ConnectionSummary | null>(null);
   const [syncState, setSyncState] = useState<SyncState | null>(null);
+  // Per-doc skip-list for this source. Empty when nothing is failing
+  // OR when the orchestrator is wired in legacy mode (cursor-stall).
+  const [failedDocs, setFailedDocs] = useState<SyncFailedDocument[]>([]);
+  const [failedDocsExpanded, setFailedDocsExpanded] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [totalDocs, setTotalDocs] = useState(0);
   const [page, setPage] = useState(0);
@@ -141,6 +147,21 @@ function SourceDetailContent() {
     }
   }, [sourceId]);
 
+  // Pull the failed-doc skip-list alongside sync state so the badge
+  // count appears in the same render cycle as the rest of the source
+  // detail. Cap at 100 — operators triage from a CSV export when the
+  // backlog is enormous.
+  const fetchFailedDocs = useCallback(async () => {
+    if (!sourceId) return;
+    try {
+      const res = await getSourceFailedDocuments(sourceId, 100);
+      setFailedDocs(res.documents || []);
+    } catch (err) {
+      // Non-fatal — page still works without the skip-list view.
+      console.error("Failed to fetch failed-doc list:", err);
+    }
+  }, [sourceId]);
+
   // Fetch documents
   const fetchDocuments = useCallback(async () => {
     if (!sourceId) return;
@@ -170,11 +191,12 @@ function SourceDetailContent() {
       setLoading(true);
       await fetchSource();
       await fetchSyncState();
+      await fetchFailedDocs();
       await fetchDocuments();
       setLoading(false);
     };
     loadAll();
-  }, [sourceId, fetchSource, fetchSyncState, fetchDocuments]);
+  }, [sourceId, fetchSource, fetchSyncState, fetchFailedDocs, fetchDocuments]);
 
   // Refetch documents when page changes
   useEffect(() => {
@@ -183,16 +205,20 @@ function SourceDetailContent() {
     }
   }, [page, fetchDocuments, loading, sourceId]);
 
-  // Auto-refresh sync state while syncing
+  // Auto-refresh sync state while a sync is in progress. The Source list
+  // shape carries an aggregated status string ("syncing"/"healthy"/"error")
+  // computed by the backend; the per-source SyncState row uses Core's raw
+  // status enum where "running" is the in-progress value.
   useEffect(() => {
-    if (source?.status === "syncing" || syncState?.status === "syncing") {
+    if (source?.status === "syncing" || syncState?.status === "running") {
       const interval = setInterval(() => {
         fetchSource();
         fetchSyncState();
+        fetchFailedDocs();
       }, 5000);
       return () => clearInterval(interval);
     }
-  }, [source?.status, syncState?.status, fetchSource, fetchSyncState]);
+  }, [source?.status, syncState?.status, fetchSource, fetchSyncState, fetchFailedDocs]);
 
   // Handlers
   const handleSync = async () => {
@@ -203,6 +229,7 @@ function SourceDetailContent() {
       setTimeout(() => {
         fetchSource();
         fetchSyncState();
+        fetchFailedDocs();
       }, 1000);
     } catch (err) {
       console.error("Failed to trigger sync:", err);
@@ -376,9 +403,14 @@ function SourceDetailContent() {
     );
   }
 
-  // Derive status from syncState since getSource() doesn't include it
-  const sourceStatus = syncState?.status === "error" ? "error" : syncState?.status === "syncing" ? "syncing" : "healthy";
-  const isSyncing = syncState?.status === "syncing" || syncing;
+  // Derive status from syncState since getSource() doesn't include it.
+  // Map Core's status enum onto the UI's three-state vocabulary used by
+  // the badges and other source-detail surfaces.
+  const sourceStatus =
+    syncState?.status === "failed" ? "error"
+      : syncState?.status === "running" ? "syncing"
+      : "healthy";
+  const isSyncing = syncState?.status === "running" || syncing;
   const totalPages = Math.ceil(totalDocs / PAGE_SIZE);
   const startItem = page * PAGE_SIZE + 1;
   const endItem = Math.min((page + 1) * PAGE_SIZE, totalDocs);
@@ -504,7 +536,7 @@ function SourceDetailContent() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-sercha-ink-slate">
-                  {formatRelativeTime(syncState?.last_sync_time)}
+                  {formatRelativeTime(syncState?.last_sync_at)}
                 </p>
                 <p className="text-sm text-sercha-fog-grey">Last Synced</p>
               </div>
@@ -802,14 +834,96 @@ function SourceDetailContent() {
           document.body
         )}
 
-        {/* Sync Error Alert */}
-        {syncState?.status === "error" && syncState.error_message && (
+        {/* Sync Error Alert. Backend uses status="failed" with the message
+            on `error` (not `error_message` — that name was an older shape). */}
+        {syncState?.status === "failed" && syncState.error && (
           <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
             <AlertCircle size={20} className="mt-0.5 flex-shrink-0 text-red-600" />
             <div>
               <p className="font-medium text-red-800">Sync Error</p>
-              <p className="mt-1 text-sm text-red-700">{syncState.error_message}</p>
+              <p className="mt-1 text-sm text-red-700">{syncState.error}</p>
             </div>
+          </div>
+        )}
+
+        {/* Per-doc skip-list strip. Surfaces docs the orchestrator failed
+            to ingest and is retrying with backoff. Hidden when nothing is
+            failing — no chrome cost when sources are healthy. Operator can
+            expand to triage individual rows. */}
+        {failedDocs.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50">
+            <button
+              type="button"
+              onClick={() => setFailedDocsExpanded((v) => !v)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+            >
+              <div className="flex items-start gap-3">
+                <AlertCircle size={20} className="mt-0.5 flex-shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-medium text-amber-900">
+                    {failedDocs.length} document{failedDocs.length === 1 ? "" : "s"}{" "}
+                    failing to sync
+                  </p>
+                  <p className="mt-0.5 text-sm text-amber-800">
+                    {failedDocs.filter((d) => d.terminal).length > 0
+                      ? `${failedDocs.filter((d) => d.terminal).length} marked terminal — operator action needed.`
+                      : "Being retried with exponential backoff."}
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-medium text-amber-700">
+                {failedDocsExpanded ? "Hide" : "View"}
+              </span>
+            </button>
+            {failedDocsExpanded && (
+              <div className="overflow-x-auto border-t border-amber-200 px-4 py-3">
+                <table className="w-full text-left text-sm">
+                  <thead className="text-xs uppercase tracking-wide text-amber-700">
+                    <tr>
+                      <th className="py-1 pr-3 font-medium">External ID</th>
+                      <th className="py-1 pr-3 font-medium">Attempts</th>
+                      <th className="py-1 pr-3 font-medium">Status</th>
+                      <th className="py-1 pr-3 font-medium">Last attempt</th>
+                      <th className="py-1 pr-3 font-medium">Next retry</th>
+                      <th className="py-1 font-medium">Last error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {failedDocs.map((d) => (
+                      <tr
+                        key={d.external_id}
+                        className="border-t border-amber-200/60 align-top"
+                      >
+                        <td className="py-2 pr-3 font-mono text-xs text-amber-900">
+                          {d.external_id}
+                        </td>
+                        <td className="py-2 pr-3 text-amber-900">{d.attempt_count}</td>
+                        <td className="py-2 pr-3">
+                          {d.terminal ? (
+                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                              terminal
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                              retrying
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-amber-900">
+                          {formatRelativeTime(d.last_attempted_at)}
+                        </td>
+                        <td className="py-2 pr-3 text-xs text-amber-900">
+                          {d.terminal ? "—" : formatRelativeTime(d.next_retry_after)}
+                        </td>
+                        <td className="max-w-md break-words py-2 pr-3 font-mono text-[11px] text-amber-900">
+                          {d.last_error || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -820,9 +934,14 @@ function SourceDetailContent() {
             <div>
               <p className="font-medium text-sercha-indigo">Sync in Progress</p>
               <p className="mt-1 text-sm text-sercha-indigo/80">
-                {syncState.documents_synced > 0
-                  ? `${syncState.documents_synced} documents synced so far...`
-                  : "Starting sync..."}
+                {(() => {
+                  const added = syncState.stats?.documents_added ?? 0;
+                  const updated = syncState.stats?.documents_updated ?? 0;
+                  const total = added + updated;
+                  return total > 0
+                    ? `${total} documents synced so far...`
+                    : "Starting sync...";
+                })()}
               </p>
             </div>
           </div>

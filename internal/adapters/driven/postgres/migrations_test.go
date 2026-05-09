@@ -10,16 +10,16 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// TestMaxEmbeddedVersion verifies the highest embedded migration version is 1
-// (corresponding to migrations/0001_initial_schema.sql). This test is the
-// only DB-free test in this file and must always pass.
+// TestMaxEmbeddedVersion verifies the highest embedded migration version is 3
+// (corresponding to migrations/0003_sync_failed_documents.sql). This test
+// is the only DB-free test in this file and must always pass.
 func TestMaxEmbeddedVersion(t *testing.T) {
 	v, err := MaxEmbeddedVersion()
 	if err != nil {
 		t.Fatalf("MaxEmbeddedVersion returned error: %v", err)
 	}
-	if v != 1 {
-		t.Errorf("expected MaxEmbeddedVersion to be 1, got %d", v)
+	if v != 3 {
+		t.Errorf("expected MaxEmbeddedVersion to be 3, got %d", v)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestUp_AppliesMigration0001(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version failed: %v", err)
 	}
-	if v != 1 {
-		t.Errorf("expected version 1, got %d", v)
+	if v != 3 {
+		t.Errorf("expected version 3, got %d", v)
 	}
 }
 
@@ -101,8 +101,8 @@ func TestUp_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version failed: %v", err)
 	}
-	if v != 1 {
-		t.Errorf("expected version 1 after two Ups, got %d", v)
+	if v != 3 {
+		t.Errorf("expected version 3 after two Ups, got %d", v)
 	}
 }
 

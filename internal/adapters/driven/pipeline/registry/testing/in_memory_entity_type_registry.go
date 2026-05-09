@@ -32,13 +32,9 @@ var (
 	// already present in the registry.
 	ErrDuplicateEntityType = errors.New("entity type already registered")
 
-	// ErrUnknownEntityType is returned by Update, Delete, and
-	// SetOwningDetector when the given ID is not registered.
+	// ErrUnknownEntityType is returned by Update and Delete when the given
+	// ID is not registered.
 	ErrUnknownEntityType = errors.New("entity type not registered")
-
-	// ErrOwnerConflict is returned by SetOwningDetector when the category
-	// is already owned by a different detector.
-	ErrOwnerConflict = errors.New("entity type already owned by a different detector")
 )
 
 // InMemoryEntityTypeRegistry is a thread-safe, in-memory implementation of
@@ -124,49 +120,6 @@ func (r *InMemoryEntityTypeRegistry) List(_ context.Context) ([]pipeline.EntityT
 		out = append(out, m)
 	}
 	return out, nil
-}
-
-// SetOwningDetector claims (or clears) ownership of a category for the given
-// detector.
-//
-// Four-case contract:
-//
-//   - no prior owner → detectorID is set; returns nil.
-//   - same owner → idempotent; returns nil.
-//   - empty detectorID → clears ownership (idempotent if already unowned); returns nil.
-//   - different owner → returns ErrOwnerConflict; record is unchanged.
-//   - unknown ID → returns ErrUnknownEntityType.
-func (r *InMemoryEntityTypeRegistry) SetOwningDetector(_ context.Context, id pipeline.EntityType, detectorID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	m, exists := r.types[id]
-	if !exists {
-		return fmt.Errorf("SetOwningDetector %q: %w", id, ErrUnknownEntityType)
-	}
-
-	// Clearing ownership (empty detectorID) is always allowed.
-	if detectorID == "" {
-		m.OwningDetector = ""
-		r.types[id] = m
-		return nil
-	}
-
-	// Idempotent: same owner calling again.
-	if m.OwningDetector == detectorID {
-		return nil
-	}
-
-	// No prior owner: claim it.
-	if m.OwningDetector == "" {
-		m.OwningDetector = detectorID
-		r.types[id] = m
-		return nil
-	}
-
-	// Different owner: conflict.
-	return fmt.Errorf("SetOwningDetector %q (detector %q conflicts with owner %q): %w",
-		id, detectorID, m.OwningDetector, ErrOwnerConflict)
 }
 
 // Compile-time assertion: InMemoryEntityTypeRegistry must satisfy the port.

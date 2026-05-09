@@ -32,6 +32,12 @@ type SearchOptions struct {
 	// can register additional pipelines via PipelineRegistry and route
 	// per-request by setting this field.
 	PipelineID string `json:"pipeline_id,omitempty"`
+
+	// Caller identifies the entity making the search request. Nil means the
+	// origin is unknown. Stages that gate on caller identity (e.g. sensitivity
+	// masker) treat nil as non-MCP (skip execution). Populated by HTTP handlers
+	// (CallerSourceDirect) and MCP handlers (CallerSourceMCP).
+	Caller *Caller `json:"caller,omitempty"`
 }
 
 // Filters provides additional search filters

@@ -81,4 +81,16 @@ type EntityRegister interface {
 	// error but continues to attach the freshly-detected spans to the candidate
 	// regardless of whether caching succeeded.
 	Put(ctx context.Context, analysis *EntityAnalysis) error
+
+	// DeleteByDocument removes every cached analysis row for the given
+	// document, across all content_sha256 / analyzer_version combinations.
+	// Called from the document-delete observer chain so cache rows do not
+	// outlive the documents they describe.
+	//
+	// Removing a non-existent document is not an error — the operation is
+	// idempotent. Implementations MUST return any storage-level error
+	// unchanged so the caller can log and continue (observers are
+	// log-and-continue: a delete-cleanup failure must not prevent the
+	// document deletion itself from succeeding).
+	DeleteByDocument(ctx context.Context, docID string) error
 }

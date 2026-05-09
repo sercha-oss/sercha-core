@@ -545,11 +545,24 @@ func (s *oauthServerService) ValidateAccessToken(ctx context.Context, tokenStrin
 		return nil, fmt.Errorf("%w: audience mismatch", domain.ErrTokenInvalid)
 	}
 
+	// Look up the live client name. We deliberately do this here, on every
+	// token validation, rather than baking it into the JWT — the JWT is
+	// signed at issue time and a name change in oauth_clients (admin
+	// rename, audit reclassification) would otherwise be invisible. The
+	// underlying store is in-process and Get() is a single indexed lookup,
+	// so the per-request cost is negligible. Soft-fail: if the client row
+	// is gone we keep the validation but ship an empty name.
+	var clientName string
+	if client, err := s.clientStore.Get(ctx, clientID); err == nil && client != nil {
+		clientName = client.Name
+	}
+
 	return &driving.OAuthTokenInfo{
-		UserID:   sub,
-		ClientID: clientID,
-		Scopes:   scopes,
-		Audience: aud,
+		UserID:     sub,
+		ClientID:   clientID,
+		ClientName: clientName,
+		Scopes:     scopes,
+		Audience:   aud,
 	}, nil
 }
 

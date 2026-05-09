@@ -71,6 +71,16 @@ type OAuthTokenStore interface {
 	// Used when a client is deleted or compromised.
 	RevokeAllForClient(ctx context.Context, clientID string) error
 
+	// ListUsersForClient returns the distinct user IDs that currently hold at
+	// least one non-revoked, non-expired access token for the given clientID.
+	// Returns a non-nil empty slice when no users are connected.
+	ListUsersForClient(ctx context.Context, clientID string) ([]string, error)
+
+	// ListClientsForUser returns the distinct client IDs the given user
+	// currently holds at least one non-revoked, non-expired access token for.
+	// Returns a non-nil empty slice when the user has no active connections.
+	ListClientsForUser(ctx context.Context, userID string) ([]string, error)
+
 	// Cleanup removes expired tokens.
 	// Should be called periodically (e.g., via cron job).
 	Cleanup(ctx context.Context) error

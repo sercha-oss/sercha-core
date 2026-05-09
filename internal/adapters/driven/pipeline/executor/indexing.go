@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
 )
@@ -168,14 +169,32 @@ func (e *IndexingExecutor) applyPreferences(def pipeline.PipelineDefinition, pre
 	stages := make([]pipeline.StageConfig, len(def.Stages))
 	copy(stages, def.Stages)
 
+	// Stage gates honour the descriptor defaults (text_indexing on,
+	// embedding_indexing off) when no explicit toggle is persisted.
+	// Operators who haven't visited the capabilities admin page get the
+	// historical behaviour.
 	for i := range stages {
 		switch stages[i].StageID {
 		case "doc-loader":
-			if !prefs.TextIndexingEnabled {
+			if !prefs.IsEnabled(domain.CapabilityTextIndexing, true) {
 				stages[i].Enabled = false
+				continue
 			}
 		case "vector-loader", "embedder":
-			if !prefs.EmbeddingIndexingEnabled {
+			if !prefs.IsEnabled(domain.CapabilityEmbeddingIndexing, false) {
+				stages[i].Enabled = false
+				continue
+			}
+		}
+
+		// Generic stage-level capability gate: any stage whose pipeline
+		// definition sets parameters["toggle_capability"]: "<cap_id>"
+		// is disabled when that capability is toggled off in prefs.
+		// This lets add-on stages (e.g. entity-extractor gated on
+		// "entity_extraction") plug into the gating mechanism without
+		// extending Core's switch statement above.
+		if cap, ok := stages[i].Parameters["toggle_capability"].(string); ok && cap != "" {
+			if !prefs.IsEnabled(domain.CapabilityType(cap), true) {
 				stages[i].Enabled = false
 			}
 		}

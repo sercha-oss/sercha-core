@@ -20,9 +20,6 @@ func TestEntitySpan_ZeroValue(t *testing.T) {
 	if span.End != 0 {
 		t.Errorf("zero value End = %d, want 0", span.End)
 	}
-	if span.Confidence != 0.0 {
-		t.Errorf("zero value Confidence = %f, want 0.0", span.Confidence)
-	}
 	if span.Detector != "" {
 		t.Errorf("zero value Detector = %q, want %q", span.Detector, "")
 	}
@@ -30,21 +27,18 @@ func TestEntitySpan_ZeroValue(t *testing.T) {
 
 func TestEntitySpan_JSON_MarshalUnmarshal(t *testing.T) {
 	original := EntitySpan{
-		Type:       EntityType("PERSON"),
-		Value:      "John Doe",
-		Start:      0,
-		End:        8,
-		Confidence: 0.95,
-		Detector:   "test-detector",
+		Type:     EntityType("PERSON"),
+		Value:    "John Doe",
+		Start:    0,
+		End:      8,
+		Detector: "test-detector",
 	}
 
-	// Marshal to JSON
 	data, err := json.Marshal(original)
 	if err != nil {
 		t.Fatalf("json.Marshal error = %v", err)
 	}
 
-	// Verify JSON structure
 	var jsonObj map[string]interface{}
 	err = json.Unmarshal(data, &jsonObj)
 	if err != nil {
@@ -64,7 +58,6 @@ func TestEntitySpan_JSON_MarshalUnmarshal(t *testing.T) {
 		t.Errorf("JSON end = %v, want 8", jsonObj["end"])
 	}
 
-	// Unmarshal back to struct
 	var restored EntitySpan
 	err = json.Unmarshal(data, &restored)
 	if err != nil {
@@ -83,89 +76,19 @@ func TestEntitySpan_JSON_MarshalUnmarshal(t *testing.T) {
 	if restored.End != 8 {
 		t.Errorf("after round-trip, End = %d, want 8", restored.End)
 	}
-	if restored.Confidence != 0.95 {
-		t.Errorf("after round-trip, Confidence = %f, want 0.95", restored.Confidence)
-	}
 	if restored.Detector != "test-detector" {
 		t.Errorf("after round-trip, Detector = %q, want %q", restored.Detector, "test-detector")
 	}
 }
 
-func TestEntitySpan_JSON_PreservesZeroValues(t *testing.T) {
-	// Zero confidence should be preserved in JSON (not omitted)
-	span := EntitySpan{
-		Type:       EntityType("RULE_BASED"),
-		Value:      "pattern",
-		Start:      5,
-		End:        12,
-		Confidence: 0.0, // Zero confidence
-		Detector:   "regex-detector",
-	}
-
-	data, err := json.Marshal(span)
-	if err != nil {
-		t.Fatalf("json.Marshal error = %v", err)
-	}
-
-	// Check that confidence is in the JSON
-	if !contains(string(data), "confidence") {
-		t.Error("confidence field should be present in JSON even when 0.0")
-	}
-
-	// Unmarshal and verify
-	var restored EntitySpan
-	if err := json.Unmarshal(data, &restored); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
-	if restored.Confidence != 0.0 {
-		t.Errorf("restored Confidence = %f, want 0.0", restored.Confidence)
-	}
-}
-
-func TestEntitySpan_ConfidenceRange(t *testing.T) {
-	tests := []float64{
-		0.0,  // minimum
-		0.5,  // midpoint
-		1.0,  // maximum
-		0.99, // high confidence
-		0.01, // low confidence
-	}
-
-	for _, conf := range tests {
-		span := EntitySpan{
-			Type:       EntityType("TEST"),
-			Value:      "value",
-			Start:      0,
-			End:        5,
-			Confidence: conf,
-			Detector:   "test",
-		}
-
-		data, err := json.Marshal(span)
-		if err != nil {
-			t.Fatalf("Marshal failed for confidence %f: %v", conf, err)
-		}
-		var restored EntitySpan
-		if err := json.Unmarshal(data, &restored); err != nil {
-			t.Fatalf("Unmarshal failed for confidence %f: %v", conf, err)
-		}
-
-		if restored.Confidence != conf {
-			t.Errorf("Confidence %f not preserved in JSON round-trip", conf)
-		}
-	}
-}
-
 func TestEntitySpan_ByteOffsets(t *testing.T) {
-	// Test that byte offsets work correctly
 	// "Hello World" → "World" starts at byte 6
 	span := EntitySpan{
-		Type:       EntityType("WORD"),
-		Value:      "World",
-		Start:      6,
-		End:        11,
-		Confidence: 1.0,
-		Detector:   "test",
+		Type:     EntityType("WORD"),
+		Value:    "World",
+		Start:    6,
+		End:      11,
+		Detector: "test",
 	}
 
 	content := "Hello World"
@@ -174,7 +97,6 @@ func TestEntitySpan_ByteOffsets(t *testing.T) {
 		t.Errorf("content[%d:%d] = %q, want %q", span.Start, span.End, extracted, "World")
 	}
 
-	// Verify round-trip
 	data, err := json.Marshal(span)
 	if err != nil {
 		t.Fatalf("Marshal failed: %v", err)
@@ -195,16 +117,14 @@ func TestEntitySpan_ByteOffsets(t *testing.T) {
 }
 
 func TestEntitySpan_UTF8Offsets(t *testing.T) {
-	// Byte offsets should work with UTF-8
-	// "Café" has 'é' as 2 bytes; 'Café' is 5 bytes total
+	// "Café" has 'é' as 2 bytes; 'Café' is 5 bytes total.
 	content := "Café"
 	span := EntitySpan{
-		Type:       EntityType("WORD"),
-		Value:      "Café",
-		Start:      0,
-		End:        5, // 4 characters, 5 bytes
-		Confidence: 1.0,
-		Detector:   "test",
+		Type:     EntityType("WORD"),
+		Value:    "Café",
+		Start:    0,
+		End:      5,
+		Detector: "test",
 	}
 
 	data, err := json.Marshal(span)
@@ -220,14 +140,4 @@ func TestEntitySpan_UTF8Offsets(t *testing.T) {
 	if extracted != "Café" {
 		t.Errorf("UTF-8 content[%d:%d] = %q, want %q", restored.Start, restored.End, extracted, "Café")
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

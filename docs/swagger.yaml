@@ -63,6 +63,7 @@ definitions:
     - basic
     - service_account
     - pat
+    - app_only
     type: string
     x-enum-comments:
       AuthMethodPAT: Personal Access Token
@@ -72,61 +73,112 @@ definitions:
     - ""
     - ""
     - Personal Access Token
+    - ""
     x-enum-varnames:
     - AuthMethodOAuth2
     - AuthMethodAPIKey
     - AuthMethodBasic
     - AuthMethodServiceAccount
     - AuthMethodPAT
+    - AuthMethodAppOnly
+  github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityDescriptor:
+    properties:
+      backend_id:
+        description: |-
+          BackendID is an optional tag identifying the implementation backend
+          (e.g. "opensearch", "pgvector", "llm"). Used purely for UX
+          (grouping, badges); the capability resolution path does not consult
+          it. Empty when the capability has no specific backend.
+        type: string
+      default_enabled:
+        description: |-
+          DefaultEnabled is the toggle's default value when no per-team
+          preference exists. The resolver uses this as the initial enabled
+          state before applying stored preferences.
+        type: boolean
+      depends_on:
+        description: |-
+          DependsOn lists other capability types that must be enabled and
+          available for this capability to function. The resolver cascades
+          disable: if any dependency is not active, this capability is
+          marked disabled.
+        items:
+          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType'
+        type: array
+      description:
+        description: Description is one-line guidance text rendered alongside the
+          toggle.
+        type: string
+      display_name:
+        description: DisplayName is the human-readable label rendered in the admin
+          UI.
+        type: string
+      grants:
+        description: |-
+          Grants lists capabilities that this capability enables. Reverse of
+          DependsOn — purely informational for the UI today.
+        items:
+          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType'
+        type: array
+      phase:
+        allOf:
+        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.PipelinePhase'
+        description: Phase indicates whether this is an indexing or search capability.
+      type:
+        allOf:
+        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType'
+        description: Type is the unique string key. Must match the registry's view.
+    type: object
   github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityPreferences:
     properties:
-      bm25_search_enabled:
-        description: Search preferences (can toggle down, but requires indexing to
-          be enabled)
-        type: boolean
-      embedding_indexing_enabled:
-        description: Enable vector indexing
-        type: boolean
       team_id:
-        description: TeamID is the team these preferences belong to
         type: string
-      text_indexing_enabled:
-        description: Indexing preferences (explicitly controlled by user)
-        type: boolean
+      toggles:
+        additionalProperties:
+          type: boolean
+        type: object
       updated_at:
-        description: UpdatedAt tracks when preferences were last modified
         type: string
-      vector_search_enabled:
-        description: Enable vector search (if embedding indexing enabled)
-        type: boolean
     type: object
-  github_com_sercha-oss_sercha-core_internal_core_domain.Chunk:
-    properties:
-      content:
-        type: string
-      created_at:
-        type: string
-      document_id:
-        type: string
-      embedding:
-        items:
-          type: number
-        type: array
-      end_char:
-        type: integer
-      id:
-        type: string
-      position:
-        description: Chunk position within document
-        type: integer
-      source_id:
-        type: string
-      start_char:
-        type: integer
-    type: object
+  github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityType:
+    enum:
+    - text_indexing
+    - embedding_indexing
+    - bm25_search
+    - vector_search
+    - query_expansion
+    - query_rewriting
+    - summarization
+    type: string
+    x-enum-comments:
+      CapabilityBM25Search: Keyword search
+      CapabilityEmbeddingIndexing: Enables vector search
+      CapabilityQueryExpansion: Expands queries with related terms
+      CapabilityQueryRewriting: Reformulates queries for better matching
+      CapabilitySummarization: Generates result snippets
+      CapabilityTextIndexing: Enables BM25 search
+      CapabilityVectorSearch: Semantic search
+    x-enum-descriptions:
+    - Enables BM25 search
+    - Enables vector search
+    - Keyword search
+    - Semantic search
+    - Expands queries with related terms
+    - Reformulates queries for better matching
+    - Generates result snippets
+    x-enum-varnames:
+    - CapabilityTextIndexing
+    - CapabilityEmbeddingIndexing
+    - CapabilityBM25Search
+    - CapabilityVectorSearch
+    - CapabilityQueryExpansion
+    - CapabilityQueryRewriting
+    - CapabilitySummarization
   github_com_sercha-oss_sercha-core_internal_core_domain.ConnectionSummary:
     properties:
       account_id:
+        type: string
+      app_credentials_ref:
         type: string
       auth_method:
         $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.AuthMethod'
@@ -140,16 +192,21 @@ definitions:
         type: string
       oauth_expiry:
         type: string
+      platform:
+        allOf:
+        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.PlatformType'
+        description: NEW
       provider_type:
         $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.ProviderType'
+      tenant_id:
+        type: string
     type: object
   github_com_sercha-oss_sercha-core_internal_core_domain.Container:
     properties:
       id:
         type: string
       metadata:
-        additionalProperties:
-          type: string
+        additionalProperties: {}
         type: object
       name:
         type: string
@@ -182,15 +239,6 @@ definitions:
         type: string
       updated_at:
         type: string
-    type: object
-  github_com_sercha-oss_sercha-core_internal_core_domain.DocumentWithChunks:
-    properties:
-      chunks:
-        items:
-          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.Chunk'
-        type: array
-      document:
-        $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.Document'
     type: object
   github_com_sercha-oss_sercha-core_internal_core_domain.JobDetail:
     properties:
@@ -281,46 +329,38 @@ definitions:
       user:
         $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.UserSummary'
     type: object
+  github_com_sercha-oss_sercha-core_internal_core_domain.PipelinePhase:
+    enum:
+    - indexing
+    - search
+    type: string
+    x-enum-varnames:
+    - PipelinePhaseIndexing
+    - PipelinePhaseSearch
+  github_com_sercha-oss_sercha-core_internal_core_domain.PlatformType:
+    enum:
+    - github
+    - localfs
+    - notion
+    - microsoft
+    type: string
+    x-enum-varnames:
+    - PlatformGitHub
+    - PlatformLocalFS
+    - PlatformNotion
+    - PlatformMicrosoft
   github_com_sercha-oss_sercha-core_internal_core_domain.ProviderType:
     enum:
     - github
-    - gitlab
-    - bitbucket
-    - slack
-    - discord
-    - msteams
-    - notion
-    - confluence
-    - google_docs
-    - jira
-    - linear
-    - google_drive
-    - dropbox
-    - onedrive
-    - s3
     - localfs
-    - zendesk
-    - intercom
+    - notion
+    - onedrive
     type: string
     x-enum-varnames:
     - ProviderTypeGitHub
-    - ProviderTypeGitLab
-    - ProviderTypeBitbucket
-    - ProviderTypeSlack
-    - ProviderTypeDiscord
-    - ProviderTypeMSTeams
-    - ProviderTypeNotion
-    - ProviderTypeConfluence
-    - ProviderTypeGoogleDocs
-    - ProviderTypeJira
-    - ProviderTypeLinear
-    - ProviderTypeGoogleDrive
-    - ProviderTypeDropbox
-    - ProviderTypeOneDrive
-    - ProviderTypeS3
     - ProviderTypeLocalFS
-    - ProviderTypeZendesk
-    - ProviderTypeIntercom
+    - ProviderTypeNotion
+    - ProviderTypeOneDrive
   github_com_sercha-oss_sercha-core_internal_core_domain.QueryFrequency:
     properties:
       count:
@@ -530,6 +570,26 @@ definitions:
         type: string
       indexed_at:
         type: string
+      metadata:
+        additionalProperties: {}
+        description: |-
+          Metadata carries arbitrary key-value annotations produced by pipeline
+          stages and copied through from pipeline.PresentedResult.Metadata by the
+          search service.
+
+          This mirrors the Metadata fields already present on pipeline.Candidate
+          and pipeline.PresentedResult: stages can attach derived information to a
+          result (faceting hints, ranking signals, query-expansion match info,
+          stage-specific outcome flags) and have it survive the projection from
+          the pipeline's internal types to the public domain type.
+
+          Keys are convention-based and stage-specific; the search service does
+          not interpret them, it only forwards what the presenter exposes.
+          Driving adapters (HTTP handlers, MCP servers, downstream services) read
+          keys they care about and ignore the rest.
+
+          Stages that do not need to attach metadata may leave this nil.
+        type: object
       mime_type:
         type: string
       path:
@@ -684,6 +744,58 @@ definitions:
         items:
           type: string
         type: array
+      mime_exclusions:
+        description: MimeExclusions are MIME type patterns to exclude (e.g., "image/*",
+          "font/*")
+        items:
+          type: string
+        type: array
+    type: object
+  github_com_sercha-oss_sercha-core_internal_core_domain.SyncFailedDoc:
+    properties:
+      attempt_count:
+        description: |-
+          AttemptCount is the number of times we've tried this doc since the
+          row was created. Drives backoff and the terminal cutoff.
+        type: integer
+      created_at:
+        description: |-
+          CreatedAt is when the first failure for this (source_id,
+          external_id) was recorded.
+        type: string
+      external_id:
+        description: |-
+          ExternalID is the connector's identifier for the doc that failed.
+          Not the Sercha-internal document_id: failures often happen before
+          any internal row gets created.
+        type: string
+      last_attempted_at:
+        description: |-
+          LastAttemptedAt is when the most recent attempt ran. Useful for
+          "stuck since X" presentations in admin UIs.
+        type: string
+      last_error:
+        description: |-
+          LastError is the error message from the most recent attempt,
+          truncated by the store layer for storage hygiene.
+        type: string
+      next_retry_after:
+        description: |-
+          NextRetryAfter is the earliest time the orchestrator should retry
+          this doc. The retry pre-pass picks rows where
+          next_retry_after <= now() AND terminal = false.
+        type: string
+      source_id:
+        description: |-
+          SourceID is the parent source — the (source_id, external_id) pair
+          is the primary key.
+        type: string
+      terminal:
+        description: |-
+          Terminal is true once the row has exceeded the configured maximum
+          attempt count. Excluded from automatic retry; remains in the table
+          for operator visibility.
+        type: boolean
     type: object
   github_com_sercha-oss_sercha-core_internal_core_domain.SyncState:
     properties:
@@ -758,6 +870,7 @@ definitions:
         description: |-
           Payload contains task-specific data
           For sync_source: {"source_id": "src-123"}
+          For sync_container: {"source_id": "src-123", "container_id": "cnt-456"}
           For sync_all: {} (empty)
         type: object
       priority:
@@ -803,10 +916,12 @@ definitions:
     enum:
     - sync_source
     - sync_all
+    - sync_container
     type: string
     x-enum-varnames:
     - TaskTypeSyncSource
     - TaskTypeSyncAll
+    - TaskTypeSyncContainer
   github_com_sercha-oss_sercha-core_internal_core_domain.UpcomingJobs:
     properties:
       next_scheduled_run:
@@ -864,6 +979,10 @@ definitions:
       description:
         description: Description is an optional description of the container.
         type: string
+      has_children:
+        description: HasChildren indicates if this container has child containers
+          (for folder navigation).
+        type: boolean
       id:
         description: |-
           ID is the provider-specific identifier.
@@ -873,13 +992,13 @@ definitions:
             - Confluence: space key
         type: string
       metadata:
-        additionalProperties:
-          type: string
+        additionalProperties: {}
         description: |-
           Metadata contains provider-specific additional data.
+          Values may be any JSON-encodable type (booleans, ints, strings).
           Examples:
-            - GitHub: {"owner": "...", "private": "true", "archived": "false"}
-            - Google Drive: {"shared": "true"}
+            - GitHub: {"owner": "octocat", "private": true, "archived": false}
+            - Google Drive: {"shared": true}
         type: object
       name:
         description: Name is the human-readable display name.
@@ -893,12 +1012,10 @@ definitions:
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.AIProvidersCapability:
     properties:
       embedding:
-        description: Embedding lists providers available for embedding service
         items:
           $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.AIProvider'
         type: array
       llm:
-        description: LLM lists providers available for LLM service
         items:
           $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.AIProvider'
         type: array
@@ -976,37 +1093,51 @@ definitions:
         type: string
     type: object
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilitiesResponse:
-    description: Information about what features are enabled via environment configuration
     properties:
       ai_providers:
         allOf:
         - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.AIProvidersCapability'
-        description: AIProviders lists AI providers available for embedding and LLM
+        description: AIProviders lists AI providers available for embedding and LLM.
+      descriptors:
+        description: |-
+          Descriptors lists every registered capability's metadata. Drives
+          dynamic UI rendering — the admin panel iterates this list to know
+          what toggles to show.
+        items:
+          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.CapabilityDescriptor'
+        type: array
       features:
-        allOf:
-        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.FeaturesCapability'
-        description: Features lists feature flags
+        additionalProperties:
+          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus'
+        description: |-
+          Features maps each registered capability's type to its resolved
+          runtime status (available + enabled + active). Stable counterpart
+          to Descriptors: callers cross-reference by Type.
+        type: object
       limits:
         allOf:
         - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.LimitsCapability'
-        description: Limits defines operational boundaries from environment configuration
+        description: Limits defines operational boundaries from environment configuration.
       oauth_providers:
-        description: OAuthProviders lists OAuth providers configured via environment
-          variables
+        description: OAuthProviders lists OAuth platforms configured via environment.
         items:
-          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.ProviderType'
+          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.PlatformType'
         type: array
     type: object
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus:
     properties:
       active:
-        description: Active indicates both available AND enabled
+        description: Active is Available AND Enabled.
         type: boolean
       available:
-        description: Available indicates if the backend is configured and healthy
+        description: |-
+          Available reports whether the runtime can support this capability
+          right now (backends configured, services healthy).
         type: boolean
       enabled:
-        description: Enabled indicates if the user has enabled this capability
+        description: |-
+          Enabled reports the operator's preference (or the descriptor default
+          when no explicit preference is stored).
         type: boolean
     type: object
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.CreateConnectionRequest:
@@ -1059,29 +1190,6 @@ definitions:
       provider:
         $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.AIProvider'
     type: object
-  github_com_sercha-oss_sercha-core_internal_core_ports_driving.FeaturesCapability:
-    properties:
-      bm25_search:
-        allOf:
-        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus'
-        description: BM25Search indicates BM25 keyword search capability state (requires
-          search engine)
-      embedding_indexing:
-        allOf:
-        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus'
-        description: EmbeddingIndexing indicates embedding indexing capability state
-          (requires embedding service + vector store)
-      text_indexing:
-        allOf:
-        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus'
-        description: TextIndexing indicates BM25 text indexing capability state (requires
-          search engine e.g. OpenSearch)
-      vector_search:
-        allOf:
-        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_ports_driving.CapabilityStatus'
-        description: VectorSearch indicates vector similarity search capability state
-          (requires embedding service + vector store)
-    type: object
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.LLMSettingsInput:
     properties:
       model:
@@ -1092,16 +1200,12 @@ definitions:
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.LimitsCapability:
     properties:
       max_results_per_page:
-        description: MaxResultsPerPage is the maximum results per page
         type: integer
       max_workers:
-        description: MaxWorkers is the maximum number of sync workers
         type: integer
       sync_max_interval:
-        description: SyncMaxInterval is the maximum sync interval in minutes
         type: integer
       sync_min_interval:
-        description: SyncMinInterval is the minimum sync interval in minutes
         type: integer
     type: object
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.ListContainersResponse:
@@ -1187,19 +1291,10 @@ definitions:
     type: object
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.UpdateCapabilityPreferencesRequest:
     properties:
-      bm25_search_enabled:
-        description: BM25SearchEnabled controls BM25 search (requires text indexing)
-        type: boolean
-      embedding_indexing_enabled:
-        description: EmbeddingIndexingEnabled controls vector/embedding indexing
-        type: boolean
-      text_indexing_enabled:
-        description: TextIndexingEnabled controls BM25 text indexing
-        type: boolean
-      vector_search_enabled:
-        description: VectorSearchEnabled controls vector search (requires embedding
-          indexing)
-        type: boolean
+      toggles:
+        additionalProperties:
+          type: boolean
+        type: object
     type: object
   github_com_sercha-oss_sercha-core_internal_core_ports_driving.UpdateSettingsRequest:
     properties:
@@ -1283,6 +1378,16 @@ definitions:
       error:
         example: invalid request body
         type: string
+    type: object
+  internal_adapters_driving_http.FailedDocumentsResponse:
+    description: Per-source documents the orchestrator failed to ingest.
+    properties:
+      documents:
+        items:
+          $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.SyncFailedDoc'
+        type: array
+      total:
+        type: integer
     type: object
   internal_adapters_driving_http.HealthResponse:
     properties:
@@ -1401,29 +1506,6 @@ definitions:
         $ref: '#/definitions/internal_adapters_driving_http.aiProviderInfo'
     type: object
   internal_adapters_driving_http.searchRequest:
-    description: Search query request
-    properties:
-      limit:
-        example: 20
-        type: integer
-      mode:
-        allOf:
-        - $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.SearchMode'
-        enum:
-        - hybrid
-        - text
-        - semantic
-        example: hybrid
-      offset:
-        example: 0
-        type: integer
-      query:
-        example: how to configure authentication
-        type: string
-      source_ids:
-        items:
-          type: string
-        type: array
     type: object
   time.Duration:
     enum:
@@ -2221,7 +2303,7 @@ paths:
       - Connections
   /documents/{id}:
     get:
-      description: Get a document by ID with all its chunks
+      description: Get document metadata by ID
       parameters:
       - description: Document ID
         in: path
@@ -2234,7 +2316,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.DocumentWithChunks'
+            $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.Document'
         "400":
           description: Missing document ID
           schema:
@@ -2254,44 +2336,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get document
-      tags:
-      - Documents
-  /documents/{id}/chunks:
-    get:
-      description: Get all chunks for a specific document. Chunks are the indexed
-        segments of a document used for search.
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/github_com_sercha-oss_sercha-core_internal_core_domain.DocumentWithChunks'
-        "400":
-          description: Missing document ID
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "404":
-          description: Document not found
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Get document chunks
       tags:
       - Documents
   /documents/{id}/open:
@@ -3166,6 +3210,47 @@ paths:
       security:
       - BearerAuth: []
       summary: Enable source
+      tags:
+      - Sources
+  /sources/{id}/failed-documents:
+    get:
+      description: Returns the per-document skip-list rows for a source —
+      parameters:
+      - description: Source ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Max rows to return (default 100, max 500)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.FailedDocumentsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "403":
+          description: Forbidden - admin only
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_adapters_driving_http.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List failing documents for a source
       tags:
       - Sources
   /sources/{id}/sync:

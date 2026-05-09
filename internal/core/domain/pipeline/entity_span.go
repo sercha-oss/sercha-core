@@ -23,9 +23,6 @@ type EntitySpan struct {
 	// End is the exclusive byte offset of the span in the source text.
 	End int `json:"end"`
 
-	// Confidence is the detector's confidence score in [0.0, 1.0].
-	Confidence float64 `json:"confidence"`
-
 	// Detector is the identity of the detector that produced this span.
 	Detector string `json:"detector"`
 }

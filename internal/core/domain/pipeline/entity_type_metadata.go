@@ -14,24 +14,18 @@ type EntityTypeMetadata struct {
 	DisplayName string `json:"display_name"`
 
 	// Description is explanatory text for the entity type. May be used in
-	// detector prompts as part of few-shot or instruction context.
+	// detection prompts as part of few-shot or instruction context.
 	Description string `json:"description"`
 
 	// Example is a representative value for this entity type. Used in UI
-	// and as a few-shot example in detector prompts.
+	// and as a few-shot example in detection prompts.
 	Example string `json:"example"`
 
 	// Group is an optional grouping label for UI or admin segmentation
-	// (e.g. "PII", "Medical", "Financial"). Empty means ungrouped.
+	// (e.g. "Identity", "Financial"). Empty means ungrouped.
 	Group string `json:"group"`
 
-	// Source identifies provenance: "system" for built-in types, "admin"
-	// for types added at runtime by an administrator.
+	// Source identifies provenance: "system" for built-in types seeded by
+	// migration, "admin" for types added at runtime by an administrator.
 	Source string `json:"source"`
-
-	// OwningDetector is the identity of the detector that has claimed this
-	// category. Empty by default; set via SetOwningDetector on the registry
-	// when a detector claims the category. Used for partition validation when
-	// multiple detectors are registered.
-	OwningDetector string `json:"owning_detector"`
 }

@@ -243,6 +243,9 @@ func main() {
 	capabilityStore := postgres.NewCapabilityStore(db)
 	searchQueryRepo := postgres.NewSearchQueryRepository(db)
 	syncEventRepo := postgres.NewSyncEventRepository(db)
+	// Skip-list / retry ledger for per-doc sync failures — see the
+	// orchestrator config below.
+	syncFailedDocStore := postgres.NewSyncFailedDocStore(db)
 
 	// ===== Session Store (Redis if available, otherwise PostgreSQL) =====
 	var sessionStore driven.SessionStore
@@ -398,7 +401,7 @@ func main() {
 	if err := stageRegistry.Register(indexingstages.NewEmbedderFactory()); err != nil {
 		log.Fatalf("Failed to register embedder stage: %v", err)
 	}
-	if err := stageRegistry.Register(indexingstages.NewDocLoaderFactory()); err != nil {
+	if err := stageRegistry.Register(indexingstages.NewDocLoaderFactory(indexingstages.DefaultMaxIndexedChars)); err != nil {
 		log.Fatalf("Failed to register doc-loader stage: %v", err)
 	}
 	if err := stageRegistry.Register(indexingstages.NewVectorLoaderFactory()); err != nil {
@@ -575,8 +578,21 @@ func main() {
 	// Provider service (shows configuration status based on env vars)
 	providerService := services.NewProviderService(cfg)
 
-	// Capabilities service
-	capabilitiesService := services.NewCapabilitiesService(cfg, capabilityStore)
+	// Domain capability registry (NOT to be confused with the pipeline-stage
+	// capability registry above — that one wires concrete backends to
+	// pipeline stages; this one drives the user-facing capability admin UI
+	// + per-team toggles). Built-ins ship registered; add-ons can register
+	// more before the service is constructed.
+	domainCapabilityRegistry := domain.NewCapabilityRegistry()
+	if err := services.RegisterBuiltinCapabilities(domainCapabilityRegistry); err != nil {
+		log.Fatalf("Failed to register built-in capabilities: %v", err)
+	}
+	capabilitiesService := services.NewCapabilitiesService(
+		cfg,
+		capabilityStore,
+		domainCapabilityRegistry,
+		services.NewBuiltinAvailabilityResolver(cfg),
+	)
 
 	// OAuth service (handles OAuth flows for connector installations)
 	oauthService := services.NewOAuthService(services.OAuthServiceConfig{
@@ -657,6 +673,9 @@ func main() {
 		SyncEventRepo:    syncEventRepo,
 		TeamID:           teamID,
 		Lock:             distributedLock,
+		// Per-doc skip-list / retry ledger; cursor advances over
+		// transient per-doc failures while the ledger handles retries.
+		FailedDocStore: syncFailedDocStore,
 	})
 
 	// Drain in-flight DocumentIngestObserver goroutines on shutdown.

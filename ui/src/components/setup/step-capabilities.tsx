@@ -127,10 +127,12 @@ export function StepCapabilities({ onComplete, onSkip }: StepCapabilitiesProps) 
         const llmProviders = capsData?.ai_providers?.llm || [];
         setHasLLM(llmProviders.length > 0);
 
-        // Initialize local state from preferences if available
-        if (prefsData) {
-          setTextIndexing(prefsData.text_indexing_enabled);
-          setEmbeddingIndexing(prefsData.embedding_indexing_enabled);
+        // Initialize local state from preferences if available. Preferences
+        // are now a toggle map; absent entries fall back to the descriptor's
+        // default_enabled (mirroring the backend resolution path).
+        if (prefsData?.toggles && Object.keys(prefsData.toggles).length > 0) {
+          setTextIndexing(prefsData.toggles.text_indexing ?? true);
+          setEmbeddingIndexing(prefsData.toggles.embedding_indexing ?? false);
         } else if (capsData) {
           // No saved preferences — default based on actual backend availability
           setTextIndexing(capsData.features?.text_indexing?.available ?? false);
@@ -159,12 +161,16 @@ export function StepCapabilities({ onComplete, onSkip }: StepCapabilitiesProps) 
     setError(null);
 
     try {
+      // Search capabilities auto-track the corresponding indexing toggle —
+      // mirrors the backend's cascade-disable rule: there is no point
+      // turning on bm25_search if text_indexing is off.
       const updateReq: UpdateCapabilityPreferencesRequest = {
-        text_indexing_enabled: textIndexing,
-        embedding_indexing_enabled: embeddingIndexing,
-        // Search capabilities auto-enabled based on indexing
-        bm25_search_enabled: textIndexing,
-        vector_search_enabled: embeddingIndexing,
+        toggles: {
+          text_indexing: textIndexing,
+          embedding_indexing: embeddingIndexing,
+          bm25_search: textIndexing,
+          vector_search: embeddingIndexing,
+        },
       };
 
       await updateCapabilityPreferences(updateReq);

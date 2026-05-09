@@ -83,33 +83,4 @@ type EntityTypeRegistry interface {
 	// A nil error and an empty slice indicate that the taxonomy is empty, not
 	// that there was a problem.
 	List(ctx context.Context) ([]pipeline.EntityTypeMetadata, error)
-
-	// SetOwningDetector claims ownership of an entity category for the given
-	// detector.
-	//
-	// It applies a four-case contract on the outcome:
-	//
-	//   - success — no prior owner (nil error): id was registered and had no
-	//     owner (OwningDetector == ""). The OwningDetector field of the stored
-	//     record is now set to detectorID.
-	//
-	//   - success — same owner (nil error): id was registered and its
-	//     OwningDetector already equals detectorID. The call is idempotent and
-	//     treated as success; the record is unchanged.
-	//
-	//   - success — detectorID is empty (nil error): passing an empty detectorID
-	//     clears the ownership of the category. The OwningDetector field of the
-	//     stored record is set to "". Clearing an already-unowned category is
-	//     also idempotent and treated as success.
-	//
-	//   - owner conflict (non-nil error): id was registered but is already owned
-	//     by a different detector (OwningDetector != "" && OwningDetector !=
-	//     detectorID). The record is unchanged. Callers must not reassign
-	//     ownership without first clearing it via a call with an empty detectorID.
-	//
-	//   - unknown ID (non-nil error): id is not registered. The call is a no-op.
-	//
-	//   - storage error (non-nil error): a problem with the underlying store
-	//     prevented the write.
-	SetOwningDetector(ctx context.Context, id pipeline.EntityType, detectorID string) error
 }

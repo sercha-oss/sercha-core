@@ -3,175 +3,119 @@ package services
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
 )
 
-// Ensure capabilitiesService implements CapabilitiesService
+// Ensure capabilitiesService implements CapabilitiesService.
 var _ driving.CapabilitiesService = (*capabilitiesService)(nil)
 
-// capabilitiesService implements the CapabilitiesService interface.
-// It exposes information about what features are available based on environment configuration
-// and manages per-team capability preferences.
+// capabilitiesService is registry-driven: the set of known capabilities
+// is whatever has been registered with the CapabilityRegistry, and
+// availability is computed via an AvailabilityResolver. Adding a new
+// capability requires only registering a descriptor at startup; no
+// service-side switch cases or type-specific code.
 type capabilitiesService struct {
-	configProvider  driven.ConfigProvider
-	capabilityStore driven.CapabilityStore
+	configProvider driven.ConfigProvider
+	store          driven.CapabilityStore
+	registry       domain.CapabilityRegistry
+	resolver       domain.AvailabilityResolver
 }
 
-// NewCapabilitiesService creates a new CapabilitiesService.
+// NewCapabilitiesService wires the dependencies. The registry must already
+// have descriptors registered by the time this service handles requests.
 func NewCapabilitiesService(
 	configProvider driven.ConfigProvider,
-	capabilityStore driven.CapabilityStore,
+	store driven.CapabilityStore,
+	registry domain.CapabilityRegistry,
+	resolver domain.AvailabilityResolver,
 ) driving.CapabilitiesService {
 	return &capabilitiesService{
-		configProvider:  configProvider,
-		capabilityStore: capabilityStore,
+		configProvider: configProvider,
+		store:          store,
+		registry:       registry,
+		resolver:       resolver,
 	}
 }
 
-// GetCapabilities returns information about available features.
+// GetCapabilities returns the full capability snapshot — providers,
+// descriptors, resolved feature status, and limits. Iterates the registry
+// generically.
 func (s *capabilitiesService) GetCapabilities(ctx context.Context, teamID string) (*driving.CapabilitiesResponse, error) {
-	capabilities := s.configProvider.GetCapabilities()
+	cfg := s.configProvider.GetCapabilities()
 
-	hasEmbeddings := len(capabilities.EmbeddingProviders) > 0
-	hasLLM := len(capabilities.LLMProviders) > 0
+	descriptors := s.registry.All()
 
-	// Build availability map from backend status
-	available := map[domain.CapabilityType]bool{
-		domain.CapabilityTextIndexing:      capabilities.SearchEngineAvailable,
-		domain.CapabilityEmbeddingIndexing: hasEmbeddings && capabilities.VectorStoreAvailable,
-		domain.CapabilityBM25Search:        capabilities.SearchEngineAvailable,
-		domain.CapabilityVectorSearch:      hasEmbeddings && capabilities.VectorStoreAvailable,
-		domain.CapabilityQueryExpansion:    hasLLM,
-		domain.CapabilityQueryRewriting:    false,
-		domain.CapabilitySummarization:     false,
+	// Build the availability map by asking the resolver for each
+	// registered type. The resolver knows about backend wiring; the
+	// service stays generic.
+	available := make(map[domain.CapabilityType]bool, len(descriptors))
+	for _, d := range descriptors {
+		available[d.Type] = s.resolver.IsAvailable(ctx, d.Type)
 	}
 
-	// Fetch team preferences to merge with availability
+	// Per-team prefs (best-effort — if the store fails we treat it as
+	// "no preferences set" and fall back to descriptor defaults).
 	var prefs *domain.CapabilityPreferences
 	if teamID != "" {
-		p, err := s.capabilityStore.GetPreferences(ctx, teamID)
-		if err == nil {
+		if p, err := s.store.GetPreferences(ctx, teamID); err == nil {
 			prefs = p
 		}
-		// If error or not found, prefs stays nil → ResolveCapabilities uses factory defaults
 	}
 
-	resolved := domain.ResolveCapabilities(prefs, available)
+	resolved := domain.ResolveCapabilities(descriptors, available, prefs)
 
-	// Build features from resolved capabilities
-	features := driving.FeaturesCapability{}
-	for _, cap := range resolved {
-		status := driving.CapabilityStatus{
-			Available: cap.Available,
-			Enabled:   cap.Enabled,
-			Active:    cap.IsActive(),
-		}
-		switch cap.Type {
-		case domain.CapabilityTextIndexing:
-			features.TextIndexing = status
-		case domain.CapabilityEmbeddingIndexing:
-			features.EmbeddingIndexing = status
-		case domain.CapabilityBM25Search:
-			features.BM25Search = status
-		case domain.CapabilityVectorSearch:
-			features.VectorSearch = status
-		case domain.CapabilityQueryExpansion:
-			features.QueryExpansion = status
-		case domain.CapabilityQueryRewriting:
-			features.QueryRewriting = status
-		case domain.CapabilitySummarization:
-			features.Summarization = status
+	features := make(map[domain.CapabilityType]driving.CapabilityStatus, len(resolved))
+	for _, c := range resolved {
+		features[c.Type] = driving.CapabilityStatus{
+			Available: c.Available,
+			Enabled:   c.Enabled,
+			Active:    c.IsActive(),
 		}
 	}
 
 	return &driving.CapabilitiesResponse{
-		OAuthProviders: capabilities.OAuthProviders,
+		OAuthProviders: cfg.OAuthProviders,
 		AIProviders: driving.AIProvidersCapability{
-			Embedding: capabilities.EmbeddingProviders,
-			LLM:       capabilities.LLMProviders,
+			Embedding: cfg.EmbeddingProviders,
+			LLM:       cfg.LLMProviders,
 		},
-		Features: features,
+		Descriptors: descriptors,
+		Features:    features,
 		Limits: driving.LimitsCapability{
-			SyncMinInterval:   capabilities.Limits.SyncMinInterval,
-			SyncMaxInterval:   capabilities.Limits.SyncMaxInterval,
-			MaxWorkers:        capabilities.Limits.MaxWorkers,
-			MaxResultsPerPage: capabilities.Limits.MaxResultsPerPage,
+			SyncMinInterval:   cfg.Limits.SyncMinInterval,
+			SyncMaxInterval:   cfg.Limits.SyncMaxInterval,
+			MaxWorkers:        cfg.Limits.MaxWorkers,
+			MaxResultsPerPage: cfg.Limits.MaxResultsPerPage,
 		},
 	}, nil
 }
 
-// GetCapabilityPreferences retrieves capability preferences for a team.
+// GetCapabilityPreferences returns the persisted toggles for a team.
 func (s *capabilitiesService) GetCapabilityPreferences(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error) {
-	prefs, err := s.capabilityStore.GetPreferences(ctx, teamID)
+	prefs, err := s.store.GetPreferences(ctx, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("get capability preferences: %w", err)
 	}
 	return prefs, nil
 }
 
-// UpdateCapabilityPreferences updates capability preferences for a team.
-// Uses partial update semantics - only non-nil fields are applied.
+// UpdateCapabilityPreferences applies a partial-toggle update. Validates
+// that every toggle key in the request corresponds to a registered
+// capability — unknown types are rejected so typos and stale clients
+// don't silently persist garbage.
 func (s *capabilitiesService) UpdateCapabilityPreferences(ctx context.Context, teamID string, req driving.UpdateCapabilityPreferencesRequest) (*domain.CapabilityPreferences, error) {
-	// Load existing preferences or create defaults
-	prefs, err := s.capabilityStore.GetPreferences(ctx, teamID)
-	if err != nil {
-		// If preferences don't exist, start with defaults
-		prefs = domain.DefaultCapabilityPreferences(teamID)
-	}
-
-	// Apply partial updates using domain methods where appropriate
-	if req.TextIndexingEnabled != nil {
-		if *req.TextIndexingEnabled {
-			prefs.EnableTextIndexing()
-		} else {
-			prefs.DisableTextIndexing()
+	if len(req.Toggles) > 0 {
+		for capType := range req.Toggles {
+			if _, ok := s.registry.Get(capType); !ok {
+				return nil, fmt.Errorf("unknown capability: %q", capType)
+			}
+		}
+		if err := s.store.SetToggles(ctx, teamID, req.Toggles); err != nil {
+			return nil, fmt.Errorf("save capability preferences: %w", err)
 		}
 	}
-
-	if req.EmbeddingIndexingEnabled != nil {
-		if *req.EmbeddingIndexingEnabled {
-			prefs.EnableEmbeddingIndexing()
-		} else {
-			prefs.DisableEmbeddingIndexing()
-		}
-	}
-
-	// Allow fine-grained control of search preferences
-	// (but note: disabling indexing above will also disable the search)
-	if req.BM25SearchEnabled != nil {
-		prefs.BM25SearchEnabled = *req.BM25SearchEnabled
-		prefs.UpdatedAt = time.Now()
-	}
-
-	if req.VectorSearchEnabled != nil {
-		prefs.VectorSearchEnabled = *req.VectorSearchEnabled
-		prefs.UpdatedAt = time.Now()
-	}
-
-	// LLM-powered feature preferences
-	if req.QueryExpansionEnabled != nil {
-		prefs.QueryExpansionEnabled = *req.QueryExpansionEnabled
-		prefs.UpdatedAt = time.Now()
-	}
-
-	if req.QueryRewritingEnabled != nil {
-		prefs.QueryRewritingEnabled = *req.QueryRewritingEnabled
-		prefs.UpdatedAt = time.Now()
-	}
-
-	if req.SummarizationEnabled != nil {
-		prefs.SummarizationEnabled = *req.SummarizationEnabled
-		prefs.UpdatedAt = time.Now()
-	}
-
-	// Save updated preferences
-	if err := s.capabilityStore.SavePreferences(ctx, prefs); err != nil {
-		return nil, fmt.Errorf("save capability preferences: %w", err)
-	}
-
-	return prefs, nil
+	return s.store.GetPreferences(ctx, teamID)
 }

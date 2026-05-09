@@ -168,6 +168,36 @@ func (m *mockOAuthTokenStore) RevokeAllForClient(ctx context.Context, clientID s
 	return nil
 }
 
+func (m *mockOAuthTokenStore) ListUsersForClient(ctx context.Context, clientID string) ([]string, error) {
+	now := time.Now()
+	seen := make(map[string]struct{})
+	for _, token := range m.accessTokens {
+		if token.ClientID == clientID && !token.Revoked && token.ExpiresAt.After(now) {
+			seen[token.UserID] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for u := range seen {
+		out = append(out, u)
+	}
+	return out, nil
+}
+
+func (m *mockOAuthTokenStore) ListClientsForUser(ctx context.Context, userID string) ([]string, error) {
+	now := time.Now()
+	seen := make(map[string]struct{})
+	for _, token := range m.accessTokens {
+		if token.UserID == userID && !token.Revoked && token.ExpiresAt.After(now) {
+			seen[token.ClientID] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for c := range seen {
+		out = append(out, c)
+	}
+	return out, nil
+}
+
 func (m *mockOAuthTokenStore) Cleanup(ctx context.Context) error {
 	now := time.Now()
 	for k, v := range m.accessTokens {

@@ -32,9 +32,10 @@ type OpenAIEmbedding struct {
 // Use the With* functions to create options.
 type OpenAIEmbeddingOption func(*OpenAIEmbedding)
 
-// WithEmbeddingTPMLimit sets the tokens-per-minute budget for the embedding
-// client's rate-limiter bucket. The default is read from OPENAI_TPM_LIMIT
-// (1000000 if unset).
+// WithEmbeddingTPMLimit sets the tokens-per-minute budget. RPM gate is
+// dropped — pair with WithEmbeddingRPMLimit if request-rate gating is also
+// needed. Production wiring uses env vars (EMBEDDER_TPM/EMBEDDER_RPM); this
+// option is primarily for tests.
 func WithEmbeddingTPMLimit(tpm int64) OpenAIEmbeddingOption {
 	return func(e *OpenAIEmbedding) {
 		refillPerSec := float64(tpm) / 60.0
@@ -43,8 +44,22 @@ func WithEmbeddingTPMLimit(tpm int64) OpenAIEmbeddingOption {
 	}
 }
 
+// WithEmbeddingRPMLimit sets the requests-per-minute budget while preserving
+// the existing TPM bucket settings. Mostly for tests.
+func WithEmbeddingRPMLimit(rpm int64) OpenAIEmbeddingOption {
+	return func(e *OpenAIEmbedding) {
+		if existing, ok := e.transport.Limiter.(*ratelimited.Bucket); ok {
+			tpm, refillPerSec := existing.TPM(), existing.RefillPerSec()
+			e.transport.Limiter = ratelimited.NewBucketWithRPM(tpm, refillPerSec, rpm)
+			return
+		}
+		// Effectively-unlimited TPM — see WithLLMRPMLimit for rationale.
+		e.transport.Limiter = ratelimited.NewBucketWithRPM(1<<31-1, 1<<30, rpm)
+	}
+}
+
 // WithEmbeddingMaxRetries sets the maximum number of retry attempts for the
-// embedding client. The default is read from OPENAI_MAX_RETRIES (5 if unset).
+// embedding client. Defaults to 5 (hard-coded in NewOpenAIEmbedding).
 func WithEmbeddingMaxRetries(n int) OpenAIEmbeddingOption {
 	return func(e *OpenAIEmbedding) {
 		e.transport.MaxRetries = n
@@ -52,8 +67,7 @@ func WithEmbeddingMaxRetries(n int) OpenAIEmbeddingOption {
 }
 
 // WithEmbeddingMaxRetryElapsed sets the maximum total elapsed time for
-// retries. The default is read from OPENAI_MAX_RETRY_ELAPSED_SEC (60 if
-// unset).
+// retries. Defaults to 60s (hard-coded in NewOpenAIEmbedding).
 func WithEmbeddingMaxRetryElapsed(d time.Duration) OpenAIEmbeddingOption {
 	return func(e *OpenAIEmbedding) {
 		e.transport.MaxRetryElapsed = d
@@ -78,12 +92,13 @@ var openAIModelDimensions = map[string]int{
 
 // NewOpenAIEmbedding creates a new OpenAI embedding service.
 //
-// The constructor reads three env vars to configure the rate-limiter and retry
-// behaviour:
+// The constructor reads two env vars to size the rate-limiter:
 //
-//   - OPENAI_TPM_LIMIT (default 1000000): initial token-per-minute budget
-//   - OPENAI_MAX_RETRIES (default 5): max retry attempts on 429/5xx
-//   - OPENAI_MAX_RETRY_ELAPSED_SEC (default 60): max total seconds spent retrying
+//   - EMBEDDER_TPM (default 1000000): tokens-per-minute budget
+//   - EMBEDDER_RPM (default 3000):    requests-per-minute budget
+//
+// Retry policy (5 attempts, 60s total) is hard-coded; tests override via the
+// WithEmbeddingMaxRetries / WithEmbeddingMaxRetryElapsed options.
 //
 // These defaults are conservative and work without tuning. Pass opts to
 // override any of them programmatically (e.g. in tests).
@@ -109,12 +124,22 @@ func NewOpenAIEmbedding(apiKey, model, baseURL string, opts ...OpenAIEmbeddingOp
 		dimensions = 1536
 	}
 
-	tpm := int64(getEnvIntAI("OPENAI_TPM_LIMIT", 1000000))
-	maxRetries := getEnvIntAI("OPENAI_MAX_RETRIES", 5)
-	maxElapsedSec := getEnvIntAI("OPENAI_MAX_RETRY_ELAPSED_SEC", 60)
+	// Rate limiting is configured from env vars because real ceilings vary
+	// by tier and provider:
+	//
+	//   - EMBEDDER_TPM (default 1000000): tokens-per-minute budget
+	//   - EMBEDDER_RPM (default 3000):    requests-per-minute budget
+	//
+	// Defaults are sized for OpenAI text-embedding-3-{small,large} at tier 1.
+	// Retry policy (5 attempts, 60s total) is hard-coded; tests use the
+	// WithEmbeddingMaxRetries / WithEmbeddingMaxRetryElapsed options.
+	tpm := int64(getEnvIntAI("EMBEDDER_TPM", 1000000))
+	rpm := int64(getEnvIntAI("EMBEDDER_RPM", 3000))
+	const maxRetries = 5
+	const maxElapsedSec = 60
 
 	refillPerSec := float64(tpm) / 60.0
-	bucket := ratelimited.NewBucket(tpm, refillPerSec)
+	bucket := ratelimited.NewBucketWithRPM(tpm, refillPerSec, rpm)
 
 	transport := &ratelimited.Transport{
 		Base:            http.DefaultTransport,
@@ -132,7 +157,14 @@ func NewOpenAIEmbedding(apiKey, model, baseURL string, opts ...OpenAIEmbeddingOp
 		dimensions: dimensions,
 		transport:  transport,
 		client: &http.Client{
-			Timeout:   60 * time.Second,
+			// Generous timeout so a rate-limited request can legitimately
+			// queue behind bucket-debt instead of being pre-emptively
+			// rejected by rate.Limiter.WaitN with "would exceed context
+			// deadline". Embeddings are usually much smaller than chat
+			// completions, but bulk reindexing exhibits the same failure
+			// mode under sustained load. See openai_llm.go for the longer
+			// explanation.
+			Timeout:   5 * time.Minute,
 			Transport: transport,
 		},
 	}

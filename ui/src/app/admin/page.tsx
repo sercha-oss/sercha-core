@@ -14,6 +14,7 @@ import {
   getSearchMetrics,
   getSearchHistory,
   getAIStatus,
+  getCapabilities,
   getCapabilityPreferences,
   HealthResponse,
   AdminStatsResponse,
@@ -25,6 +26,7 @@ import {
   SearchMetrics,
   SearchQuery,
   AISettingsStatus,
+  CapabilitiesResponse,
   CapabilityPreferencesResponse,
 } from "@/lib/api";
 import {
@@ -289,6 +291,7 @@ export default function AdminDashboardPage() {
   const [searchMetrics, setSearchMetrics] = useState<SearchMetrics | null>(null);
   const [searchHistory, setSearchHistory] = useState<SearchQuery[] | null>(null);
   const [aiStatus, setAIStatus] = useState<AISettingsStatus | null>(null);
+  const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
   const [capabilityPrefs, setCapabilityPrefs] = useState<CapabilityPreferencesResponse | null>(null);
   const [metricsPeriod, setMetricsPeriod] = useState<"24h" | "7d" | "30d">("24h");
   const [loading, setLoading] = useState(true);
@@ -298,7 +301,7 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       setError(null);
-      const [healthData, statsData, sourcesData, historyData, upcomingData, jobStatsData, searchAnalyticsData, searchMetricsData, searchHistoryData, aiStatusData, capabilityPrefsData] = await Promise.all([
+      const [healthData, statsData, sourcesData, historyData, upcomingData, jobStatsData, searchAnalyticsData, searchMetricsData, searchHistoryData, aiStatusData, capabilitiesData, capabilityPrefsData] = await Promise.all([
         getHealth().catch(() => null),
         getAdminStats().catch(() => null),
         listSources().catch(() => []),
@@ -309,6 +312,7 @@ export default function AdminDashboardPage() {
         getSearchMetrics(metricsPeriod).catch(() => null),
         getSearchHistory({ limit: 5 }).catch(() => null),
         getAIStatus().catch(() => null),
+        getCapabilities().catch(() => null),
         getCapabilityPreferences().catch(() => null),
       ]);
       setHealth(healthData);
@@ -321,6 +325,7 @@ export default function AdminDashboardPage() {
       setSearchMetrics(searchMetricsData);
       setSearchHistory(searchHistoryData || null);
       setAIStatus(aiStatusData);
+      setCapabilities(capabilitiesData);
       setCapabilityPrefs(capabilityPrefsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
@@ -477,92 +482,52 @@ export default function AdminDashboardPage() {
                 <Zap className="h-6 w-6 text-sercha-indigo" />
               </div>
               <div className="flex-1">
-                {capabilityPrefs ? (
-                  <>
-                    <div className="flex flex-wrap gap-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                          capabilityPrefs.text_indexing_enabled
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            capabilityPrefs.text_indexing_enabled ? "bg-emerald-500" : "bg-gray-400"
-                          }`}
-                        />
-                        Text Indexing
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                          capabilityPrefs.embedding_indexing_enabled
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            capabilityPrefs.embedding_indexing_enabled ? "bg-emerald-500" : "bg-gray-400"
-                          }`}
-                        />
-                        Embedding Indexing
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                          capabilityPrefs.bm25_search_enabled
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            capabilityPrefs.bm25_search_enabled ? "bg-blue-500" : "bg-gray-400"
-                          }`}
-                        />
-                        BM25 Search
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                          capabilityPrefs.vector_search_enabled
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            capabilityPrefs.vector_search_enabled ? "bg-blue-500" : "bg-gray-400"
-                          }`}
-                        />
-                        Vector Search
-                      </span>
-                      {aiStatus?.llm?.available && (
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                            capabilityPrefs.query_expansion_enabled
-                              ? "bg-purple-100 text-purple-700"
-                              : "bg-gray-100 text-gray-500"
-                          }`}
-                        >
-                          <span
-                            className={`h-1.5 w-1.5 rounded-full ${
-                              capabilityPrefs.query_expansion_enabled ? "bg-purple-500" : "bg-gray-400"
-                            }`}
-                          />
-                          Query Expansion
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-2 text-xs text-sercha-fog-grey">
-                      {[
-                        capabilityPrefs.text_indexing_enabled,
-                        capabilityPrefs.embedding_indexing_enabled,
-                        capabilityPrefs.bm25_search_enabled,
-                        capabilityPrefs.vector_search_enabled,
-                        aiStatus?.llm?.available && capabilityPrefs.query_expansion_enabled,
-                      ].filter(Boolean).length} of {aiStatus?.llm?.available ? 5 : 4} capabilities enabled
-                    </p>
-                  </>
+                {capabilities && capabilityPrefs ? (
+                  (() => {
+                    const phaseStyles: Record<string, { on: string; dot: string }> = {
+                      indexing: { on: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" },
+                      search: { on: "bg-blue-100 text-blue-700", dot: "bg-blue-500" },
+                    };
+                    const llmStyle = { on: "bg-purple-100 text-purple-700", dot: "bg-purple-500" };
+                    const offStyle = { on: "bg-gray-100 text-gray-500", dot: "bg-gray-400" };
+
+                    // Hide descriptors whose backend isn't available — same logic
+                    // as /admin/capabilities, so unavailable features don't
+                    // clutter the snapshot.
+                    const visible = capabilities.descriptors.filter(
+                      (d) => capabilities.features?.[d.type]?.available !== false,
+                    );
+                    const enabledCount = visible.filter(
+                      (d) => capabilityPrefs.toggles?.[d.type] ?? d.default_enabled,
+                    ).length;
+
+                    return (
+                      <>
+                        <div className="flex flex-wrap gap-3">
+                          {visible.map((d) => {
+                            const enabled = capabilityPrefs.toggles?.[d.type] ?? d.default_enabled;
+                            const style = enabled
+                              ? d.backend_id === "llm"
+                                ? llmStyle
+                                : phaseStyles[d.phase] ?? llmStyle
+                              : offStyle;
+                            return (
+                              <span
+                                key={d.type}
+                                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${style.on}`}
+                              >
+                                <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+                                {d.display_name}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-2 text-xs text-sercha-fog-grey">
+                          {enabledCount} of {visible.length} capabilities enabled
+                        </p>
+                      </>
+                    );
+                  })()
                 ) : (
                   <p className="text-sm text-sercha-fog-grey">
                     Loading capabilities...

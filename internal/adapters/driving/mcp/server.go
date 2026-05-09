@@ -10,11 +10,70 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	corehttp "github.com/sercha-oss/sercha-core/internal/adapters/driving/http"
 	"github.com/sercha-oss/sercha-core/internal/adapters/driving/mcp/widgets"
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driven"
 	"github.com/sercha-oss/sercha-core/internal/core/ports/driving"
 )
+
+// CallerEnricher is an optional hook that lets a consumer extend the
+// request context with a richer caller representation than Core's base
+// *domain.Caller. The hook is opaque to Core — implementations receive the
+// base caller plus the raw token claims and return a new context carrying
+// whatever extended caller value downstream pipeline stages expect.
+//
+// The base caller is constructed by Core's MCP handler (Source=CallerSourceMCP,
+// UserID from the token). Enrichment runs after that, before search or
+// get_document executes, so any pipeline stage that reads from the
+// context sees the enriched form.
+type CallerEnricher interface {
+	// EnrichContext returns a new context derived from ctx, augmented with
+	// a richer caller value. baseCaller is never nil when called.
+	EnrichContext(ctx context.Context, baseCaller *domain.Caller, tokenUserID, clientID, clientName string) context.Context
+}
+
+// DocumentSensitivityApplier is an optional hook for the get_document tool
+// that lets a consumer apply post-processing to a single document's content
+// before it is returned to the client. Typical use is policy-driven content
+// rewriting (token replacement, redaction, drop) but the interface is
+// general — implementations may rewrite, annotate, or refuse content for
+// any reason.
+//
+// Apply is called after the document is fetched and before the response is
+// assembled. The returned SensitivityInfo is surfaced as a structured field
+// on the MCP response so the consuming client can observe what was applied.
+//
+// When the field is nil on MCPServerConfig the handler skips the hook and
+// returns the document body verbatim.
+type DocumentSensitivityApplier interface {
+	// Apply returns the post-processed content plus an outcome summary.
+	// docID identifies the source document; implementations that maintain
+	// per-document caches use it as a key. A non-nil error surfaces to the
+	// MCP client as a tool failure.
+	Apply(ctx context.Context, docID, content string) (maskedContent string, info SensitivityInfo, err error)
+}
+
+// SensitivityInfo carries the structured outcome of a DocumentSensitivityApplier
+// run. Included on GetDocumentOutput and SearchResult so consumers can see
+// what categories were detected, which were rewritten, and under which
+// policy.
+type SensitivityInfo struct {
+	// DetectedCategories lists entity categories found in the content.
+	DetectedCategories []string `json:"detected_categories,omitempty"`
+
+	// MaskedCategories lists categories that were masked or blocked.
+	MaskedCategories []string `json:"masked_categories,omitempty"`
+
+	// Result is "allowed", "masked", "blocked", or "error".
+	Result string `json:"result,omitempty"`
+
+	// PolicyID is the EffectivePolicy.ID used.
+	PolicyID string `json:"policy_id,omitempty"`
+
+	// PolicyVersion is the EffectivePolicy.Version used.
+	PolicyVersion int `json:"policy_version,omitempty"`
+}
 
 // MCPServerConfig holds configuration for the MCP server
 type MCPServerConfig struct {
@@ -25,6 +84,15 @@ type MCPServerConfig struct {
 	MCPServerURL      string
 	Version           string
 	RetrievalObserver driven.RetrievalObserver // optional
+
+	// CallerEnricher is called after Core constructs the base *domain.Caller
+	// to allow consumers to attach an extended caller value to the context.
+	// Optional — nil means no enrichment.
+	CallerEnricher CallerEnricher // optional
+
+	// DocumentSensitivityApplier applies sensitivity policy to get_document
+	// responses.  Optional — nil means content is returned unmasked.
+	DocumentSensitivityApplier DocumentSensitivityApplier // optional
 }
 
 // NewMCPServer creates a new MCP server with tools registered
@@ -44,10 +112,10 @@ func NewMCPServer(cfg MCPServerConfig) *mcpsdk.Server {
 	widgets.RegisterAll(server)
 
 	// Register search tool
-	registerSearchTool(server, cfg.SearchService, cfg.SourceService, cfg.RetrievalObserver)
+	registerSearchTool(server, cfg.SearchService, cfg.SourceService, cfg.RetrievalObserver, cfg.CallerEnricher)
 
 	// Register get_document tool
-	registerGetDocumentTool(server, cfg.DocumentService, cfg.SourceService, cfg.RetrievalObserver)
+	registerGetDocumentTool(server, cfg.DocumentService, cfg.SourceService, cfg.RetrievalObserver, cfg.CallerEnricher, cfg.DocumentSensitivityApplier)
 
 	// Register list_sources tool
 	registerListSourcesTool(server, cfg.SourceService)
@@ -69,8 +137,9 @@ func NewHTTPHandler(server *mcpsdk.Server, oauthService driving.OAuthServerServi
 			Scopes:     tokenInfo.Scopes,
 			Expiration: time.Now().Add(domain.AccessTokenTTL), // Token expiration time
 			Extra: map[string]any{
-				"client_id": tokenInfo.ClientID,
-				"audience":  tokenInfo.Audience,
+				"client_id":   tokenInfo.ClientID,
+				"client_name": tokenInfo.ClientName,
+				"audience":    tokenInfo.Audience,
 			},
 		}, nil
 	}
@@ -115,10 +184,14 @@ type SearchResult struct {
 	Score        float64 `json:"score" jsonschema_description:"Relevance score as percentage (0-100)"`
 	SourceID     string  `json:"source_id" jsonschema_description:"Source ID"`
 	ProviderType string  `json:"provider_type,omitempty" jsonschema_description:"Provider type of the containing source (e.g. github, notion, onedrive)"`
+
+	// Sensitivity is populated when the sensitivity masker stage ran.
+	// Nil when sensitivity masking is not active (e.g. HTTP search).
+	Sensitivity *SensitivityInfo `json:"sensitivity,omitempty" jsonschema_description:"Sensitivity masking outcome for this result"`
 }
 
 // registerSearchTool registers the search tool with the MCP server
-func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchService, sourceService driving.SourceService, observer driven.RetrievalObserver) {
+func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchService, sourceService driving.SourceService, observer driven.RetrievalObserver, callerEnricher CallerEnricher) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "search",
 		Description: "Search across all indexed documents using semantic and keyword search",
@@ -143,16 +216,37 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			limit = 10
 		}
 
-		// Build search options
+		clientID, clientName := clientIdentityFromTokenInfo(tokenInfo)
+
+		// Construct the base Core Caller (MCP source).
+		baseCaller := &domain.Caller{
+			Source: domain.CallerSourceMCP,
+			UserID: tokenInfo.UserID,
+		}
+
+		// Inject the AuthContext so identity-resolving adapters that bridge
+		// to Core's corehttp.GetAuthContext (e.g. the document-id-filter
+		// stage's permission provider) work uniformly across HTTP and MCP
+		// entry points.
+		ctx = withAuthContextFromTokenInfo(ctx, tokenInfo)
+
+		// Run the optional caller-enricher hook so downstream pipeline
+		// stages see the extended caller value (ClientID, AgentMode, …)
+		// alongside Core's base caller.
+		if callerEnricher != nil {
+			ctx = callerEnricher.EnrichContext(ctx, baseCaller, tokenInfo.UserID, clientID, clientName)
+		}
+
+		// Build search options — thread the base Caller so sensitivity-gated
+		// stages can check CallerSource via SearchContext.Caller.
 		opts := domain.SearchOptions{
 			Mode:      domain.SearchModeHybrid,
 			Limit:     limit,
 			SourceIDs: input.SourceIDs,
+			Caller:    baseCaller,
 		}
 
 		// Perform search
-		// Note: For Phase 1, we're using the service without user-level filtering
-		// The bearer token already provides scope-based access control
 		searchResp, err := searchService.Search(ctx, input.Query, opts)
 		if err != nil {
 			return nil, SearchOutput{}, fmt.Errorf("search failed: %w", err)
@@ -169,32 +263,87 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			}
 		}
 
-		// Convert results to output format
+		// Convert results to output format.  Read sensitivity metadata written
+		// by the masker stage — available in r.Metadata (threaded through
+		// pipeline.PresentedResult.Metadata → domain.SearchResultItem.Metadata).
 		results := make([]SearchResult, len(searchResp.Results))
 		documentIDs := make([]string, len(searchResp.Results))
+
+		// Per-document outcome ledger for the observer event. Built only when
+		// the masker stage ran (signalled by a "masked" key in r.Metadata);
+		// non-masker pipelines leave docOutcomes nil and the observer treats
+		// the absence as "no masking applied".
+		var docOutcomes []map[string]any
+
 		for i, r := range searchResp.Results {
-			results[i] = SearchResult{
+			sr := SearchResult{
 				DocumentID:   r.DocumentID,
 				Title:        r.Title,
-				Content:      r.Snippet, // Use Snippet field instead of Content
+				Content:      r.Snippet,
 				Score:        r.Score,
 				SourceID:     r.SourceID,
 				ProviderType: providerBySource[r.SourceID],
 			}
 			documentIDs[i] = r.DocumentID
+
+			// Read per-result sensitivity metadata written by the masker stage.
+			if r.Metadata != nil {
+				if _, hasMasked := r.Metadata["masked"]; hasMasked {
+					info := &SensitivityInfo{}
+					var visible []string
+					if cats, ok := r.Metadata["masked_categories"].([]string); ok {
+						visible = filterSentinelCategories(cats)
+						info.MaskedCategories = visible
+					}
+					result := "allowed"
+					if len(visible) > 0 {
+						result = "masked"
+					}
+					info.Result = result
+
+					if pid, ok := r.Metadata["policy_id"].(string); ok && pid != "" {
+						info.PolicyID = pid
+					}
+					if pver, ok := r.Metadata["policy_version"].(int); ok && pver != 0 {
+						info.PolicyVersion = pver
+					}
+					sr.Sensitivity = info
+
+					// Per-document outcome for the audit observer. before_hash
+					// and after_hash are passed through verbatim when the
+					// masker computed them; absent fields stay empty so the
+					// observer's coercion drops them.
+					outcome := map[string]any{
+						"document_id":       r.DocumentID,
+						"position":          i,
+						"result":            result,
+						"masked_categories": visible,
+					}
+					if bh, ok := r.Metadata["before_hash"].(string); ok && bh != "" {
+						outcome["before_hash"] = bh
+					}
+					if ah, ok := r.Metadata["after_hash"].(string); ok && ah != "" {
+						outcome["after_hash"] = ah
+					}
+					docOutcomes = append(docOutcomes, outcome)
+				}
+			}
+
+			results[i] = sr
 		}
 
-		clientID, clientName := clientIdentityFromTokenInfo(tokenInfo)
-		fireSearchObserver(observer, driven.SearchCompletedEvent{
-			UserID:      tokenInfo.UserID,
-			Query:       input.Query,
-			DocumentIDs: documentIDs,
-			ResultCount: searchResp.TotalCount,
-			DurationNs:  time.Since(start).Nanoseconds(),
-			ClientType:  "mcp",
-			ClientID:    clientID,
-			ClientName:  clientName,
-		})
+		observerEvent := driven.SearchCompletedEvent{
+			UserID:           tokenInfo.UserID,
+			Query:            input.Query,
+			DocumentIDs:      documentIDs,
+			ResultCount:      searchResp.TotalCount,
+			DurationNs:       time.Since(start).Nanoseconds(),
+			ClientType:       "mcp",
+			ClientID:         clientID,
+			ClientName:       clientName,
+			DocumentOutcomes: docOutcomes,
+		}
+		fireSearchObserver(observer, observerEvent)
 
 		return &mcpsdk.CallToolResult{
 			Content: []mcpsdk.Content{
@@ -204,6 +353,19 @@ func registerSearchTool(server *mcpsdk.Server, searchService driving.SearchServi
 			},
 		}, SearchOutput{Results: results}, nil
 	})
+}
+
+// filterSentinelCategories removes the internal "__error__" sentinel used by
+// markAllError so it is never surfaced to MCP clients in the SensitivityInfo
+// or audit event fields.
+func filterSentinelCategories(cats []string) []string {
+	out := make([]string, 0, len(cats))
+	for _, c := range cats {
+		if c != "__error__" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // clientIdentityFromTokenInfo extracts the OAuth client_id / client_name
@@ -223,6 +385,30 @@ func clientIdentityFromTokenInfo(tokenInfo *auth.TokenInfo) (clientID, clientNam
 		clientName = v
 	}
 	return clientID, clientName
+}
+
+// withAuthContextFromTokenInfo attaches a *domain.AuthContext to ctx,
+// derived from the OAuth2 tokenInfo, so downstream identity-resolving
+// adapters that use corehttp.GetAuthContext (e.g. the document-id-filter
+// stage's permission-store-document-ID-provider) can resolve a Principal
+// from MCP requests in the same way they do from HTTP-bearer requests.
+//
+// The HTTP path constructs an AuthContext via AuthMiddleware after
+// validating a bearer token; the MCP path validates an OAuth2 access
+// token via the SDK's verifier and produces a TokenInfo. This helper
+// bridges the two so consumers can stay entry-point agnostic.
+//
+// Fields not carried in the OAuth token (Email, Name, TeamID, SessionID)
+// are left zero. Consumers that need them must look them up via the user
+// store using UserID. Today the only consumer is the identity resolver,
+// which only reads UserID.
+func withAuthContextFromTokenInfo(ctx context.Context, tokenInfo *auth.TokenInfo) context.Context {
+	if tokenInfo == nil || tokenInfo.UserID == "" {
+		return ctx
+	}
+	return corehttp.WithAuthContext(ctx, &domain.AuthContext{
+		UserID: tokenInfo.UserID,
+	})
 }
 
 // fireSearchObserver invokes observer.OnSearchCompleted on a detached
@@ -265,10 +451,14 @@ type GetDocumentOutput struct {
 	SourceID     string            `json:"source_id,omitempty" jsonschema_description:"ID of the source this document belongs to"`
 	ProviderType string            `json:"provider_type,omitempty" jsonschema_description:"Provider type of the source (e.g. github, notion, onedrive)"`
 	Metadata     map[string]string `json:"metadata" jsonschema_description:"Document metadata"`
+
+	// Sensitivity is populated when the DocumentSensitivityApplier ran.
+	// Nil when sensitivity masking is not configured.
+	Sensitivity *SensitivityInfo `json:"sensitivity,omitempty" jsonschema_description:"Sensitivity masking outcome for this document"`
 }
 
 // registerGetDocumentTool registers the get_document tool with the MCP server
-func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.DocumentService, sourceService driving.SourceService, observer driven.RetrievalObserver) {
+func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.DocumentService, sourceService driving.SourceService, observer driven.RetrievalObserver, callerEnricher CallerEnricher, sensitivityApplier DocumentSensitivityApplier) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name:        "get_document",
 		Description: "Retrieve the full content and metadata of a specific document by ID",
@@ -285,6 +475,24 @@ func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.Docu
 		// Check scope
 		if !hasScope(tokenInfo.Scopes, domain.ScopeMCPDocRead) {
 			return nil, GetDocumentOutput{}, fmt.Errorf("insufficient scope: %s required", domain.ScopeMCPDocRead)
+		}
+
+		clientID, clientName := clientIdentityFromTokenInfo(tokenInfo)
+
+		// Construct the base Core Caller (MCP source).
+		baseCaller := &domain.Caller{
+			Source: domain.CallerSourceMCP,
+			UserID: tokenInfo.UserID,
+		}
+
+		// Inject the AuthContext so identity-resolving adapters that bridge
+		// to Core's corehttp.GetAuthContext work uniformly across HTTP and
+		// MCP entry points.
+		ctx = withAuthContextFromTokenInfo(ctx, tokenInfo)
+
+		// Run the optional caller-enricher hook (mirrors search-tool path).
+		if callerEnricher != nil {
+			ctx = callerEnricher.EnrichContext(ctx, baseCaller, tokenInfo.UserID, clientID, clientName)
 		}
 
 		// Get document with content
@@ -315,17 +523,48 @@ func registerGetDocumentTool(server *mcpsdk.Server, documentService driving.Docu
 			}
 		}
 
+		// Apply the optional document post-processor (typically policy-driven
+		// masking) when one is wired.
+		content := docContent.Body
+		var sensitivityInfo *SensitivityInfo
+		if sensitivityApplier != nil {
+			masked, info, applyErr := sensitivityApplier.Apply(ctx, doc.ID, content)
+			if applyErr != nil {
+				return nil, GetDocumentOutput{}, fmt.Errorf("sensitivity masking failed: %w", applyErr)
+			}
+			// Blocked policy: the client must not learn the doc exists.
+			// Mirrors the search-pipeline masker, which silently drops blocked
+			// candidates from search results — confirming a doc by ID would
+			// otherwise let a client enumerate the corpus to map what's
+			// hidden from them. Return a not-found error so blocked and
+			// non-existent are indistinguishable on the wire. The block is
+			// still recorded server-side via the audit observer below.
+			if info.Result == "blocked" {
+				fireDocumentObserver(observer, driven.DocumentRetrievedEvent{
+					UserID:     tokenInfo.UserID,
+					DocumentID: doc.ID,
+					DurationNs: time.Since(start).Nanoseconds(),
+					ClientType: "mcp",
+					ClientID:   clientID,
+					ClientName: clientName,
+				})
+				return nil, GetDocumentOutput{}, fmt.Errorf("document not found")
+			}
+			content = masked
+			sensitivityInfo = &info
+		}
+
 		output := GetDocumentOutput{
 			DocumentID:   doc.ID,
 			Title:        doc.Title,
-			Content:      docContent.Body,
+			Content:      content,
 			URL:          doc.Path,
 			SourceID:     doc.SourceID,
 			ProviderType: providerType,
 			Metadata:     metadata,
+			Sensitivity:  sensitivityInfo,
 		}
 
-		clientID, clientName := clientIdentityFromTokenInfo(tokenInfo)
 		fireDocumentObserver(observer, driven.DocumentRetrievedEvent{
 			UserID:     tokenInfo.UserID,
 			DocumentID: doc.ID,

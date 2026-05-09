@@ -10,6 +10,7 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Search,
   Sparkles,
   Zap,
@@ -18,10 +19,17 @@ import {
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
-interface NavItem {
+interface NavSubItem {
   name: string;
   href: string;
   icon: LucideIcon;
+}
+
+interface NavItem {
+  name: string;
+  href?: string;
+  icon: LucideIcon;
+  children?: NavSubItem[];
 }
 
 const navigation: NavItem[] = [
@@ -36,6 +44,17 @@ const navigation: NavItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<string[]>([]);
+
+  const toggleExpanded = (name: string) => {
+    setExpandedItems((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  };
+
+  const isChildActive = (item: NavItem) => {
+    return item.children?.some((child) => pathname.startsWith(child.href));
+  };
 
   return (
     <aside
@@ -76,14 +95,72 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-3">
         {navigation.map((item) => {
+          // Item with children (dropdown)
+          if (item.children) {
+            const isExpanded = expandedItems.includes(item.name);
+            const hasActiveChild = isChildActive(item);
+
+            return (
+              <div key={item.name}>
+                <button
+                  onClick={() => toggleExpanded(item.name)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    collapsed && "justify-center",
+                    hasActiveChild
+                      ? "bg-sercha-indigo-soft text-sercha-indigo"
+                      : "text-sercha-fog-grey hover:bg-sercha-mist hover:text-sercha-ink-slate"
+                  )}
+                >
+                  <item.icon size={20} />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-left">{item.name}</span>
+                      <ChevronDown
+                        size={16}
+                        className={cn(
+                          "transition-transform",
+                          isExpanded && "rotate-180"
+                        )}
+                      />
+                    </>
+                  )}
+                </button>
+                {!collapsed && isExpanded && (
+                  <div className="ml-4 mt-1 space-y-1 border-l border-sercha-mist pl-3">
+                    {item.children.map((child) => {
+                      const isActive = pathname.startsWith(child.href);
+                      return (
+                        <Link
+                          key={child.name}
+                          href={child.href}
+                          className={cn(
+                            "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                            isActive
+                              ? "bg-sercha-indigo-soft text-sercha-indigo"
+                              : "text-sercha-fog-grey hover:bg-sercha-mist hover:text-sercha-ink-slate"
+                          )}
+                        >
+                          <child.icon size={16} />
+                          <span>{child.name}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // Regular item (no children)
           const isActive =
             pathname === item.href ||
-            (item.href !== "/" && item.href !== "/admin" && pathname.startsWith(item.href));
+            (item.href !== "/" && item.href !== "/admin" && pathname.startsWith(item.href!));
 
           return (
             <Link
               key={item.name}
-              href={item.href}
+              href={item.href!}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 collapsed && "justify-center",

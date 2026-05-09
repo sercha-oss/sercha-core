@@ -33,8 +33,11 @@ type OpenAILLM struct {
 type OpenAILLMOption func(*OpenAILLM)
 
 // WithLLMTPMLimit sets the tokens-per-minute budget for the LLM client's
-// rate-limiter bucket. The default is read from OPENAI_TPM_LIMIT (1000000 if
-// unset).
+// rate-limiter bucket. The RPM gate is dropped — callers using this option
+// should pair with WithLLMRPMLimit if they need request-rate gating.
+//
+// Production wiring uses the env vars (LLM_TPM/LLM_RPM); this option is
+// primarily for tests that need a known budget without env manipulation.
 func WithLLMTPMLimit(tpm int64) OpenAILLMOption {
 	return func(l *OpenAILLM) {
 		refillPerSec := float64(tpm) / 60.0
@@ -43,16 +46,37 @@ func WithLLMTPMLimit(tpm int64) OpenAILLMOption {
 	}
 }
 
+// WithLLMRPMLimit sets the requests-per-minute budget. The TPM bucket the
+// transport already owns is preserved if it was constructed by NewOpenAILLM
+// — replacing it with a bucket that includes RPM gating is the operation.
+//
+// Production wiring uses the env vars; this option is primarily for tests.
+func WithLLMRPMLimit(rpm int64) OpenAILLMOption {
+	return func(l *OpenAILLM) {
+		// Reach into the existing limiter to preserve TPM settings.
+		if existing, ok := l.transport.Limiter.(*ratelimited.Bucket); ok {
+			tpm, refillPerSec := existing.TPM(), existing.RefillPerSec()
+			l.transport.Limiter = ratelimited.NewBucketWithRPM(tpm, refillPerSec, rpm)
+			return
+		}
+		// Fallback when a non-Bucket limiter has been substituted (test stub).
+		// Use an effectively-unlimited TPM so the RPM gate is the sole
+		// constraint — passing 0 here would create a refill=0 TPM bucket
+		// that blocks Wait forever after the first burst.
+		l.transport.Limiter = ratelimited.NewBucketWithRPM(1<<31-1, 1<<30, rpm)
+	}
+}
+
 // WithLLMMaxRetries sets the maximum number of retry attempts for the LLM
-// client. The default is read from OPENAI_MAX_RETRIES (5 if unset).
+// client. Defaults to 5 (hard-coded in NewOpenAILLM).
 func WithLLMMaxRetries(n int) OpenAILLMOption {
 	return func(l *OpenAILLM) {
 		l.transport.MaxRetries = n
 	}
 }
 
-// WithLLMMaxRetryElapsed sets the maximum total elapsed time for retries. The
-// default is read from OPENAI_MAX_RETRY_ELAPSED_SEC (60 if unset).
+// WithLLMMaxRetryElapsed sets the maximum total elapsed time for retries.
+// Defaults to 60s (hard-coded in NewOpenAILLM).
 func WithLLMMaxRetryElapsed(d time.Duration) OpenAILLMOption {
 	return func(l *OpenAILLM) {
 		l.transport.MaxRetryElapsed = d
@@ -70,15 +94,21 @@ func WithLLMTransportSleep(fn func(ctx context.Context, d time.Duration) error) 
 
 // NewOpenAILLM creates a new OpenAI LLM service.
 //
-// The constructor reads three env vars to configure the rate-limiter and retry
-// behaviour:
+// Rate limiting is configured from env vars because real ceilings vary by
+// account tier, deployment (custom fine-tunes, OpenAI-compatible proxies),
+// and promotion. The operator who knows the account's tier sets these:
 //
-//   - OPENAI_TPM_LIMIT (default 1000000): initial token-per-minute budget
-//   - OPENAI_MAX_RETRIES (default 5): max retry attempts on 429/5xx
-//   - OPENAI_MAX_RETRY_ELAPSED_SEC (default 60): max total seconds spent retrying
+//   - LLM_TPM (default 200000): tokens-per-minute budget
+//   - LLM_RPM (default 500):    requests-per-minute budget
 //
-// These defaults are conservative and work without tuning. Pass opts to
-// override any of them programmatically (e.g. in tests).
+// Defaults are conservative — sized for OpenAI's tier-1 ceiling on the
+// most-restricted modern chat models. Operators on higher tiers should
+// raise the env vars to match.
+//
+// Retry behaviour is hard-coded (5 attempts, 60s total budget). These
+// values are a transport policy decision, not an operator-tunable knob;
+// tests use WithLLMMaxRetries / WithLLMMaxRetryElapsed when they need to
+// disable or shorten retries.
 //
 // The public surface (Complete, Model, Ping, Close) is unchanged from the
 // previous version.
@@ -88,19 +118,22 @@ func NewOpenAILLM(apiKey, model, baseURL string, opts ...OpenAILLMOption) (drive
 	}
 
 	if model == "" {
-		model = "gpt-4o"
+		// Match the FTUE recommended default (settings.buildLLMProviders).
+		// Cheap, fast, suitable for indexing-time entity extraction.
+		model = "gpt-4o-mini"
 	}
 
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
 	}
 
-	tpm := int64(getEnvIntAI("OPENAI_TPM_LIMIT", 1000000))
-	maxRetries := getEnvIntAI("OPENAI_MAX_RETRIES", 5)
-	maxElapsedSec := getEnvIntAI("OPENAI_MAX_RETRY_ELAPSED_SEC", 60)
+	tpm := int64(getEnvIntAI("LLM_TPM", 200000))
+	rpm := int64(getEnvIntAI("LLM_RPM", 500))
+	const maxRetries = 5
+	const maxElapsedSec = 60
 
 	refillPerSec := float64(tpm) / 60.0
-	bucket := ratelimited.NewBucket(tpm, refillPerSec)
+	bucket := ratelimited.NewBucketWithRPM(tpm, refillPerSec, rpm)
 
 	transport := &ratelimited.Transport{
 		Base:            http.DefaultTransport,
@@ -117,7 +150,18 @@ func NewOpenAILLM(apiKey, model, baseURL string, opts ...OpenAILLMOption) (drive
 		baseURL:   baseURL,
 		transport: transport,
 		client: &http.Client{
-			Timeout:   120 * time.Second,
+			// Generous timeout so the rate-limited transport can legitimately
+			// queue a request behind a deeply-drained bucket. Under sustained
+			// indexing load with multiple worker goroutines feeding chunks
+			// faster than refillPerSec, the bucket trends into debt; the
+			// rate.Limiter's WaitN refuses to enqueue any request whose
+			// estimated wait exceeds ctx's deadline. A short client timeout
+			// (e.g. 120s) caused exactly this — bucket-debt waits of ~150s
+			// got pre-emptively rejected as "rate: Wait(n=...) would exceed
+			// context deadline". 5min matches the indexing-stage's per-doc
+			// detectionTimeout, so the *request* deadline is the operational
+			// bound rather than the bucket-math deadline.
+			Timeout:   5 * time.Minute,
 			Transport: transport,
 		},
 	}

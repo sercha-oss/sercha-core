@@ -15,13 +15,12 @@ func TestInMemoryEntityTypeRegistry_Register_Success(t *testing.T) {
 	registry := NewInMemoryEntityTypeRegistry()
 
 	metadata := pipeline.EntityTypeMetadata{
-		ID:             "PERSON",
-		DisplayName:    "Person",
-		Description:    "A human individual",
-		Example:        "John Doe",
-		Group:          "PII",
-		Source:         "system",
-		OwningDetector: "",
+		ID:          "PERSON",
+		DisplayName: "Person",
+		Description: "A human individual",
+		Example:     "John Doe",
+		Group:       "PII",
+		Source:      "system",
 	}
 
 	err := registry.Register(context.Background(), metadata)
@@ -54,9 +53,6 @@ func TestInMemoryEntityTypeRegistry_Register_Success(t *testing.T) {
 	}
 	if retrieved.Source != "system" {
 		t.Errorf("Source = %q, want %q", retrieved.Source, "system")
-	}
-	if retrieved.OwningDetector != "" {
-		t.Errorf("OwningDetector = %q, want %q", retrieved.OwningDetector, "")
 	}
 }
 
@@ -243,13 +239,12 @@ func TestInMemoryEntityTypeRegistry_Get_Known_Success(t *testing.T) {
 	registry := NewInMemoryEntityTypeRegistry()
 
 	metadata := pipeline.EntityTypeMetadata{
-		ID:             "ADDRESS",
-		DisplayName:    "Address",
-		Description:    "A street address",
-		Example:        "123 Main St",
-		Group:          "PII",
-		Source:         "system",
-		OwningDetector: "address-detector",
+		ID:          "ADDRESS",
+		DisplayName: "Address",
+		Description: "A street address",
+		Example:     "123 Main St",
+		Group:       "PII",
+		Source:      "system",
 	}
 
 	if err := registry.Register(context.Background(), metadata); err != nil {
@@ -264,8 +259,8 @@ func TestInMemoryEntityTypeRegistry_Get_Known_Success(t *testing.T) {
 		t.Fatal("found = false, want true")
 	}
 
-	if retrieved.OwningDetector != "address-detector" {
-		t.Errorf("OwningDetector = %q, want %q", retrieved.OwningDetector, "address-detector")
+	if retrieved.ID != "ADDRESS" {
+		t.Errorf("ID = %q, want %q", retrieved.ID, "ADDRESS")
 	}
 }
 
@@ -322,220 +317,6 @@ func TestInMemoryEntityTypeRegistry_List_Multiple(t *testing.T) {
 	}
 }
 
-// --- TestInMemoryEntityTypeRegistry_SetOwningDetector ---
-
-func TestInMemoryEntityTypeRegistry_SetOwningDetector_Unknown_Error(t *testing.T) {
-	registry := NewInMemoryEntityTypeRegistry()
-
-	err := registry.SetOwningDetector(context.Background(), "UNKNOWN", "detector-1")
-	if err == nil {
-		t.Fatal("SetOwningDetector() error = nil, want error for unknown ID")
-	}
-
-	if !errors.Is(err, ErrUnknownEntityType) {
-		t.Errorf("error should be ErrUnknownEntityType, got %v", err)
-	}
-}
-
-func TestInMemoryEntityTypeRegistry_SetOwningDetector_ClaimOwnership(t *testing.T) {
-	registry := NewInMemoryEntityTypeRegistry()
-
-	metadata := pipeline.EntityTypeMetadata{
-		ID:             "PERSON",
-		DisplayName:    "Person",
-		Description:    "A person",
-		Example:        "John Doe",
-		Source:         "system",
-		OwningDetector: "",
-	}
-
-	if err := registry.Register(context.Background(), metadata); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	// Claim ownership
-	err := registry.SetOwningDetector(context.Background(), "PERSON", "detector-1")
-	if err != nil {
-		t.Fatalf("SetOwningDetector() error = %v, want nil", err)
-	}
-
-	// Verify ownership was set
-	retrieved, found, _ := registry.Get(context.Background(), "PERSON")
-	if !found {
-		t.Fatal("entity type should exist")
-	}
-	if retrieved.OwningDetector != "detector-1" {
-		t.Errorf("OwningDetector = %q, want %q", retrieved.OwningDetector, "detector-1")
-	}
-}
-
-func TestInMemoryEntityTypeRegistry_SetOwningDetector_IdempotentSameOwner(t *testing.T) {
-	registry := NewInMemoryEntityTypeRegistry()
-
-	metadata := pipeline.EntityTypeMetadata{
-		ID:             "EMAIL",
-		DisplayName:    "Email",
-		Description:    "An email",
-		Example:        "user@example.com",
-		Source:         "system",
-		OwningDetector: "detector-1",
-	}
-
-	if err := registry.Register(context.Background(), metadata); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	// Set same owner again
-	err := registry.SetOwningDetector(context.Background(), "EMAIL", "detector-1")
-	if err != nil {
-		t.Fatalf("SetOwningDetector() error = %v, want nil (idempotent)", err)
-	}
-
-	// Verify owner is still set to detector-1
-	retrieved, found, _ := registry.Get(context.Background(), "EMAIL")
-	if !found {
-		t.Fatal("entity type should exist")
-	}
-	if retrieved.OwningDetector != "detector-1" {
-		t.Errorf("OwningDetector = %q, want %q", retrieved.OwningDetector, "detector-1")
-	}
-}
-
-func TestInMemoryEntityTypeRegistry_SetOwningDetector_ConflictDifferentOwner(t *testing.T) {
-	registry := NewInMemoryEntityTypeRegistry()
-
-	metadata := pipeline.EntityTypeMetadata{
-		ID:             "PHONE",
-		DisplayName:    "Phone",
-		Description:    "A phone number",
-		Example:        "+1-555-0100",
-		Source:         "system",
-		OwningDetector: "detector-1",
-	}
-
-	if err := registry.Register(context.Background(), metadata); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	// Try to set different owner
-	err := registry.SetOwningDetector(context.Background(), "PHONE", "detector-2")
-	if err == nil {
-		t.Fatal("SetOwningDetector() error = nil, want error for conflicting owner")
-	}
-
-	if !errors.Is(err, ErrOwnerConflict) {
-		t.Errorf("error should be ErrOwnerConflict, got %v", err)
-	}
-
-	// Verify owner was not changed
-	retrieved, found, _ := registry.Get(context.Background(), "PHONE")
-	if !found {
-		t.Fatal("entity type should exist")
-	}
-	if retrieved.OwningDetector != "detector-1" {
-		t.Errorf("OwningDetector = %q, want %q (should be unchanged)", retrieved.OwningDetector, "detector-1")
-	}
-}
-
-func TestInMemoryEntityTypeRegistry_SetOwningDetector_ClearOwnership(t *testing.T) {
-	registry := NewInMemoryEntityTypeRegistry()
-
-	metadata := pipeline.EntityTypeMetadata{
-		ID:             "ADDRESS",
-		DisplayName:    "Address",
-		Description:    "An address",
-		Example:        "123 Main St",
-		Source:         "system",
-		OwningDetector: "detector-1",
-	}
-
-	if err := registry.Register(context.Background(), metadata); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	// Clear ownership
-	err := registry.SetOwningDetector(context.Background(), "ADDRESS", "")
-	if err != nil {
-		t.Fatalf("SetOwningDetector() error = %v, want nil", err)
-	}
-
-	// Verify ownership was cleared
-	retrieved, found, _ := registry.Get(context.Background(), "ADDRESS")
-	if !found {
-		t.Fatal("entity type should exist")
-	}
-	if retrieved.OwningDetector != "" {
-		t.Errorf("OwningDetector = %q, want %q (empty)", retrieved.OwningDetector, "")
-	}
-}
-
-func TestInMemoryEntityTypeRegistry_SetOwningDetector_ClearOwnership_IdempotentIfAlreadyUnowned(t *testing.T) {
-	registry := NewInMemoryEntityTypeRegistry()
-
-	metadata := pipeline.EntityTypeMetadata{
-		ID:             "TYPE1",
-		DisplayName:    "Type 1",
-		Description:    "Type 1",
-		Example:        "example",
-		Source:         "system",
-		OwningDetector: "",
-	}
-
-	if err := registry.Register(context.Background(), metadata); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	// Clear ownership when already unowned
-	err := registry.SetOwningDetector(context.Background(), "TYPE1", "")
-	if err != nil {
-		t.Fatalf("SetOwningDetector() error = %v, want nil (idempotent)", err)
-	}
-
-	// Verify still unowned
-	retrieved, found, _ := registry.Get(context.Background(), "TYPE1")
-	if !found {
-		t.Fatal("entity type should exist")
-	}
-	if retrieved.OwningDetector != "" {
-		t.Errorf("OwningDetector = %q, want %q (empty)", retrieved.OwningDetector, "")
-	}
-}
-
-func TestInMemoryEntityTypeRegistry_SetOwningDetector_SetOwnerWherePreviouslyClaimed(t *testing.T) {
-	registry := NewInMemoryEntityTypeRegistry()
-
-	metadata := pipeline.EntityTypeMetadata{
-		ID:             "TYPE2",
-		DisplayName:    "Type 2",
-		Description:    "Type 2",
-		Example:        "example",
-		Source:         "system",
-		OwningDetector: "detector-1",
-	}
-
-	if err := registry.Register(context.Background(), metadata); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
-
-	// Clear the owner first
-	if err := registry.SetOwningDetector(context.Background(), "TYPE2", ""); err != nil {
-		t.Fatalf("SetOwningDetector(clear) error = %v", err)
-	}
-
-	// Now set a new owner (should succeed after clearing)
-	err := registry.SetOwningDetector(context.Background(), "TYPE2", "detector-2")
-	if err != nil {
-		t.Fatalf("SetOwningDetector() error = %v, want nil", err)
-	}
-
-	retrieved, found, _ := registry.Get(context.Background(), "TYPE2")
-	if !found {
-		t.Fatal("entity type should exist")
-	}
-	if retrieved.OwningDetector != "detector-2" {
-		t.Errorf("OwningDetector = %q, want %q", retrieved.OwningDetector, "detector-2")
-	}
-}
 
 // --- Concurrency Tests ---
 
@@ -596,27 +377,10 @@ func TestInMemoryEntityTypeRegistry_Concurrent_ReadsAndWrites(t *testing.T) {
 					Example:     "example",
 					Source:      "admin",
 				}
-				// Update may race with SetOwningDetector clearing/setting the owner;
-				// we don't assert on its error, only on data-race-freedom under -race.
+				// We don't assert on Update's error — concurrent reads can
+				// race with the write, and the test exists to detect data
+				// races (under -race), not to assert ordering.
 				_ = registry.Update(context.Background(), metadata)
-			}
-		}(i)
-	}
-
-	// 2 writers (set owning detector)
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			for j := 0; j < 10; j++ {
-				id := pipeline.EntityType("TYPE" + string(rune(idx%5+48)))
-				detectorID := "detector-" + string(rune(idx+48))
-				// Concurrent owner sets may conflict; ignore errors here — the
-				// test exists to detect data races, not to assert ordering.
-				_ = registry.SetOwningDetector(context.Background(), id, detectorID)
-
-				// Clear it again to allow others to set
-				_ = registry.SetOwningDetector(context.Background(), id, "")
 			}
 		}(i)
 	}
