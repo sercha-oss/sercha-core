@@ -31,7 +31,45 @@ const (
 	ShapePresentedResult ShapeName = "presented_result"
 )
 
-// CapabilityType identifies external dependencies a stage may require.
+// CapabilityType identifies an external swappable infrastructure provider
+// that a pipeline stage may consume. The capability registry is the runtime
+// dependency-injection mechanism for these providers.
+//
+// What belongs here (capability):
+//
+//   - External services with multiple plausible vendor implementations:
+//     LLM, embedder, search engine, vector store, ACL/document-ID provider.
+//   - Things whose presence-vs-absence drives "skip stage" / "graceful
+//     degrade" behavior in the pipeline builder.
+//   - Things a deployment may swap by changing wiring at startup.
+//
+// What does NOT belong here (use constructor injection instead):
+//
+//   - Application-internal ports backed by the application's own database
+//     (document store, source store, sync store, audit repositories, and
+//     similar CRUD-shaped data ports). Wire these directly into a stage
+//     factory's constructor at startup, the way DocumentStore is wired
+//     into the rest of the application.
+//   - Things consumed by exactly one stage with one expected implementation.
+//     The capability registry's indirection adds DI ceremony but earns
+//     nothing when there is no swappability story.
+//   - Stage-specific logic dressed up as a separate provider. A wrapper
+//     that only consumes an existing capability (e.g. an LLM-backed
+//     "detector" or "summarizer" or "rewriter") is not a new capability —
+//     it is stage logic that consumes the LLM capability. The
+//     query-expander stage is the canonical example: it declares
+//     CapabilityLLM (Optional) and runs the prompt inline. New LLM-backed
+//     features should follow that pattern.
+//
+// Adding a new constant here is a meaningful act. Before doing so, confirm:
+// (a) is this an external service with realistic vendor swappability, or
+// (b) am I leaking a stage's internal data dependencies through the registry
+// because the constant feels like it "belongs in the same place" as LLM and
+// vector-store? If (b), use a constructor arg instead.
+//
+// Because CapabilityType is an open string type, downstream consumers can
+// declare their own constants in their own packages (`pipeline.CapabilityType("foo")`).
+// Constants declared here should be those that Core stages actually consume.
 type CapabilityType string
 
 const (

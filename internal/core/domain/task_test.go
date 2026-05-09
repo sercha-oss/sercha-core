@@ -454,3 +454,78 @@ func TestTaskResult(t *testing.T) {
 		t.Errorf("expected ErrorsCount 2, got %d", result.ErrorsCount)
 	}
 }
+
+// ----- Task.Trigger() and trigger-aware factories -----
+
+func TestTask_Trigger_DefaultsToScheduled(t *testing.T) {
+	// Tasks built before the trigger field existed (or any task missing
+	// the payload key) must report TaskTriggerScheduled — that's the
+	// historical implicit default the rest of the system relied on.
+	bare := &Task{Payload: nil}
+	if got := bare.Trigger(); got != TaskTriggerScheduled {
+		t.Errorf("nil payload: got %q, want %q", got, TaskTriggerScheduled)
+	}
+
+	emptyMap := &Task{Payload: map[string]string{}}
+	if got := emptyMap.Trigger(); got != TaskTriggerScheduled {
+		t.Errorf("empty payload: got %q, want %q", got, TaskTriggerScheduled)
+	}
+
+	garbage := &Task{Payload: map[string]string{taskPayloadTriggerKey: "not-a-real-trigger"}}
+	if got := garbage.Trigger(); got != TaskTriggerScheduled {
+		t.Errorf("unknown trigger value: got %q, want %q", got, TaskTriggerScheduled)
+	}
+}
+
+func TestTask_Trigger_ReadsValidValues(t *testing.T) {
+	cases := []TaskTrigger{TaskTriggerManual, TaskTriggerScheduled, TaskTriggerWebhook}
+	for _, want := range cases {
+		t.Run(string(want), func(t *testing.T) {
+			task := &Task{Payload: map[string]string{taskPayloadTriggerKey: string(want)}}
+			if got := task.Trigger(); got != want {
+				t.Errorf("Trigger() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestNewSyncSourceTask_DefaultsToScheduled(t *testing.T) {
+	// The bare factory keeps the old behaviour: any caller not specifying
+	// a trigger gets "scheduled". This protects every existing call site
+	// that hasn't migrated to the *WithTrigger variant.
+	task := NewSyncSourceTask("team", "src")
+	if got := task.Trigger(); got != TaskTriggerScheduled {
+		t.Errorf("Trigger() = %q, want %q", got, TaskTriggerScheduled)
+	}
+}
+
+func TestNewSyncSourceTaskWithTrigger_RecordsTrigger(t *testing.T) {
+	cases := []TaskTrigger{TaskTriggerManual, TaskTriggerScheduled, TaskTriggerWebhook}
+	for _, want := range cases {
+		t.Run(string(want), func(t *testing.T) {
+			task := NewSyncSourceTaskWithTrigger("team", "src", want)
+			if got := task.Trigger(); got != want {
+				t.Errorf("Trigger() = %q, want %q", got, want)
+			}
+			if task.SourceID() != "src" {
+				t.Errorf("SourceID() = %q, want %q", task.SourceID(), "src")
+			}
+		})
+	}
+}
+
+func TestNewSyncContainerTask_DefaultsToManual(t *testing.T) {
+	// Container syncs are only enqueued today by an explicit admin action
+	// (adding a new container post-setup). Default trigger reflects that.
+	task := NewSyncContainerTask("team", "src", "container")
+	if got := task.Trigger(); got != TaskTriggerManual {
+		t.Errorf("Trigger() = %q, want %q", got, TaskTriggerManual)
+	}
+}
+
+func TestNewSyncAllTask_HasScheduledTrigger(t *testing.T) {
+	task := NewSyncAllTask("team")
+	if got := task.Trigger(); got != TaskTriggerScheduled {
+		t.Errorf("Trigger() = %q, want %q", got, TaskTriggerScheduled)
+	}
+}

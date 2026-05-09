@@ -670,21 +670,33 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	authCtx := GetAuthContext(r.Context())
+
+	// Construct the base Caller so sensitivity-gated pipeline stages can
+	// identify this as a direct (non-MCP) HTTP request and short-circuit.
+	var caller *domain.Caller
+	if authCtx != nil {
+		caller = &domain.Caller{
+			Source: domain.CallerSourceDirect,
+			UserID: authCtx.UserID,
+		}
+	}
+
 	opts := domain.SearchOptions{
 		Mode:       req.Mode,
 		Limit:      req.Limit,
 		Offset:     req.Offset,
 		SourceIDs:  req.SourceIDs,
 		BoostTerms: req.BoostTerms,
+		Caller:     caller,
 	}
 
 	result, err := s.searchService.Search(r.Context(), req.Query, opts)
 	if err != nil {
+		log.Printf("search handler: search failed: %v", err)
 		WriteError(w, http.StatusInternalServerError, "search failed")
 		return
 	}
-
-	authCtx := GetAuthContext(r.Context())
 
 	// Track search query for analytics (best effort, don't fail request if tracking fails)
 	if s.searchQueryRepo != nil && authCtx != nil {
@@ -747,6 +759,25 @@ func SearchResultDocumentIDs(result *domain.SearchResult) []string {
 
 // Document endpoints
 
+// retrievalAuditSkipHeader is the request header an admin client sets to
+// suppress the retrieval-audit row for that single call. Only honored when
+// the authenticated caller is an admin — see shouldSkipRetrievalAudit.
+const retrievalAuditSkipHeader = "X-Sercha-Audit-Skip"
+
+// shouldSkipRetrievalAudit returns true when the request carries the
+// audit-skip header AND the authenticated caller is an admin. Used by the
+// document/search retrieval handlers to opt out of audit-row generation
+// for housekeeping reads (e.g. an admin UI resolving document titles for a
+// label column). A non-admin sending the header is ignored, so users can't
+// suppress their own audit trail.
+func shouldSkipRetrievalAudit(r *http.Request) bool {
+	if r.Header.Get(retrievalAuditSkipHeader) != "1" {
+		return false
+	}
+	authCtx := GetAuthContext(r.Context())
+	return authCtx != nil && authCtx.IsAdmin()
+}
+
 // handleGetDocument godoc
 // @Summary      Get document
 // @Description  Get document metadata by ID
@@ -780,7 +811,17 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fire retrieval observer asynchronously (nil-guarded).
-	if s.retrievalObserver != nil {
+	//
+	// Skip the audit row when the request is an admin-internal label-resolution
+	// call: admin role + the X-Sercha-Audit-Skip:1 header. Both conditions are
+	// required so a regular user can't suppress their own audit trail by adding
+	// the header. The flag is set by admin UIs (e.g. /admin/audit/retrievals
+	// resolving document titles into the table) where firing the observer
+	// would create a runaway feedback loop — every label resolution would
+	// produce a new audit row that the page then resolves again. Admin reads
+	// of documents through normal admin UI paths still audit, since they
+	// don't set the header.
+	if s.retrievalObserver != nil && !shouldSkipRetrievalAudit(r) {
 		event := driven.DocumentRetrievedEvent{
 			DocumentID: id,
 			DurationNs: time.Since(start).Nanoseconds(),
@@ -1019,7 +1060,7 @@ func (s *Server) handleTriggerSync(w http.ResponseWriter, r *http.Request) {
 
 	// Create and enqueue sync task
 	// Note: Using "default" as team_id since we're single-org
-	task := domain.NewSyncSourceTask("default", source.ID)
+	task := domain.NewSyncSourceTaskWithTrigger("default", source.ID, domain.TaskTriggerManual)
 	if err := s.taskQueue.Enqueue(r.Context(), task); err != nil {
 		WriteError(w, http.StatusInternalServerError, "failed to enqueue sync task")
 		return
@@ -1821,6 +1862,71 @@ func (s *Server) handleListSyncStates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteJSON(w, http.StatusOK, states)
+}
+
+// FailedDocumentsResponse is the JSON envelope for the per-source
+// skip-list endpoint. Mirrors the shape of /sync-states (flat array
+// payload + count) so admin UIs can render it without a bespoke parser.
+//
+// @Description Per-source documents the orchestrator failed to ingest.
+type FailedDocumentsResponse struct {
+	Documents []domain.SyncFailedDoc `json:"documents"`
+	Total     int                    `json:"total"`
+}
+
+// handleListFailedDocuments godoc
+// @Summary      List failing documents for a source
+// @Description  Returns the per-document skip-list rows for a source —
+//
+//	documents the orchestrator failed to ingest and is retrying with
+//	exponential backoff (or has marked terminal). Bounded by `limit`
+//	(default 100, max 500). Empty when the orchestrator is wired in
+//	the legacy "stall cursor on error" mode.
+//
+// @Tags         Sources
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path   string true  "Source ID"
+// @Param        limit query  int    false "Max rows to return (default 100, max 500)"
+// @Success      200   {object} FailedDocumentsResponse
+// @Failure      400   {object} ErrorResponse
+// @Failure      401   {object} ErrorResponse  "Unauthorized"
+// @Failure      403   {object} ErrorResponse  "Forbidden - admin only"
+// @Failure      500   {object} ErrorResponse
+// @Router       /sources/{id}/failed-documents [get]
+func (s *Server) handleListFailedDocuments(w http.ResponseWriter, r *http.Request) {
+	if s.syncOrchestrator == nil {
+		WriteError(w, http.StatusServiceUnavailable, "sync orchestrator not configured")
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		WriteError(w, http.StatusBadRequest, "missing source id")
+		return
+	}
+	limit := 100
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			if n > 500 {
+				n = 500
+			}
+			limit = n
+		}
+	}
+	rows, err := s.syncOrchestrator.ListFailedDocuments(r.Context(), id, limit)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "failed to list failed documents: "+err.Error())
+		return
+	}
+	if rows == nil {
+		// Distinguish "feature not wired" vs "no rows" with a stable
+		// JSON shape so the UI doesn't see null.
+		rows = []domain.SyncFailedDoc{}
+	}
+	WriteJSON(w, http.StatusOK, FailedDocumentsResponse{
+		Documents: rows,
+		Total:     len(rows),
+	})
 }
 
 // Source document endpoints

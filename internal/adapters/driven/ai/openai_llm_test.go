@@ -26,8 +26,8 @@ func TestNewOpenAILLM_DefaultModel(t *testing.T) {
 	}
 
 	llm := svc.(*OpenAILLM)
-	if llm.model != "gpt-4o" {
-		t.Errorf("expected default model gpt-4o, got %s", llm.model)
+	if llm.model != "gpt-4o-mini" {
+		t.Errorf("expected default model gpt-4o-mini, got %s", llm.model)
 	}
 }
 

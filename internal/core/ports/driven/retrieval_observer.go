@@ -42,6 +42,24 @@ type SearchCompletedEvent struct {
 	ClientType  string // "http" | "mcp" | etc.
 	ClientID    string // OAuth client_id for MCP; empty when not applicable.
 	ClientName  string // Human-readable client name; empty when not known.
+
+	// DocumentOutcomes carries per-document policy decisions made during
+	// retrieval (e.g. content rewriting or drop). Position-aligned with
+	// DocumentIDs. Populated only by transports whose pipeline runs a
+	// content-policy stage. Transports without one leave it nil.
+	//
+	// The element shape is intentionally a loose map so this port does
+	// not depend on policy-implementation types. Each entry SHOULD carry:
+	//
+	//   "document_id"        string
+	//   "position"           int
+	//   "result"             string  ("allowed" | "masked" | "blocked")
+	//   "masked_categories"  []string
+	//   "before_hash"        string  (hex SHA-256, optional)
+	//   "after_hash"         string  (hex SHA-256, optional)
+	//
+	// Observers that don't understand the shape may ignore the field.
+	DocumentOutcomes []map[string]any
 }
 
 // DocumentRetrievedEvent carries the outcome of a single-document fetch.

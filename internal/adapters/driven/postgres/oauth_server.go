@@ -534,6 +534,72 @@ func (s *OAuthTokenStore) RevokeAllForClient(ctx context.Context, clientID strin
 	return nil
 }
 
+// ListUsersForClient returns the distinct user IDs that currently hold at
+// least one non-revoked, non-expired refresh token for the given clientID.
+//
+// Refresh tokens (not access tokens) are the right notion of "is this user
+// connected": they outlive the access-token lifetime (~15 min) and only
+// disappear when the user explicitly disconnects, an admin revokes, or the
+// refresh token expires (typically ~30 days). An admin "who has connected
+// app X?" view that filtered on access tokens would silently drop users in
+// the gap between refreshes.
+func (s *OAuthTokenStore) ListUsersForClient(ctx context.Context, clientID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT user_id
+		FROM oauth_refresh_tokens
+		WHERE client_id = $1
+		  AND revoked = false
+		  AND expires_at > NOW()
+	`, clientID)
+	if err != nil {
+		return nil, fmt.Errorf("list users for client: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan user id: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate users for client: %w", err)
+	}
+	return out, nil
+}
+
+// ListClientsForUser returns the distinct client IDs the given user currently
+// holds at least one non-revoked, non-expired refresh token for. See
+// ListUsersForClient for the rationale on refresh-vs-access tokens.
+func (s *OAuthTokenStore) ListClientsForUser(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT client_id
+		FROM oauth_refresh_tokens
+		WHERE user_id = $1
+		  AND revoked = false
+		  AND expires_at > NOW()
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list clients for user: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan client id: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate clients for user: %w", err)
+	}
+	return out, nil
+}
+
 // Cleanup removes expired tokens.
 func (s *OAuthTokenStore) Cleanup(ctx context.Context) error {
 	// Delete expired access tokens

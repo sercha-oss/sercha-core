@@ -625,3 +625,82 @@ func TestSearchWithPipeline_ResultMapping(t *testing.T) {
 		t.Errorf("expected snippet='Test snippet content', got %s", item.Snippet)
 	}
 }
+
+// TestSearchWithPipeline_MetadataPropagation verifies that arbitrary
+// PresentedResult.Metadata keys produced by pipeline stages survive the
+// projection to SearchResultItem and are visible to driving adapters.
+//
+// The chain is: Candidate.Metadata (stage scratchpad) -> presenter copies
+// to PresentedResult.Metadata -> service forwards to SearchResultItem.Metadata.
+// This test pins the third hop, which is the one that previously dropped the
+// metadata on the floor.
+func TestSearchWithPipeline_MetadataPropagation(t *testing.T) {
+	searchEngine := mocks.NewMockSearchEngine()
+	documentStore := mocks.NewMockDocumentStore()
+	embeddingService := mocks.NewMockEmbeddingService()
+	runtimeServices := createTestServices(embeddingService)
+
+	executor := &mockSearchExecutor{
+		executeFn: func(ctx context.Context, sctx *pipeline.SearchContext, input *pipeline.SearchInput) (*pipeline.SearchOutput, error) {
+			return &pipeline.SearchOutput{
+				Results: []pipeline.PresentedResult{
+					{
+						DocumentID: "doc-1",
+						SourceID:   "source-1",
+						Title:      "Result 1",
+						Snippet:    "Snippet 1",
+						Score:      95.0,
+						Metadata: map[string]any{
+							"facet_kind":  "report",
+							"match_count": 3,
+							"flagged":     true,
+						},
+					},
+					{
+						DocumentID: "doc-2",
+						SourceID:   "source-1",
+						Title:      "Result 2",
+						Snippet:    "Snippet 2",
+						Score:      85.0,
+						// Nil Metadata — must not panic, must come through nil.
+					},
+				},
+				TotalCount: 2,
+			}, nil
+		},
+	}
+	svc := NewSearchService(searchEngine, documentStore, runtimeServices, executor, nil, nil, "default")
+
+	_ = documentStore.Save(context.Background(), &domain.Document{ID: "doc-1", SourceID: "source-1", Title: "Document 1"})
+	_ = documentStore.Save(context.Background(), &domain.Document{ID: "doc-2", SourceID: "source-1", Title: "Document 2"})
+
+	result, err := svc.Search(context.Background(), "test", domain.SearchOptions{
+		Mode:  domain.SearchModeHybrid,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result.Results))
+	}
+
+	first := result.Results[0]
+	if first.Metadata == nil {
+		t.Fatal("first result Metadata is nil; expected forwarded keys")
+	}
+	if got, want := first.Metadata["facet_kind"], "report"; got != want {
+		t.Errorf("Metadata[facet_kind] = %v, want %q", got, want)
+	}
+	if got, want := first.Metadata["match_count"], 3; got != want {
+		t.Errorf("Metadata[match_count] = %v, want %d", got, want)
+	}
+	if got, want := first.Metadata["flagged"], true; got != want {
+		t.Errorf("Metadata[flagged] = %v, want %v", got, want)
+	}
+
+	second := result.Results[1]
+	if second.Metadata != nil {
+		t.Errorf("second result Metadata = %v, want nil (presenter emitted nil)", second.Metadata)
+	}
+}

@@ -108,6 +108,19 @@ func GetAuthContext(ctx context.Context) *domain.AuthContext {
 	return authCtx
 }
 
+// WithAuthContext returns a copy of ctx with the supplied AuthContext
+// attached so downstream consumers (services, ports, adapters) can retrieve
+// it via GetAuthContext.
+//
+// AuthMiddleware uses this internally for HTTP-bearer-token requests; other
+// driving adapters that establish caller identity through a different
+// mechanism (for example an MCP server validating an OAuth2 access token)
+// can call WithAuthContext directly to inject an equivalent AuthContext so
+// downstream identity-resolving adapters work uniformly across entry points.
+func WithAuthContext(ctx context.Context, authCtx *domain.AuthContext) context.Context {
+	return context.WithValue(ctx, authContextKey, authCtx)
+}
+
 // extractBearerToken extracts the Bearer token from Authorization header
 func extractBearerToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
@@ -212,7 +225,7 @@ func (m *CORSMiddleware) Handler(next http.Handler) http.Handler {
 		if allowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Sercha-Audit-Skip")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 

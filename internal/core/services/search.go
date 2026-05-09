@@ -121,32 +121,33 @@ func (s *searchService) searchWithPipeline(
 			Limit:  opts.Limit,
 		},
 		BoostTerms: opts.BoostTerms,
+		Caller:     opts.Caller,
 	}
 
-	// Start with defaults: BM25 enabled, vector disabled
+	// Hydrate the toggle map directly from persisted preferences. Stages
+	// resolve absent toggles via prefs.IsEnabled(<cap>, default), so we
+	// don't need to pre-populate every key — only the few that
+	// SearchMode overrides below.
 	pipelineContext.Preferences = &pipeline.StagePreferences{
-		BM25SearchEnabled:   true,
-		VectorSearchEnabled: false,
+		Toggles: map[domain.CapabilityType]bool{},
 	}
-
-	// Fetch capability preferences (what's available)
-	// Note: teamID should come from context, use "default" for now
+	// Note: teamID should come from context, use "default" for now.
 	if s.capabilityStore != nil {
-		prefs, _ := s.capabilityStore.GetPreferences(ctx, "default")
-		if prefs != nil {
-			pipelineContext.Preferences.TextIndexingEnabled = prefs.TextIndexingEnabled
-			pipelineContext.Preferences.EmbeddingIndexingEnabled = prefs.EmbeddingIndexingEnabled
-			pipelineContext.Preferences.BM25SearchEnabled = prefs.BM25SearchEnabled
-			pipelineContext.Preferences.VectorSearchEnabled = prefs.VectorSearchEnabled
+		if prefs, err := s.capabilityStore.GetPreferences(ctx, "default"); err == nil && prefs != nil && prefs.Toggles != nil {
+			for k, v := range prefs.Toggles {
+				pipelineContext.Preferences.Toggles[k] = v
+			}
 		}
 	}
 
-	// Apply search mode on top of capability availability
+	// SearchMode is a per-request override on top of persisted prefs:
+	// text-only forces vector off, semantic-only forces BM25 off. Hybrid
+	// (the default) leaves the persisted toggles alone.
 	switch opts.Mode {
 	case domain.SearchModeTextOnly:
-		pipelineContext.Preferences.VectorSearchEnabled = false
+		pipelineContext.Preferences.Toggles[domain.CapabilityVectorSearch] = false
 	case domain.SearchModeSemanticOnly:
-		pipelineContext.Preferences.BM25SearchEnabled = false
+		pipelineContext.Preferences.Toggles[domain.CapabilityBM25Search] = false
 	case domain.SearchModeHybrid:
 		// Keep both as-is from capability preferences
 	}
@@ -186,6 +187,12 @@ func (s *searchService) searchWithPipeline(
 			Snippet:    result.Snippet,
 			Score:      result.Score,
 			IndexedAt:  doc.IndexedAt,
+			// Forward presenter metadata so pipeline stages can annotate
+			// individual results (e.g. faceting hints, ranking signals,
+			// stage-specific outcome flags) and downstream adapters can read
+			// them without importing pipeline types. The service does not
+			// interpret the keys; consumers read what they care about.
+			Metadata: result.Metadata,
 		})
 	}
 

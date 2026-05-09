@@ -384,23 +384,18 @@ func buildLLMProviders() []domain.AIProviderInfo {
 		{
 			ID:   string(domain.AIProviderOpenAI),
 			Name: "OpenAI",
+			// Order matters — the first entry is the default selection in the
+			// FTUE wizard. Lead with the cheap/fast option that's good for
+			// indexing-time entity extraction; bigger models follow for users
+			// who want quality over throughput.
 			Models: []domain.AIModelInfo{
-				{
-					ID:   "gpt-4o",
-					Name: "GPT-4o",
-				},
-				{
-					ID:   "gpt-4o-mini",
-					Name: "GPT-4o Mini",
-				},
-				{
-					ID:   "gpt-4-turbo",
-					Name: "GPT-4 Turbo",
-				},
-				{
-					ID:   "gpt-3.5-turbo",
-					Name: "GPT-3.5 Turbo",
-				},
+				{ID: "gpt-4o-mini", Name: "GPT-4o Mini (recommended)"},
+				{ID: "gpt-5-mini", Name: "GPT-5 Mini"},
+				{ID: "gpt-5-nano", Name: "GPT-5 Nano"},
+				{ID: "gpt-4o", Name: "GPT-4o"},
+				{ID: "gpt-5", Name: "GPT-5"},
+				{ID: "gpt-4.1-mini", Name: "GPT-4.1 Mini"},
+				{ID: "gpt-4.1", Name: "GPT-4.1"},
 			},
 			RequiresAPIKey:  true,
 			RequiresBaseURL: false,

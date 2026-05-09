@@ -48,10 +48,11 @@ type OAuthServerService interface {
 
 // OAuthTokenInfo contains validated token information for middleware use
 type OAuthTokenInfo struct {
-	UserID   string   // Subject (user ID) from token
-	ClientID string   // OAuth client ID that requested the token
-	Scopes   []string // Granted scopes
-	Audience string   // Resource indicator (MCP server URL)
+	UserID     string   // Subject (user ID) from token
+	ClientID   string   // OAuth client ID that requested the token
+	ClientName string   // Live oauth_clients.name lookup; empty when the client row is gone
+	Scopes     []string // Granted scopes
+	Audience   string   // Resource indicator (MCP server URL)
 }
 
 // OAuthServerMetadata represents RFC 8414 Authorization Server Metadata

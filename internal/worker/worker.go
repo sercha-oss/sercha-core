@@ -229,13 +229,16 @@ func (w *Worker) processTask(ctx context.Context, task *domain.Task, logger *slo
 	}
 }
 
-// handleSyncSource handles a sync_source task.
+// handleSyncSource handles a sync_source task. Threads the task's trigger
+// label (manual / scheduled / webhook) onto the orchestrator's context so
+// downstream observers can record it on audit rows.
 func (w *Worker) handleSyncSource(ctx context.Context, task *domain.Task) error {
 	sourceID := task.SourceID()
 	if sourceID == "" {
 		return fmt.Errorf("source_id not found in task payload")
 	}
 
+	ctx = services.WithSyncTrigger(ctx, task.Trigger())
 	result, err := w.orchestrator.SyncSource(ctx, sourceID)
 	if err != nil {
 		return err
@@ -248,8 +251,11 @@ func (w *Worker) handleSyncSource(ctx context.Context, task *domain.Task) error 
 	return nil
 }
 
-// handleSyncAll handles a sync_all task.
+// handleSyncAll handles a sync_all task. Same trigger plumbing as
+// handleSyncSource so the per-source audit rows produced inside SyncAll
+// inherit the right label.
 func (w *Worker) handleSyncAll(ctx context.Context, task *domain.Task) error {
+	ctx = services.WithSyncTrigger(ctx, task.Trigger())
 	results, err := w.orchestrator.SyncAll(ctx)
 	if err != nil {
 		return err
@@ -275,7 +281,8 @@ func (w *Worker) handleSyncAll(ctx context.Context, task *domain.Task) error {
 	return nil
 }
 
-// handleSyncContainer handles a sync_container task.
+// handleSyncContainer handles a sync_container task. Threads task trigger
+// onto context (see handleSyncSource for rationale).
 func (w *Worker) handleSyncContainer(ctx context.Context, task *domain.Task) error {
 	sourceID := task.SourceID()
 	if sourceID == "" {
@@ -297,6 +304,7 @@ func (w *Worker) handleSyncContainer(ctx context.Context, task *domain.Task) err
 		return fmt.Errorf("orchestrator does not support container sync")
 	}
 
+	ctx = services.WithSyncTrigger(ctx, task.Trigger())
 	result, err := syncer.SyncContainer(ctx, sourceID, containerID)
 	if err != nil {
 		return err

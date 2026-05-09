@@ -65,30 +65,36 @@ func TestBucket_Wait_CtxCancelledMidBlock(t *testing.T) {
 	}
 }
 
-// TestBucket_Update_ZeroRemainingCausesNextWaitToBlock verifies that calling
-// Update(0, now+10s) causes the next Wait to wait for the reset window.
-func TestBucket_Update_ZeroRemainingCausesNextWaitToBlock(t *testing.T) {
+// TestBucket_Update_ZeroRemaining_GatesProportionally verifies that calling
+// Update(0, ...) DOES gate subsequent Wait calls, but only by the local
+// refill model's estimate of how long until `weight` tokens would replenish
+// — never by the full reset window.
+//
+// For weight=1 against refillPerSec=100, the gate is ~10ms (1/100 of a
+// second). Far below the reset duration (2s) and the test deadline (1s).
+//
+// Rationale: provider headers describe a sliding window, not a hard reset.
+// Sleeping until the full reset is far too pessimistic; ignoring the
+// override entirely (the previous behaviour) caused 429s on the next call.
+// The middle ground gates by the local refill estimate.
+func TestBucket_Update_ZeroRemaining_GatesProportionally(t *testing.T) {
 	b := NewBucket(1000, 100)
 
-	// Set remaining=0, reset in 200ms.
-	resetAt := time.Now().Add(200 * time.Millisecond)
+	resetAt := time.Now().Add(2 * time.Second)
 	b.Update(0, resetAt)
 
 	start := time.Now()
-	// Use a context with a generous timeout so we don't interfere.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	err := b.Wait(ctx, 1)
-	elapsed := time.Since(start)
-
-	if err != nil {
+	if err := b.Wait(ctx, 1); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	elapsed := time.Since(start)
 
-	// Should have waited at least ~200ms (the override window).
-	if elapsed < 150*time.Millisecond {
-		t.Errorf("Wait returned too quickly (%v) after Update(remaining=0): expected ~200ms", elapsed)
+	// Expected: ~10ms (1 token / 100 per sec). Allow generous slop for CI.
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("Wait gated longer than expected (%v) for weight=1 against refill 100/s", elapsed)
 	}
 }
 

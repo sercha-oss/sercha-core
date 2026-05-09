@@ -25,6 +25,32 @@ const (
 	TaskTypeSyncContainer TaskType = "sync_container"
 )
 
+// TaskTrigger identifies why a sync task was enqueued. Carried on the task
+// payload so the worker can thread it into the orchestrator's context;
+// downstream observers can read it back via SyncTriggerFromContext to
+// label sync events accurately.
+//
+// "scheduled" is the historical default and what callers get if the
+// payload key is missing — preserves backward compat for any tasks that
+// were enqueued before the field existed.
+type TaskTrigger string
+
+const (
+	// TaskTriggerManual — a user clicked "Sync now" in the admin UI.
+	TaskTriggerManual TaskTrigger = "manual"
+	// TaskTriggerScheduled — the periodic scheduler tick enqueued the task.
+	TaskTriggerScheduled TaskTrigger = "scheduled"
+	// TaskTriggerWebhook — an external push notification (e.g. Microsoft
+	// Graph driveItem webhook) triggered the sync. Reserved for future
+	// wiring; no caller sets this today.
+	TaskTriggerWebhook TaskTrigger = "webhook"
+)
+
+// taskPayloadTriggerKey is the well-known payload key used to carry
+// TaskTrigger across the task queue. Defined here so the producer
+// (handlers.go, scheduler.go) and the consumer (worker.go) can't drift.
+const taskPayloadTriggerKey = "trigger"
+
 // TaskStatus represents the current state of a task
 type TaskStatus string
 
@@ -102,23 +128,40 @@ func NewTask(taskType TaskType, teamID string, payload map[string]string) *Task 
 	}
 }
 
-// NewSyncSourceTask creates a task to sync a specific source
+// NewSyncSourceTask creates a task to sync a specific source. The trigger
+// defaults to TaskTriggerScheduled; callers that know better (the manual
+// HTTP handler, the webhook receiver) should use NewSyncSourceTaskWithTrigger.
 func NewSyncSourceTask(teamID, sourceID string) *Task {
+	return NewSyncSourceTaskWithTrigger(teamID, sourceID, TaskTriggerScheduled)
+}
+
+// NewSyncSourceTaskWithTrigger constructs a sync_source task with an
+// explicit trigger label. Used by the admin "Sync now" button (manual)
+// and by the future webhook receiver path.
+func NewSyncSourceTaskWithTrigger(teamID, sourceID string, trigger TaskTrigger) *Task {
 	return NewTask(TaskTypeSyncSource, teamID, map[string]string{
-		"source_id": sourceID,
+		"source_id":            sourceID,
+		taskPayloadTriggerKey:  string(trigger),
 	})
 }
 
-// NewSyncAllTask creates a task to sync all sources for a team
+// NewSyncAllTask creates a task to sync all sources for a team. Defaults
+// to scheduled — only the periodic scheduler enqueues this variant today.
 func NewSyncAllTask(teamID string) *Task {
-	return NewTask(TaskTypeSyncAll, teamID, nil)
+	return NewTask(TaskTypeSyncAll, teamID, map[string]string{
+		taskPayloadTriggerKey: string(TaskTriggerScheduled),
+	})
 }
 
-// NewSyncContainerTask creates a task to sync a single container within a source
+// NewSyncContainerTask creates a task to sync a single container within a
+// source. Defaults to manual because the only caller today is the admin
+// path that adds a new container to an existing source — it's an explicit
+// user action, not a scheduler tick.
 func NewSyncContainerTask(teamID, sourceID, containerID string) *Task {
 	return NewTask(TaskTypeSyncContainer, teamID, map[string]string{
-		"source_id":    sourceID,
-		"container_id": containerID,
+		"source_id":            sourceID,
+		"container_id":         containerID,
+		taskPayloadTriggerKey:  string(TaskTriggerManual),
 	})
 }
 
@@ -136,6 +179,22 @@ func (t *Task) ContainerID() string {
 		return ""
 	}
 	return t.Payload["container_id"]
+}
+
+// Trigger returns the TaskTrigger recorded on the payload, or
+// TaskTriggerScheduled when absent / unrecognised. The fallback matches
+// the previous implicit default so any task enqueued before the trigger
+// field existed is treated as a scheduled sync.
+func (t *Task) Trigger() TaskTrigger {
+	if t.Payload == nil {
+		return TaskTriggerScheduled
+	}
+	v := TaskTrigger(t.Payload[taskPayloadTriggerKey])
+	switch v {
+	case TaskTriggerManual, TaskTriggerScheduled, TaskTriggerWebhook:
+		return v
+	}
+	return TaskTriggerScheduled
 }
 
 // CanRetry returns true if the task can be retried

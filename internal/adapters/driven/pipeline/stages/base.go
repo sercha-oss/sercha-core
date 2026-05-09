@@ -63,7 +63,7 @@ func RegisterAll(registry pipelineport.StageRegistry) error {
 		// Indexing stages
 		indexing.NewChunkerFactory(),
 		indexing.NewEmbedderFactory(),
-		indexing.NewDocLoaderFactory(),
+		indexing.NewDocLoaderFactory(indexing.DefaultMaxIndexedChars),
 		indexing.NewVectorLoaderFactory(),
 
 		// Search stages

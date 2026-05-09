@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/sercha-oss/sercha-core/internal/core/domain"
@@ -12,82 +11,87 @@ import (
 // Verify interface compliance
 var _ driven.CapabilityStore = (*CapabilityStore)(nil)
 
-// CapabilityStore implements driven.CapabilityStore using PostgreSQL
+// CapabilityStore implements driven.CapabilityStore against the per-row
+// capability_preferences table. Each (team_id, capability_type) is one
+// row; capabilities absent from the rowset have no explicit preference
+// and fall back to descriptor defaults at resolution time.
 type CapabilityStore struct {
 	db *DB
 }
 
-// NewCapabilityStore creates a new CapabilityStore
+// NewCapabilityStore creates a new CapabilityStore.
 func NewCapabilityStore(db *DB) *CapabilityStore {
 	return &CapabilityStore{db: db}
 }
 
-// GetPreferences retrieves capability preferences for a team
+// GetPreferences returns every persisted toggle for the team. Empty result
+// is not an error — the returned preferences's Toggles map is empty and
+// callers fall back to descriptor defaults.
 func (s *CapabilityStore) GetPreferences(ctx context.Context, teamID string) (*domain.CapabilityPreferences, error) {
-	query := `
-		SELECT team_id, text_indexing_enabled, embedding_indexing_enabled,
-		       bm25_search_enabled, vector_search_enabled,
-		       query_expansion_enabled, query_rewriting_enabled, summarization_enabled,
-		       updated_at
+	q := `
+		SELECT capability_type, enabled, updated_at
 		FROM capability_preferences
 		WHERE team_id = $1
 	`
-
-	var prefs domain.CapabilityPreferences
-
-	err := s.db.QueryRowContext(ctx, query, teamID).Scan(
-		&prefs.TeamID,
-		&prefs.TextIndexingEnabled,
-		&prefs.EmbeddingIndexingEnabled,
-		&prefs.BM25SearchEnabled,
-		&prefs.VectorSearchEnabled,
-		&prefs.QueryExpansionEnabled,
-		&prefs.QueryRewritingEnabled,
-		&prefs.SummarizationEnabled,
-		&prefs.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		// Return default preferences if not found
-		return domain.DefaultCapabilityPreferences(teamID), nil
-	}
+	rows, err := s.db.QueryContext(ctx, q, teamID)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = rows.Close() }()
 
-	return &prefs, nil
+	prefs := domain.DefaultCapabilityPreferences(teamID)
+	prefs.Toggles = map[domain.CapabilityType]bool{}
+	var maxUpdated time.Time
+	for rows.Next() {
+		var capType string
+		var enabled bool
+		var updatedAt time.Time
+		if err := rows.Scan(&capType, &enabled, &updatedAt); err != nil {
+			return nil, err
+		}
+		prefs.Toggles[domain.CapabilityType(capType)] = enabled
+		if updatedAt.After(maxUpdated) {
+			maxUpdated = updatedAt
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if !maxUpdated.IsZero() {
+		prefs.UpdatedAt = maxUpdated
+	}
+	return prefs, nil
 }
 
-// SavePreferences persists capability preferences for a team
-func (s *CapabilityStore) SavePreferences(ctx context.Context, prefs *domain.CapabilityPreferences) error {
-	query := `
-		INSERT INTO capability_preferences (team_id, text_indexing_enabled, embedding_indexing_enabled,
-		                                     bm25_search_enabled, vector_search_enabled,
-		                                     query_expansion_enabled, query_rewriting_enabled, summarization_enabled,
-		                                     updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (team_id) DO UPDATE SET
-			text_indexing_enabled = EXCLUDED.text_indexing_enabled,
-			embedding_indexing_enabled = EXCLUDED.embedding_indexing_enabled,
-			bm25_search_enabled = EXCLUDED.bm25_search_enabled,
-			vector_search_enabled = EXCLUDED.vector_search_enabled,
-			query_expansion_enabled = EXCLUDED.query_expansion_enabled,
-			query_rewriting_enabled = EXCLUDED.query_rewriting_enabled,
-			summarization_enabled = EXCLUDED.summarization_enabled,
-			updated_at = EXCLUDED.updated_at
-	`
+// SetToggles upserts a partial set of toggles for the team. Toggles not
+// present in the input are left unchanged in storage.
+func (s *CapabilityStore) SetToggles(ctx context.Context, teamID string, toggles map[domain.CapabilityType]bool) error {
+	if len(toggles) == 0 {
+		return nil
+	}
 
-	prefs.UpdatedAt = time.Now()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
 
-	_, err := s.db.ExecContext(ctx, query,
-		prefs.TeamID,
-		prefs.TextIndexingEnabled,
-		prefs.EmbeddingIndexingEnabled,
-		prefs.BM25SearchEnabled,
-		prefs.VectorSearchEnabled,
-		prefs.QueryExpansionEnabled,
-		prefs.QueryRewritingEnabled,
-		prefs.SummarizationEnabled,
-		prefs.UpdatedAt,
-	)
-	return err
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO capability_preferences (team_id, capability_type, enabled, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (team_id, capability_type) DO UPDATE SET
+			enabled    = EXCLUDED.enabled,
+			updated_at = NOW()
+	`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for capType, enabled := range toggles {
+		if _, err := stmt.ExecContext(ctx, teamID, string(capType), enabled); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

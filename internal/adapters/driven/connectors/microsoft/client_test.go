@@ -611,8 +611,12 @@ func TestClient_DefaultConfig(t *testing.T) {
 		t.Errorf("RequestTimeout = %v, want 30s", cfg.RequestTimeout)
 	}
 
-	if cfg.MaxRetries != 3 {
-		t.Errorf("MaxRetries = %d, want 3", cfg.MaxRetries)
+	if cfg.MaxRetries != 5 {
+		t.Errorf("MaxRetries = %d, want 5", cfg.MaxRetries)
+	}
+
+	if cfg.Retry429TotalBudget != 5*time.Minute {
+		t.Errorf("Retry429TotalBudget = %v, want 5m0s", cfg.Retry429TotalBudget)
 	}
 }
 
@@ -874,5 +878,813 @@ func TestGetDelta_NonResyncErrorPassesThrough(t *testing.T) {
 	}
 	if errors.Is(err, ErrResyncRequired) {
 		t.Errorf("401 should not map to ErrResyncRequired, got %v", err)
+	}
+}
+
+// TestDoRequest_429RetryUnderBudget_Succeeds verifies that a server returning
+// 429 four times (with Retry-After: 1 each time) and then 200 succeeds when
+// the budget is generous enough to absorb all the waits.
+func TestDoRequest_429RetryUnderBudget_Succeeds(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount <= 4 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(User{
+			ID:          "user-budget",
+			DisplayName: "Budget User",
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 10 * time.Second,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	user, err := client.GetMe(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("GetMe() error = %v (should succeed on 5th attempt within budget)", err)
+	}
+	if user.ID != "user-budget" {
+		t.Errorf("user.ID = %q, want user-budget", user.ID)
+	}
+	if attemptCount != 5 {
+		t.Errorf("attemptCount = %d, want 5 (4 x 429 + 1 success)", attemptCount)
+	}
+	// Four 1-second waits = 4s total.
+	if elapsed < 4*time.Second {
+		t.Errorf("elapsed = %v, want >= 4s (4 Retry-After: 1 waits)", elapsed)
+	}
+}
+
+// TestDoRequest_429RetryExceedsBudget_ReturnsBudgetError verifies that when the
+// server keeps returning 429 with Retry-After: 2 and the budget is 5 seconds,
+// the client stops retrying once the next wait would push cumulative wait past
+// the budget, and returns a typed budget-exhaustion error.
+func TestDoRequest_429RetryExceedsBudget_ReturnsBudgetError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          10,
+		Retry429TotalBudget: 5 * time.Second,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	_, err := client.GetMe(context.Background())
+	if err == nil {
+		t.Fatal("GetMe() expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "429 throttling persisted past") {
+		t.Errorf("error = %q, want to contain '429 throttling persisted past'", msg)
+	}
+	// Budget is 5s; each attempt costs 2s. After 2 successful retries (4s total),
+	// the 3rd attempt (would add 2s → 6s) exceeds the budget, so error fires.
+	if !strings.Contains(msg, "5s budget") {
+		t.Errorf("error = %q, want to contain '5s budget'", msg)
+	}
+	if strings.Contains(msg, "retries exhausted") {
+		t.Errorf("error = %q, must not contain 'retries exhausted' (that's the 5xx message)", msg)
+	}
+	if strings.Contains(msg, "file already closed") {
+		t.Errorf("error = %q, must not contain 'file already closed'", msg)
+	}
+}
+
+// TestDoRequest_429RetryRespectsContextCancellation verifies that when the
+// context is cancelled mid-wait, the retry loop returns context.Canceled
+// promptly rather than waiting out the full Retry-After window.
+func TestDoRequest_429RetryRespectsContextCancellation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 5 * time.Minute,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after a short delay so the client has time to hit the first 429 and
+	// enter the sleep select.
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := client.GetMe(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("GetMe() expected error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want to wrap context.Canceled", err)
+	}
+	// Must return well before the 60s Retry-After window.
+	if elapsed > 2*time.Second {
+		t.Errorf("elapsed = %v, want < 2s (context cancellation not respected)", elapsed)
+	}
+}
+
+// TestDoRequest_AllRetriesReturn503_SurfacesExhaustion verifies the same
+// exhaustion-error path for sustained 5xx responses.
+func TestDoRequest_AllRetriesReturn503_SurfacesExhaustion(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	_, err := client.GetMe(context.Background())
+	if err == nil {
+		t.Fatal("GetMe() expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "retries exhausted") {
+		t.Errorf("error = %q, want to contain 'retries exhausted'", msg)
+	}
+	if !strings.Contains(msg, "status 503") {
+		t.Errorf("error = %q, want to contain 'status 503'", msg)
+	}
+	if !strings.Contains(msg, "after 3 attempts") {
+		t.Errorf("error = %q, want to contain 'after 3 attempts'", msg)
+	}
+	if strings.Contains(msg, "file already closed") {
+		t.Errorf("error = %q, must not contain 'file already closed'", msg)
+	}
+}
+
+// TestDoRequest_429ThenSuccess_ReturnsSuccess verifies that a single 429
+// followed by a 200 succeeds and the response body is correctly unmarshalled.
+func TestDoRequest_429ThenSuccess_ReturnsSuccess(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(User{
+			ID:          "user-abc",
+			DisplayName: "Retry User",
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	user, err := client.GetMe(context.Background())
+	if err != nil {
+		t.Fatalf("GetMe() error = %v (should succeed after 429 retry)", err)
+	}
+	if user.ID != "user-abc" {
+		t.Errorf("user.ID = %q, want user-abc", user.ID)
+	}
+	if attemptCount != 2 {
+		t.Errorf("attemptCount = %d, want 2", attemptCount)
+	}
+}
+
+// TestDoRequest_500ThenSuccess_ReturnsSuccess verifies that a single 500
+// followed by a 200 succeeds and the response body is correctly unmarshalled.
+func TestDoRequest_500ThenSuccess_ReturnsSuccess(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(User{
+			ID:          "user-xyz",
+			DisplayName: "Retry User 500",
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	user, err := client.GetMe(context.Background())
+	if err != nil {
+		t.Fatalf("GetMe() error = %v (should succeed after 500 retry)", err)
+	}
+	if user.ID != "user-xyz" {
+		t.Errorf("user.ID = %q, want user-xyz", user.ID)
+	}
+	if attemptCount != 2 {
+		t.Errorf("attemptCount = %d, want 2", attemptCount)
+	}
+}
+
+// TestDoRequest_ImmediateSuccess_NoRetries verifies that a 200 response on the
+// first attempt succeeds with exactly one request.
+func TestDoRequest_ImmediateSuccess_NoRetries(t *testing.T) {
+	requestCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(User{
+			ID:          "user-immediate",
+			DisplayName: "Immediate User",
+		})
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	user, err := client.GetMe(context.Background())
+	if err != nil {
+		t.Fatalf("GetMe() error = %v", err)
+	}
+	if user.ID != "user-immediate" {
+		t.Errorf("user.ID = %q, want user-immediate", user.ID)
+	}
+	if requestCount != 1 {
+		t.Errorf("requestCount = %d, want 1 (no retries on immediate success)", requestCount)
+	}
+}
+
+// TestWaitForRateLimit_ReturnsAfterTokenAvailable verifies that WaitForRateLimit
+// returns without error when the per-client token bucket has capacity. The second
+// call may block briefly (one token per 500ms at 2 RPS) but must still succeed.
+func TestWaitForRateLimit_ReturnsAfterTokenAvailable(t *testing.T) {
+	cfg := &ClientConfig{
+		BaseURL:        "https://graph.microsoft.com/v1.0",
+		RateLimitRPS:   2.0,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	ctx := context.Background()
+
+	// First call: bucket starts full, returns immediately.
+	if err := client.WaitForRateLimit(ctx); err != nil {
+		t.Fatalf("WaitForRateLimit() first call error = %v", err)
+	}
+
+	// Second call: must also complete without error (may block up to ~500ms).
+	if err := client.WaitForRateLimit(ctx); err != nil {
+		t.Fatalf("WaitForRateLimit() second call error = %v", err)
+	}
+}
+
+// TestWaitForRateLimit_RespectsCancelledContext verifies that WaitForRateLimit
+// returns context.Canceled immediately when the supplied context is already
+// cancelled, rather than blocking until a token becomes available.
+func TestWaitForRateLimit_RespectsCancelledContext(t *testing.T) {
+	// Near-zero refill rate so the bucket stays empty after the first drain.
+	cfg := &ClientConfig{
+		BaseURL:        "https://graph.microsoft.com/v1.0",
+		RateLimitRPS:   0.001,
+		RequestTimeout: 30 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	// Drain the initial token using a live context.
+	if err := client.WaitForRateLimit(context.Background()); err != nil {
+		t.Fatalf("drain call error = %v", err)
+	}
+
+	// Pass an already-cancelled context — must not block.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.WaitForRateLimit(ctx)
+	}()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("WaitForRateLimit() with cancelled context = %v, want context.Canceled", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("WaitForRateLimit() did not return promptly on cancelled context")
+	}
+}
+
+// TestParseRetryAfter checks the ParseRetryAfter helper against a range of
+// header values covering the delta-seconds form (RFC 7231), whitespace
+// tolerance, edge cases, and HTTP-date form (not supported; must return 0).
+func TestParseRetryAfter(t *testing.T) {
+	cases := []struct {
+		header string
+		want   time.Duration
+	}{
+		{"", 0},
+		{"5", 5 * time.Second},
+		{" 10 ", 10 * time.Second},
+		{"-3", 0},
+		{"abc", 0},
+		{"Wed, 21 Oct 2015 07:28:00 GMT", 0},
+	}
+	for _, tc := range cases {
+		got := ParseRetryAfter(tc.header)
+		if got != tc.want {
+			t.Errorf("ParseRetryAfter(%q) = %v, want %v", tc.header, got, tc.want)
+		}
+	}
+}
+
+// TestDoRequest_HonorsRetryAfterOn429 verifies that when the server returns
+// 429 with Retry-After: 2, the client waits at least 2 seconds before
+// retrying and ultimately returns the subsequent 200 response.
+func TestDoRequest_HonorsRetryAfterOn429(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount == 1 {
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	var result struct{ OK bool `json:"ok"` }
+	err := client.doRequest(context.Background(), "GET", "/me", nil, &result)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+	if !result.OK {
+		t.Errorf("result.OK = false, want true")
+	}
+	if elapsed < 1900*time.Millisecond {
+		t.Errorf("elapsed = %v, want >= 1.9s (Retry-After: 2 not honoured)", elapsed)
+	}
+	if attemptCount != 2 {
+		t.Errorf("attemptCount = %d, want 2", attemptCount)
+	}
+}
+
+// TestDoRequest_HonorsRetryAfterOn503 verifies that the Retry-After header is
+// honoured on 5xx responses, not only on 429.
+func TestDoRequest_HonorsRetryAfterOn503(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount == 1 {
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	var result struct{ OK bool `json:"ok"` }
+	err := client.doRequest(context.Background(), "GET", "/me", nil, &result)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+	if !result.OK {
+		t.Errorf("result.OK = false, want true")
+	}
+	if elapsed < 1900*time.Millisecond {
+		t.Errorf("elapsed = %v, want >= 1.9s (Retry-After: 2 not honoured on 503)", elapsed)
+	}
+	if attemptCount != 2 {
+		t.Errorf("attemptCount = %d, want 2", attemptCount)
+	}
+}
+
+// TestDoRequest_429BackoffFloorsAtOneSecond verifies that when a 429 response
+// carries Retry-After: 0 (or a value that parses to zero), the backoff is
+// floored at 1 second rather than hammering the server immediately.
+// With Retry-After: 0, ParseRetryAfter returns 0, the fallback is
+// (attempt+1)*1s = 1s at attempt 0, and the floor leaves it at 1s.
+func TestDoRequest_429BackoffFloorsAtOneSecond(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	var result struct{ OK bool `json:"ok"` }
+	err := client.doRequest(context.Background(), "GET", "/me", nil, &result)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+	if elapsed < 900*time.Millisecond {
+		t.Errorf("elapsed = %v, want >= 0.9s (floor at 1s not applied for 429)", elapsed)
+	}
+	if attemptCount != 2 {
+		t.Errorf("attemptCount = %d, want 2", attemptCount)
+	}
+}
+
+// TestDoRequest_FallsBackToExponentialBackoffWhenNoRetryAfter verifies that
+// when no Retry-After header is present on a 429, the client falls back to
+// the (attempt+1)*1s exponential schedule. At attempt 0 the backoff is 1s.
+func TestDoRequest_FallsBackToExponentialBackoffWhenNoRetryAfter(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		if attemptCount == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     2,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	var result struct{ OK bool `json:"ok"` }
+	err := client.doRequest(context.Background(), "GET", "/me", nil, &result)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+	if elapsed < 900*time.Millisecond {
+		t.Errorf("elapsed = %v, want >= 0.9s (exponential backoff of 1s at attempt 0)", elapsed)
+	}
+	if attemptCount != 2 {
+		t.Errorf("attemptCount = %d, want 2", attemptCount)
+	}
+}
+
+// TestDefaultClientConfig_MaxRetriesIs5 is a sanity check that the default
+// retry budget has been raised to 5.
+func TestDefaultClientConfig_MaxRetriesIs5(t *testing.T) {
+	cfg := DefaultClientConfig()
+	if cfg.MaxRetries != 5 {
+		t.Errorf("DefaultClientConfig().MaxRetries = %d, want 5", cfg.MaxRetries)
+	}
+}
+
+// TestDoRequest_5xxStillBoundedByMaxRetries verifies that sustained 5xx
+// responses are still bounded by MaxRetries and produce a "retries exhausted"
+// error, unaffected by the 429 budget.
+func TestDoRequest_5xxStillBoundedByMaxRetries(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      5 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 1 * time.Minute,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	_, err := client.GetMe(context.Background())
+	if err == nil {
+		t.Fatal("GetMe() expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "retries exhausted") {
+		t.Errorf("error = %q, want to contain 'retries exhausted'", msg)
+	}
+	if !strings.Contains(msg, "status 503") {
+		t.Errorf("error = %q, want to contain 'status 503'", msg)
+	}
+	if !strings.Contains(msg, "after 3 attempts") {
+		t.Errorf("error = %q, want to contain 'after 3 attempts'", msg)
+	}
+	if strings.Contains(msg, "429 throttling persisted past") {
+		t.Errorf("error = %q, must not contain '429 throttling persisted past'", msg)
+	}
+}
+
+// TestDoRequest_Mixed429And5xx_BudgetAppliesOnlyTo429 verifies that a sequence
+// of 429, 5xx, 200 succeeds: the 429 consumes budget, the 5xx consumes a 5xx
+// retry slot, and the 200 succeeds.
+func TestDoRequest_Mixed429And5xx_BudgetAppliesOnlyTo429(t *testing.T) {
+	attemptCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attemptCount++
+		switch attemptCount {
+		case 1:
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+		case 2:
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(User{ID: "user-mixed", DisplayName: "Mixed"})
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:             ts.URL + "/v1.0",
+		RateLimitRPS:        100.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          2,
+		Retry429TotalBudget: 10 * time.Second,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	start := time.Now()
+	user, err := client.GetMe(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("GetMe() error = %v (should succeed after 429 + 5xx)", err)
+	}
+	if user.ID != "user-mixed" {
+		t.Errorf("user.ID = %q, want user-mixed", user.ID)
+	}
+	if attemptCount != 3 {
+		t.Errorf("attemptCount = %d, want 3", attemptCount)
+	}
+	// The 429 retry cost 1s. The 5xx retry cost (serverAttempt 0 + 1 = 1) second.
+	if elapsed < 2*time.Second {
+		t.Errorf("elapsed = %v, want >= 2s (1s 429 wait + 1s 5xx backoff)", elapsed)
+	}
+}
+
+// TestDefaultClientConfig_Retry429TotalBudgetIs5Min is a sanity check that the
+// default 429 budget is 5 minutes.
+func TestDefaultClientConfig_Retry429TotalBudgetIs5Min(t *testing.T) {
+	cfg := DefaultClientConfig()
+	if cfg.Retry429TotalBudget != 5*time.Minute {
+		t.Errorf("DefaultClientConfig().Retry429TotalBudget = %v, want 5m0s", cfg.Retry429TotalBudget)
+	}
+}
+
+// TestClient_Retry429TotalBudgetAccessor verifies that the budget accessor
+// returns the value supplied at construction time.
+func TestClient_Retry429TotalBudgetAccessor(t *testing.T) {
+	cfg := &ClientConfig{
+		BaseURL:             "https://graph.microsoft.com/v1.0",
+		RateLimitRPS:        10.0,
+		RequestTimeout:      30 * time.Second,
+		MaxRetries:          3,
+		Retry429TotalBudget: 3 * time.Minute,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+	if got := client.Retry429TotalBudget(); got != 3*time.Minute {
+		t.Errorf("Retry429TotalBudget() = %v, want 3m0s", got)
+	}
+}
+
+// TestDoWithHeaders_AppliesCustomHeaders verifies that headers in the
+// supplied map are present on the outgoing request alongside the
+// Authorization and Content-Type defaults.
+func TestDoWithHeaders_AppliesCustomHeaders(t *testing.T) {
+	var (
+		gotPrefer        string
+		gotConsistency   string
+		gotAuthorization string
+	)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPrefer = r.Header.Get("Prefer")
+		gotConsistency = r.Header.Get("ConsistencyLevel")
+		gotAuthorization = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	headers := map[string]string{
+		"Prefer":           "return=minimal",
+		"ConsistencyLevel": "eventual",
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := client.DoWithHeaders(context.Background(), "GET", "/me", nil, headers, &result); err != nil {
+		t.Fatalf("DoWithHeaders() error = %v", err)
+	}
+
+	if gotPrefer != "return=minimal" {
+		t.Errorf("Prefer header = %q, want %q", gotPrefer, "return=minimal")
+	}
+	if gotConsistency != "eventual" {
+		t.Errorf("ConsistencyLevel header = %q, want %q", gotConsistency, "eventual")
+	}
+	if gotAuthorization != "Bearer test-token" {
+		t.Errorf("Authorization header = %q, want Bearer test-token (defaults must still be set)", gotAuthorization)
+	}
+	if !result.OK {
+		t.Error("result.OK = false, want true")
+	}
+}
+
+// TestDoWithHeaders_OverridesContentType verifies that a header in the map
+// overrides the default Content-Type via http.Header.Set semantics, so callers
+// can switch a payload from application/json to a different media type for a
+// single request.
+func TestDoWithHeaders_OverridesContentType(t *testing.T) {
+	var gotContentType string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		// Also confirm there is exactly one Content-Type value (Set, not Add).
+		if values := r.Header.Values("Content-Type"); len(values) != 1 {
+			t.Errorf("Content-Type header values = %d, want 1 (must use Set, not Add)", len(values))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	headers := map[string]string{
+		"Content-Type": "application/octet-stream",
+	}
+	var result struct {
+		OK bool `json:"ok"`
+	}
+	if err := client.DoWithHeaders(context.Background(), "POST", "/me", map[string]string{"hello": "world"}, headers, &result); err != nil {
+		t.Fatalf("DoWithHeaders() error = %v", err)
+	}
+
+	if gotContentType != "application/octet-stream" {
+		t.Errorf("Content-Type header = %q, want %q (override of default application/json)", gotContentType, "application/octet-stream")
+	}
+}
+
+// TestDoWithHeaders_NilMapEquivalentToDo verifies that a nil headers map is a
+// no-op and produces the same request shape as Do.
+func TestDoWithHeaders_NilMapEquivalentToDo(t *testing.T) {
+	var (
+		doHeaders        http.Header
+		doWithHeaders    http.Header
+		seenFirstRequest bool
+	)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Capture only the headers a caller cares about for parity. Stripping
+		// hop-by-hop and library-internal headers (User-Agent, Accept-Encoding,
+		// Host, Content-Length) avoids spurious diffs from net/http internals.
+		captured := http.Header{}
+		for _, key := range []string{"Authorization", "Content-Type"} {
+			if v := r.Header.Get(key); v != "" {
+				captured.Set(key, v)
+			}
+		}
+		if !seenFirstRequest {
+			doHeaders = captured
+			seenFirstRequest = true
+		} else {
+			doWithHeaders = captured
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer ts.Close()
+
+	cfg := &ClientConfig{
+		BaseURL:        ts.URL + "/v1.0",
+		RateLimitRPS:   100.0,
+		RequestTimeout: 5 * time.Second,
+		MaxRetries:     0,
+	}
+	client := NewClient(&stubTokenProvider{}, cfg, nil)
+
+	var result struct {
+		OK bool `json:"ok"`
+	}
+
+	// Baseline: Do() with no extra headers.
+	if err := client.Do(context.Background(), "POST", "/me", map[string]string{"x": "y"}, &result); err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+
+	// DoWithHeaders with nil map should produce the same request-side header set.
+	if err := client.DoWithHeaders(context.Background(), "POST", "/me", map[string]string{"x": "y"}, nil, &result); err != nil {
+		t.Fatalf("DoWithHeaders(nil) error = %v", err)
+	}
+
+	if doHeaders.Get("Authorization") != doWithHeaders.Get("Authorization") {
+		t.Errorf("Authorization mismatch: Do=%q, DoWithHeaders(nil)=%q",
+			doHeaders.Get("Authorization"), doWithHeaders.Get("Authorization"))
+	}
+	if doHeaders.Get("Content-Type") != doWithHeaders.Get("Content-Type") {
+		t.Errorf("Content-Type mismatch: Do=%q, DoWithHeaders(nil)=%q",
+			doHeaders.Get("Content-Type"), doWithHeaders.Get("Content-Type"))
+	}
+
+	// Empty (non-nil) map should also be a no-op.
+	if err := client.DoWithHeaders(context.Background(), "POST", "/me", map[string]string{"x": "y"}, map[string]string{}, &result); err != nil {
+		t.Fatalf("DoWithHeaders(empty) error = %v", err)
 	}
 }

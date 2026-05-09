@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -179,11 +180,13 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		// Pre-flight budget acquisition.
+		waitStart := t.clock()()
 		if t.Limiter != nil {
 			if err := t.Limiter.Wait(ctx, weight); err != nil {
 				return nil, err
 			}
 		}
+		waitMs := t.clock()().Sub(waitStart).Milliseconds()
 
 		// Prepare body for this attempt.
 		if attempt > 0 {
@@ -199,7 +202,21 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 		}
 
+		apiStart := t.clock()()
 		resp, err := t.base().RoundTrip(req)
+		apiMs := t.clock()().Sub(apiStart).Milliseconds()
+		statusCode := 0
+		if resp != nil {
+			statusCode = resp.StatusCode
+		}
+		slog.Info("ratelimited: request",
+			"path", req.URL.Path,
+			"weight", weight,
+			"attempt", attempt,
+			"bucket_wait_ms", waitMs,
+			"api_call_ms", apiMs,
+			"status", statusCode,
+		)
 
 		if err != nil {
 			// Network-level error — no response body to drain.

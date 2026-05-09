@@ -13,9 +13,15 @@ import (
 )
 
 const (
-	ChunkerStageID      = "chunker"
-	DefaultChunkSize    = 1024
-	DefaultChunkOverlap = 100
+	ChunkerStageID = "chunker"
+	// DefaultChunkSize is the chunk character count when stage config does
+	// not override chunk_size. 4096 chars (~1024 tokens) balances embedding
+	// cost (fewer calls) and retrieval granularity (chunks still focused
+	// enough to be semantically coherent). Was 1024; bumped because a
+	// 1400-page PDF at 1024 chars yields 6000+ chunks and the round-trip
+	// dominates wall-clock.
+	DefaultChunkSize    = 4096
+	DefaultChunkOverlap = 200
 )
 
 // ChunkerFactory creates chunker stages.

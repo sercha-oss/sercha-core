@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sercha-oss/sercha-core/internal/core/domain"
 	"github.com/sercha-oss/sercha-core/internal/core/domain/pipeline"
 	pipelineport "github.com/sercha-oss/sercha-core/internal/core/ports/driven/pipeline"
 )
@@ -67,6 +68,11 @@ func (e *SearchExecutor) Execute(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build pipeline: %w", err)
 	}
+
+	// Inject the SearchContext into the context so that stages can read caller
+	// metadata (e.g. CallerSource for MCP-gated stages) without requiring a
+	// separate parameter on the Stage interface.
+	ctx = pipeline.SearchContextWithContext(ctx, sctx)
 
 	// Run pipeline with timing
 	result, err := e.runWithTiming(ctx, execPipeline, input, stageTimings)
@@ -149,7 +155,7 @@ func (e *SearchExecutor) collectRequiredCapabilities(def pipeline.PipelineDefini
 }
 
 // applyPreferences applies search-side admin preferences to the pipeline definition.
-// Today this only honours VectorSearchEnabled, by setting the multi-retriever's
+// Today this only honours vector_search, by setting the multi-retriever's
 // disable_vector parameter so its runSearch skips the pgvector path. Other prefs
 // (BM25-only, query expansion, etc.) can be plumbed here as additional cases.
 func applyPreferences(def pipeline.PipelineDefinition, prefs *pipeline.StagePreferences) pipeline.PipelineDefinition {
@@ -157,18 +163,31 @@ func applyPreferences(def pipeline.PipelineDefinition, prefs *pipeline.StagePref
 	copy(stages, def.Stages)
 
 	for i := range stages {
-		if stages[i].StageID != "multi-retriever" {
-			continue
+		// multi-retriever has a special two-toggle treatment: vector_search
+		// off doesn't disable the stage entirely (BM25 still needs to run);
+		// it sets the disable_vector parameter instead.
+		if stages[i].StageID == "multi-retriever" {
+			if !prefs.IsEnabled(domain.CapabilityVectorSearch, true) {
+				params := make(map[string]any, len(stages[i].Parameters)+1)
+				for k, v := range stages[i].Parameters {
+					params[k] = v
+				}
+				params["disable_vector"] = true
+				stages[i].Parameters = params
+			}
 		}
-		if prefs.VectorSearchEnabled {
-			continue
+
+		// Generic stage-level capability gate: any stage whose pipeline
+		// definition sets parameters["toggle_capability"]: "<cap_id>" is
+		// disabled when that capability is toggled off. Add-on stages
+		// (e.g. masker gated on "masking", entity-retriever gated on
+		// "entity_extraction") plug in via this mechanism without
+		// requiring Core to know their capability ids.
+		if cap, ok := stages[i].Parameters["toggle_capability"].(string); ok && cap != "" {
+			if !prefs.IsEnabled(domain.CapabilityType(cap), true) {
+				stages[i].Enabled = false
+			}
 		}
-		params := make(map[string]any, len(stages[i].Parameters)+1)
-		for k, v := range stages[i].Parameters {
-			params[k] = v
-		}
-		params["disable_vector"] = true
-		stages[i].Parameters = params
 	}
 
 	def.Stages = stages
